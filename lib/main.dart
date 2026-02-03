@@ -5,22 +5,26 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // --- IMPORTS FOR VIEWMODELS ---
 import 'viewmodels/user_viewmodel.dart';
 import 'viewmodels/achievement_viewmodel.dart';
+import 'viewmodels/auth_viewmodel.dart';
 
 // --- IMPORTS FOR SCREENS ---
 import 'views/auth_screen/login_screen.dart';
-import 'views/user_profile_screen_view.dart';
-import 'views/achievement_screen.dart';
 import 'views/main_screen.dart';
 
 const String supabaseURL = 'https://xagpcogenalviktbsmap.supabase.co';
 // ⚠️ SECURITY WARNING: Avoid putting 'sb_secret' keys in client-side code.
 // Use the 'anon' public key starting with 'eyJ...' for Flutter apps.
-const String supabaseKey = 'sb_secret_dO-O0OWnCTpUeymnCgF6RA_Pvu5dnoF';
+const String supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZ3Bjb2dlbmFsdmlrdGJzbWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTQxNDksImV4cCI6MjA4Mzg5MDE0OX0.8IrDPy-BYywk6A53q6M7gSSEdDqwNK6x6f-TYG93rds';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: supabaseURL, anonKey: supabaseKey);
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AuthViewModel(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

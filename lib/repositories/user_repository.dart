@@ -27,7 +27,7 @@ class UserRepository extends BaseRepository<UserModel> {
     await client
         .from(tableName)
         .update({'current_points': newPoints})
-        .eq('user_Id', userId);
+        .eq('user_id', userId);
   }
 
   Future<UserModel?> getCurrentUser() async {
