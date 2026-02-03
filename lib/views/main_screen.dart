@@ -3,7 +3,7 @@ import 'package:dreamsync/views/achievement_screen.dart';
 // Import other screens here as you build them
 // import 'package:dreamsync/views/calendar_screen.dart';
 // import 'package:dreamsync/views/home_screen.dart';
-// import 'package:dreamsync/views/profile_screen.dart';
+import 'package:dreamsync/views/user_profile_screen_view.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -23,7 +23,7 @@ class _MainScreenState extends State<MainScreen> {
     const Center(child: Text("AI Chat Screen")),  // Index 1
     const Center(child: Text("Home Screen")),     // Index 2
     const AchievementScreen(),                    // Index 3 (Your actual Achievement Screen!)
-    const ProfileScreenPlaceholder(),             // Index 4 (The Profile UI from your image)
+    const UserScreen(),             // Index 4 (The Profile UI from your image)
   ];
 
   // 3. Function to handle tapping a tab
@@ -81,35 +81,6 @@ class _MainScreenState extends State<MainScreen> {
             label: 'Profile',
           ),
         ],
-      ),
-    );
-  }
-}
-
-// Temporary Placeholder for your Profile Screen (to match your image)
-class ProfileScreenPlaceholder extends StatelessWidget {
-  const ProfileScreenPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Profile")),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.account_circle, size: 100, color: Colors.grey),
-            const SizedBox(height: 20),
-            const Text("NAME", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const Text("UID: 123456"),
-            const SizedBox(height: 30),
-            ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text("Deactivate Account", style: TextStyle(color: Colors.white)),
-            )
-          ],
-        ),
       ),
     );
   }
