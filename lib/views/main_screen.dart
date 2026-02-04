@@ -4,6 +4,7 @@ import 'package:dreamsync/views/achievement_screen.dart';
 // import 'package:dreamsync/views/calendar_screen.dart';
 // import 'package:dreamsync/views/home_screen.dart';
 import 'package:dreamsync/views/user_profile_screen_view.dart';
+import 'package:dreamsync/views/advisor_screen/chat_bot_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -20,7 +21,7 @@ class _MainScreenState extends State<MainScreen> {
   // We use "Placeholder" widgets for pages you haven't built yet
   final List<Widget> _pages = [
     const Center(child: Text("Calendar Screen")), // Index 0
-    const Center(child: Text("AI Chat Screen")),  // Index 1
+    const ChatScreen(),  // Index 1
     const Center(child: Text("Home Screen")),     // Index 2
     const AchievementScreen(),                    // Index 3 (Your actual Achievement Screen!)
     const UserScreen(),             // Index 4 (The Profile UI from your image)
