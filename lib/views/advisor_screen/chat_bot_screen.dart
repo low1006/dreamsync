@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/chat_viewmodel.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+
 
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key});
@@ -9,7 +11,7 @@ class ChatScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     // We create the ViewModel here so it lives as long as the screen
     return ChangeNotifierProvider(
-      create: (_) => ChatViewModel(),
+      create: (_) => ChatViewModel()..loadChatSessions(),
       child: Scaffold(
         appBar: AppBar(title: const Text("DreamSync AI")),
         body: Consumer<ChatViewModel>(
@@ -42,6 +44,44 @@ class ChatScreen extends StatelessWidget {
             );
           },
         ),
+
+        drawer: Consumer<ChatViewModel>(
+          builder: (context, viewModel, child) {
+            return Drawer(
+              child: Column(
+                children: [
+                  const DrawerHeader(child: Center(child: Text("Chat History"))),
+                  ListTile(
+                    leading: const Icon(Icons.add),
+                    title: const Text("New Chat"),
+                    onTap: () {
+                      viewModel.startNewSession();
+                      Navigator.pop(context); // Close drawer
+                    },
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: viewModel.sessions.length,
+                      itemBuilder: (context, index) {
+                        final session = viewModel.sessions[index];
+                        return ListTile(
+                          title: Text(session['title'] ?? "Chat"),
+                          // Highlight the currently active chat
+                          selected: session['id'] == viewModel.currentSessionId,
+                          onTap: () {
+                            viewModel.openSession(session['id']);
+                            Navigator.pop(context); // Close drawer
+                          },
+                        );
+                      },
+                    ),
+                  )
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -57,10 +97,18 @@ class ChatScreen extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         constraints: const BoxConstraints(maxWidth: 300),
-        child: Text(
-          msg.text,
-          style: TextStyle(
-            color: msg.isUser ? Colors.white : Colors.black87,
+        child: MarkdownBody(
+          data: msg.text,
+
+          styleSheet: MarkdownStyleSheet(
+            p:TextStyle(
+              color: msg.isUser ? Colors.white : Colors.black87,
+              fontSize: 16,
+            ),
+            strong: TextStyle(
+              color: msg.isUser ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.bold,
+            )
           ),
         ),
       ),

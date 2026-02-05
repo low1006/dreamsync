@@ -1,11 +1,17 @@
 class ChatMessageModel{
   final String text;
   final bool isUser;
-  final DateTime timestamp;
 
   ChatMessageModel({
     required this.text,
     required this.isUser,
-    required this.timestamp,
   });
+
+  factory ChatMessageModel.fromMap(Map<String, dynamic> map) {
+    return ChatMessageModel(
+      text: map['text']?? '',
+      isUser: map['is_user']?? false,
+    );
+  }
+
 }
