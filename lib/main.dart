@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:dreamsync/services/notification_service.dart';
+import 'package:dreamsync/util/global.dart';
 
 // --- IMPORTS FOR VIEWMODELS ---
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
@@ -18,9 +20,12 @@ const String supabaseURL = 'https://xagpcogenalviktbsmap.supabase.co';
 // Use the 'anon' public key starting with 'eyJ...' for Flutter apps.
 const String supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZ3Bjb2dlbmFsdmlrdGJzbWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTQxNDksImV4cCI6MjA4Mzg5MDE0OX0.8IrDPy-BYywk6A53q6M7gSSEdDqwNK6x6f-TYG93rds';
 
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: supabaseURL, anonKey: supabaseKey);
+  await NotificationService().init();
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => AuthViewModel(),
@@ -35,6 +40,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'DreamSync',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,

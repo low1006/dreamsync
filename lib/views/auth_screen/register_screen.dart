@@ -2,7 +2,7 @@ import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
 import 'package:dreamsync/widget/custom/custom_text_field.dart';
 import 'package:dreamsync/widget/custom/custom_slider.dart';
 import 'package:dreamsync/widget/custom/custom_button.dart';
-import 'package:dreamsync/widget/custom_dropdown.dart';
+import 'package:dreamsync/widget/custom/custom_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';

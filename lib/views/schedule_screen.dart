@@ -3,8 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/schedule_model.dart';
+import 'package:dreamsync/services/notification_service.dart';
 
-// --- IMPORT YOUR NEW WIDGETS ---
+// --- IMPORT WIDGETS ---
 import 'package:dreamsync/widget/schedule/day_selector.dart';
 import 'package:dreamsync/widget/schedule/time_card.dart';
 import 'package:dreamsync/widget/schedule/schedule_controls.dart';
@@ -82,8 +83,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _quickUpdate(bool isActive) async {
     if (_existingId == null) return;
 
-    // We only update the 'isActive' status here
     await context.read<ScheduleViewModel>().toggleSchedule(_existingId!, isActive);
+
+    int notificationId = _existingId.hashCode;
+
+    if (isActive) {
+      // Re-schedule
+      await NotificationService().scheduleAlarm(
+        id: notificationId,
+        title: "Wake Up",
+        time: _wakeTime,
+        days: _selectedDays,
+        isEnabled: true,
+      );
+    } else {
+      // Cancel
+      await NotificationService().cancelAlarm(notificationId);
+    }
 
     if(mounted) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -170,6 +186,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
 
     await scheduleVM.saveSchedule(scheduleToSave);
+
+    int notificationId = scheduleToSave.id.hashCode;
+
+    await NotificationService().scheduleAlarm(
+      id: notificationId,
+      title: "Wake Up",
+      time: _wakeTime,
+      days: _selectedDays,
+      isEnabled: _isAlarmOn,
+    );
 
     if (mounted) {
       setState(() => _isEditing = false);
