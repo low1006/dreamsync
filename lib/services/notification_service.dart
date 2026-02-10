@@ -1,7 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_timezone/flutter_timezone.dart'; // <--- NEW IMPORT
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:flutter/material.dart';
 import 'package:dreamsync/views/alarm_ring_screen.dart';
 import 'package:dreamsync/util/global.dart';
@@ -19,8 +19,7 @@ class NotificationService {
     // 1. Initialize Timezone Database
     tz.initializeTimeZones();
 
-    // 2. GET DEVICE TIMEZONE (The Fix)
-    // This gets "Asia/Kuala_Lumpur" instead of "UTC"
+    // 2. Get Device Timezone
     final String timeZoneName = await FlutterTimezone.getLocalTimezone();
     tz.setLocalLocation(tz.getLocation(timeZoneName));
 
@@ -36,7 +35,6 @@ class NotificationService {
       requestAlertPermission: true,
     );
 
-    // Update initialization settings
     final InitializationSettings initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsDarwin,
@@ -45,14 +43,18 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Now 'navigatorKey' is recognized!
-        navigatorKey.currentState?.push(
-          MaterialPageRoute(builder: (_) => const AlarmRingScreen()),
-        );
+        // FIXED: Pass the notification ID to the screen so we can stop it later
+        if (response.id != null) {
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => AlarmRingScreen(notificationId: response.id!),
+            ),
+          );
+        }
       },
     );
 
-    // 5. Explicitly Request Permissions
+    // 5. Request Basic Permissions
     await _requestPermissions();
   }
 
@@ -62,7 +64,12 @@ class NotificationService {
       flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
 
+      // Request Notification Permission (Android 13+)
       await androidImplementation?.requestNotificationsPermission();
+
+      // NEW: Explicitly ask for Exact Alarm permission (Android 12+)
+      await requestExactAlarmPermission();
+
     } else if (Platform.isIOS) {
       await flutterLocalNotificationsPlugin
           .resolvePlatformSpecificImplementation<
@@ -75,6 +82,18 @@ class NotificationService {
     }
   }
 
+  // --- NEW FUNCTION TO ASK PERMISSION ---
+  Future<void> requestExactAlarmPermission() async {
+    if (Platform.isAndroid) {
+      final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+
+      // This will check and request the 'SCHEDULE_EXACT_ALARM' permission
+      await androidImplementation?.requestExactAlarmsPermission();
+    }
+  }
+
   Future<void> scheduleAlarm({
     required int id,
     required String title,
@@ -82,20 +101,27 @@ class NotificationService {
     required List<String> days,
     required bool isEnabled,
   }) async {
-    // Always cancel old alarms for this ID to avoid duplicates
     await cancelAlarm(id);
 
     if (!isEnabled || days.isEmpty) return;
 
-    // Alarm Details
+    // --- FIXED CONFIGURATION ---
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'alarm_channel_id',
+      'alarm_channel_v2', // ID must match what you use elsewhere
       'Alarm Channel',
       channelDescription: 'Channel for Alarm Notifications',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
-      fullScreenIntent: true, // Forces screen to turn on
+      // 1. Link to your raw sound file (android/app/src/main/res/raw/buzzer.mp3)
+      // Note: Do not include the .mp3 extension here
+      sound: RawResourceAndroidNotificationSound('buzzer'),
+
+      // 2. Critical: Use Alarm stream so it bypasses Silent/Vibrate mode
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+
+      // 3. Show full screen intent (wakes up phone)
+      fullScreenIntent: true,
     );
 
     const NotificationDetails platformDetails =
@@ -105,7 +131,7 @@ class NotificationService {
       final notificationId = _createUniqueId(id, day);
       final scheduledDate = _nextInstanceOfDayAndTime(time, _getDayOfWeek(day));
 
-      debugPrint("Scheduling: $day at $scheduledDate (Local Time)");
+      debugPrint("Scheduling: $day at $scheduledDate (Local Time) ID: $notificationId");
 
       await flutterLocalNotificationsPlugin.zonedSchedule(
         notificationId,
@@ -161,12 +187,10 @@ class NotificationService {
       time.minute,
     );
 
-    // 1. Move to the correct day of the week
     while (scheduledDate.weekday != dayOfWeek) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
 
-    // 2. If the time has already passed TODAY, move it to next week
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 7));
     }

@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-
+import 'package:dreamsync/services/notification_service.dart'; // Import this
 
 class AlarmRingScreen extends StatefulWidget {
-  final String? payload; // Can pass data like "Alarm ID" here
-  const AlarmRingScreen({super.key, this.payload});
+  final String? payload;
+  final int notificationId; // REQUIRED: To know which alarm to stop
+
+  const AlarmRingScreen({
+    super.key,
+    this.payload,
+    required this.notificationId // Add this
+  });
 
   @override
   State<AlarmRingScreen> createState() => _AlarmRingScreenState();
@@ -16,7 +22,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    // Pulse animation for the button
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -30,13 +35,22 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
   }
 
   void _stopAlarm() {
-    // Logic to stop the sound service goes here
-    // For now, we just close the screen
+    // 1. Stop the sound/notification
+    // Note: We need to cancel the specific ID associated with this instance
+    // Since your unique ID generation logic relies on Days, and we might
+    // simply want to stop the sound *now*, passing the exact notification ID is safest.
+    NotificationService().flutterLocalNotificationsPlugin.cancel(widget.notificationId);
+
+    // 2. Close the screen
     Navigator.of(context).pop();
   }
 
   void _snoozeAlarm() {
-    // Logic to schedule a new notification in 9 minutes
+    // Logic: Stop current sound, schedule new one in 9 mins
+    NotificationService().flutterLocalNotificationsPlugin.cancel(widget.notificationId);
+
+    // You would add logic here to schedule a new one-off notification for +9 mins
+    // For now, we just close the screen
     Navigator.of(context).pop();
   }
 
@@ -49,7 +63,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Image or Gradient
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -59,7 +72,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
               ),
             ),
           ),
-
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -76,7 +88,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
               ),
               const SizedBox(height: 60),
 
-              // SNOOZE BUTTON
+              // SNOOZE
               OutlinedButton(
                 onPressed: _snoozeAlarm,
                 style: OutlinedButton.styleFrom(
@@ -89,7 +101,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> with SingleTickerProv
 
               const SizedBox(height: 40),
 
-              // STOP SLIDER (Or Button)
+              // STOP BUTTON
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: ScaleTransition(
