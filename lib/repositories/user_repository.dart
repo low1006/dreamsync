@@ -22,6 +22,19 @@ class UserRepository extends BaseRepository<UserModel> {
     await client.auth.signOut();
   }
 
+  Future<void> updateProfileData({
+    required String userId,
+    required double weight,
+    required double height,
+    required double sleepGoalHours,
+  }) async {
+    await client.from(tableName).update({
+      'weight': weight,
+      'height': height,
+      'sleep_goal_hours': sleepGoalHours,
+    }).eq('user_id', userId);
+  }
+
   // Custom methods specific to UserRepository can be added here
   Future<void> updatePoints(String userId, int newPoints) async {
     await client

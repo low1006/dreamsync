@@ -13,6 +13,7 @@ class AuthViewModel extends ChangeNotifier {
   // Properties for the registration form
   double weight = 70.0; // Default value
   double height = 175.0; // Default value
+  double sleepGoal = 8.0;// Default value
 
   // Set loading state and notify listeners
   void _setLoading(bool loading) {
@@ -33,6 +34,8 @@ class AuthViewModel extends ChangeNotifier {
       weight = value;
     } else if (attribute == 'height') {
       height = value;
+    } else if (attribute == 'sleepGoal') {
+      sleepGoal = value;
     }
     notifyListeners();
   }
@@ -128,6 +131,7 @@ class AuthViewModel extends ChangeNotifier {
     required String dateBirth,
     required double weight,
     required double height,
+    required double sleepGoal,
   }) async {
     _setLoading(true);
     try {
@@ -149,6 +153,7 @@ class AuthViewModel extends ChangeNotifier {
           height: height,
           uidText: response.user!.id.substring(0, 8), // Example short ID
           currentPoints: 0,
+          sleepGoalHours: sleepGoal,
         );
         await _repository.create(newUser.toJson());
       }

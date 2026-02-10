@@ -3,13 +3,15 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // --- IMPORTS FOR VIEWMODELS ---
-import 'viewmodels/user_viewmodel.dart';
-import 'viewmodels/achievement_viewmodel.dart';
-import 'viewmodels/auth_viewmodel.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
+import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
+import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 
 // --- IMPORTS FOR SCREENS ---
-import 'views/auth_screen/login_screen.dart';
-import 'views/main_screen.dart';
+import 'package:dreamsync/views/auth_screen/login_screen.dart';
+import 'package:dreamsync/views/main_screen.dart';
 
 const String supabaseURL = 'https://xagpcogenalviktbsmap.supabase.co';
 // ⚠️ SECURITY WARNING: Avoid putting 'sb_secret' keys in client-side code.
@@ -110,6 +112,12 @@ class MyApp extends StatelessWidget {
                 ),
                 ChangeNotifierProvider(
                   create: (_) => AchievementViewModel(),
+                ),
+                ChangeNotifierProvider(
+                  create: (_) => ScheduleViewModel(),
+                ),
+                ChangeNotifierProvider(
+                    create: (_) => InventoryViewModel()
                 ),
               ],
               // CHANGE THIS: Point to MainScreen instead of AchievementScreen

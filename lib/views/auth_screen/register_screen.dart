@@ -1,7 +1,7 @@
-import 'package:dreamsync/viewmodels/auth_viewmodel.dart';
-import 'package:dreamsync/widget/custom_text_field.dart';
-import 'package:dreamsync/widget/custom_slider.dart';
-import 'package:dreamsync/widget/custom_button.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
+import 'package:dreamsync/widget/custom/custom_text_field.dart';
+import 'package:dreamsync/widget/custom/custom_slider.dart';
+import 'package:dreamsync/widget/custom/custom_button.dart';
 import 'package:dreamsync/widget/custom_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -155,6 +155,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 unit: "cm",
                                 onChanged: (val) => viewModel.updateAttribute('height', val),
                               ),
+                              CustomSlider(
+                                label: "Sleep Goal",
+                                value: viewModel.sleepGoal,
+                                min: 4.0,
+                                max: 12.0,
+                                unit: "hrs",
+                                onChanged: (val) => viewModel.updateAttribute('sleepGoal', val),
+                              ),
 
                               const Spacer(),
                               const SizedBox(height: 24),
@@ -182,6 +190,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                         dateBirth: _dateBirthController.text,
                                         weight: viewModel.weight,
                                         height: viewModel.height,
+                                        sleepGoal: viewModel.sleepGoal,
                                       );
                                     }
                                   },

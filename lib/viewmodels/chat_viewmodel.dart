@@ -8,12 +8,9 @@ import 'dart:math';
 
 class ChatViewModel extends ChangeNotifier {
   static const List<String> _apiKeys = [
-    'AIzaSyDdh6QmNFWWxp9SWc34K59OBWnLlShliR0',
-    'AIzaSyDelNUsaWn8v8PR7jf9qdRbUukHGy97hTk',
-    'AIzaSyAf08paAIWVgWXmED_4ndh5Lfu4ySdCpR8',
-    'AIzaSyDAI5Uxk7DPw12jI-7eVmiZiTOAHIgvBJc',
-    'AIzaSyBRSZ64N0I_DfvtigBJrAI21eOYhu1dG1I',
-    'AIzaSyAnNdvSvEJo8lqSal5ozv8ZXhIcGHmyMt4'];
+    'AIzaSyAzPlvJ5GfS0jHpMsSaRob_9DGbrQ-VFxs', 'AIzaSyAtPOUG4mGcznimCB5qyW6om_L7pY4tQa0','AIzaSyDkryl-Lmphq472DQ0XjThn7yIzoUlmJQ0', 'AIzaSyD04XYaBc0UwzwBlE2AgHnjyxGXIIwh3uo','AIzaSyD3LeAfZRFfywHiY7Sm4LTxU2-r0m5vYzQ'];
+
+  // static const String _apiKeys = "AIzaSyAzPlvJ5GfS0jHpMsSaRob_9DGbrQ-VFxs";
 
   // 1. Use the Repository instead of raw Supabase calls
   final ChatRepository _repository = ChatRepository(Supabase.instance.client);
@@ -192,6 +189,24 @@ class ChatViewModel extends ChangeNotifier {
 
     } catch (e) {
       print("Error generating title: $e");
+    }
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    try {
+      await _repository.deleteSession(sessionId);
+
+      // Logic: If we deleted the CURRENTLY open chat, reset the UI
+      if (currentSessionId == sessionId) {
+        messages.clear();
+        currentSessionId = null;
+        _chatSession = _model.startChat();
+      }
+
+      await loadChatSessions();
+
+    } catch (e) {
+      print("Error deleting session in VM: $e");
     }
   }
 

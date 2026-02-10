@@ -74,4 +74,16 @@ class ChatRepository extends BaseRepository<ChatMessageModel> {
       print("Error updating session title: $e");
     }
   }
+
+  Future<void> deleteSession(String sessionId) async {
+    try {
+      await client
+          .from('chat_sessions') // Target the sessions table
+          .delete()
+          .eq('id', sessionId);
+    } catch (e) {
+      print("Error deleting session: $e");
+      rethrow;
+    }
+  }
 }

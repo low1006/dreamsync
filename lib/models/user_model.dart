@@ -8,6 +8,7 @@ class UserModel {
   final double height;
   final String uidText;
   final int currentPoints;
+  final double sleepGoalHours;
 
   UserModel({
     required this.userId,
@@ -18,7 +19,9 @@ class UserModel {
     required this.weight,
     required this.height,
     required this.uidText,
-    required this.currentPoints
+    required this.currentPoints,
+    required this.sleepGoalHours
+
   });
 
   int get age {
@@ -51,6 +54,7 @@ class UserModel {
       height: (json['height'] ?? 0.0).toDouble(),
       uidText: json['uid_text'] ?? '',
       currentPoints: json['current_points'] ?? 0,
+      sleepGoalHours: (json['sleep_goal_hours'] ?? 8.0).toDouble(),
     );
   }
 
@@ -65,6 +69,7 @@ class UserModel {
       'height':height,
       'uid_text':uidText,
       'current_points':currentPoints,
+      'sleep_goal_hours':sleepGoalHours,
     };
   }
 }

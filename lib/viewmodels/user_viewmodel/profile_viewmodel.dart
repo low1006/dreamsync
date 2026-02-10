@@ -17,6 +17,35 @@ class UserViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateUserProfile({
+    required double weight,
+    required double height,
+    required double sleepGoal,
+  }) async {
+    if (userProfile == null) return;
+
+    isLoading = true;
+    notifyListeners();
+    try {
+      // Use the repository method we created in Step 3
+      await _repository.updateProfileData(
+        userId: userProfile!.userId,
+        weight: weight,
+        height: height,
+        sleepGoalHours: sleepGoal,
+      );
+
+      // Refresh data locally
+      await fetchProfile(userProfile!.userId);
+    } catch (e) {
+      debugPrint("Error updating profile: $e");
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+
   // logic for account actions
   Future<void> signOut() async {
     await _repository.signOut();

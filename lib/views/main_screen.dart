@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/views/achievement_screen.dart';
 // Import other screens here as you build them
-// import 'package:dreamsync/views/calendar_screen.dart';
+import 'package:dreamsync/views/schedule_screen.dart';
 // import 'package:dreamsync/views/home_screen.dart';
-import 'package:dreamsync/views/user_profile_screen_view.dart';
+import 'package:dreamsync/views/user_screen/user_profile_screen_view.dart';
 import 'package:dreamsync/views/advisor_screen/chat_bot_screen.dart';
 
 class MainScreen extends StatefulWidget {
@@ -20,7 +20,7 @@ class _MainScreenState extends State<MainScreen> {
   // 2. Define your list of pages
   // We use "Placeholder" widgets for pages you haven't built yet
   final List<Widget> _pages = [
-    const Center(child: Text("Calendar Screen")), // Index 0
+    const ScheduleScreen(), // Index 0
     const ChatScreen(),  // Index 1
     const Center(child: Text("Home Screen")),     // Index 2
     const AchievementScreen(),                    // Index 3 (Your actual Achievement Screen!)

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:dreamsync/viewmodels/auth_viewmodel.dart';
-import 'package:dreamsync/widget/custom_text_field.dart';
-import 'package:dreamsync/widget/custom_button.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
+import 'package:dreamsync/widget/custom/custom_text_field.dart';
+import 'package:dreamsync/widget/custom/custom_button.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
