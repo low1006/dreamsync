@@ -88,13 +88,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     int notificationId = _existingId.hashCode;
 
     if (isActive) {
-      // Re-schedule
+      // Re-schedule with snooze setting
       await NotificationService().scheduleAlarm(
         id: notificationId,
         title: "Wake Up",
         time: _wakeTime,
         days: _selectedDays,
         isEnabled: true,
+        isSnoozeOn: _isSnoozeOn, // ← ADDED: Pass snooze setting
       );
     } else {
       // Cancel
@@ -189,12 +190,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     int notificationId = scheduleToSave.id.hashCode;
 
+    // ← UPDATED: Pass isSnoozeOn parameter
     await NotificationService().scheduleAlarm(
       id: notificationId,
       title: "Wake Up",
       time: _wakeTime,
       days: _selectedDays,
       isEnabled: _isAlarmOn,
+      isSnoozeOn: _isSnoozeOn, // ← ADDED: Pass snooze setting
     );
 
     if (mounted) {
