@@ -10,6 +10,11 @@ class ScheduleModel {
   final bool isSmartAlarm;
   final bool isSnoozeOn;
 
+  // ADDED: Tone information
+  final int toneId;
+  final String toneName;
+  final String toneFile;
+
   ScheduleModel({
     required this.id,
     required this.label,
@@ -19,26 +24,30 @@ class ScheduleModel {
     required this.days,
     this.isSmartAlarm = false,
     this.isSnoozeOn = true,
-
+    this.toneId = 1,
+    this.toneName = 'Classic',
+    this.toneFile = 'classic.mp3',
   });
 
   factory ScheduleModel.fromMap(Map<String, dynamic> map) {
+    // Handle the joined store_items data
+    final toneData = map['store_items'] ?? {};
+    final metadata = toneData['metadata'] ?? {};
+
     return ScheduleModel(
-      // FIXED: Map 'schedule_id' from DB to 'id' in app
       id: map['schedule_id']?.toString() ?? '',
-
-      // NOTE: Since 'label' column is missing in DB, this defaults to 'Schedule'
       label: map['label'] ?? 'Schedule',
-
       bedtime: _parseTime(map['target_bed_time']),
       wakeTime: _parseTime(map['target_wake_time']),
-
-      // FIXED: Map 'is_alarm_on' from DB to 'isActive' in app
       isActive: map['is_alarm_on'] ?? true,
-
       days: _parseDays(map['days']),
       isSmartAlarm: map['is_smart_alarm'] ?? false,
-      isSnoozeOn: map['is_snooze_on']?? true,
+      isSnoozeOn: map['is_snooze_on'] ?? true,
+
+      // Map new fields
+      toneId: map['item_id'] ?? 1,
+      toneName: toneData['name'] ?? 'Classic',
+      toneFile: metadata['file'] ?? 'classic.mp3',
     );
   }
 

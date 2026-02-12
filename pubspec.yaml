@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-
+  permission_handler: ^11.3.0
+  android_alarm_manager_plus: ^4.0.0
   flutter_local_notifications: ^17.0.0
   timezone:  ^0.9.0
   flutter_timezone: ^3.0.1

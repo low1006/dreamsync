@@ -5,10 +5,15 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 
+// --- IMPORT VIEWMODELS ---
+import 'package:dreamsync/viewmodels/inventory_viewmodel.dart'; // Added import
+import 'package:dreamsync/models/inventory_model.dart';
+
 // --- IMPORT WIDGETS ---
 import 'package:dreamsync/widget/schedule/day_selector.dart';
 import 'package:dreamsync/widget/schedule/time_card.dart';
 import 'package:dreamsync/widget/schedule/schedule_controls.dart';
+import 'package:dreamsync/widget/tone_selector.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -30,7 +35,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   late bool _isSmartNotification;
   late bool _isAlarmOn;
   late bool _isSnoozeOn;
-  final String _currentToneName = "Classic";
+
+  // Tone Variables
+  int _currentToneId = 1;
+  String _currentToneName = "Classic";
 
   // --- INITIALIZATION ---
   @override
@@ -46,7 +54,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isSnoozeOn = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // FIX: Load both Schedule and Inventory here (safe from build errors)
       context.read<ScheduleViewModel>().loadSchedules();
+      context.read<InventoryViewModel>().loadInventory();
     });
   }
 
@@ -59,7 +69,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final vm = context.watch<ScheduleViewModel>();
 
       // STRICT CHECK: Only stop loading if we actually have data.
-      // This prevents the "Flash" of default data before the DB loads.
       if (!vm.isLoading && vm.schedules.isNotEmpty) {
         final schedule = vm.schedules.first;
 
@@ -70,10 +79,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _isAlarmOn = schedule.isActive;
         _isSmartAlarm = schedule.isSmartAlarm;
         _isSnoozeOn = schedule.isSnoozeOn;
+        _currentToneId = schedule.toneId;
+        _currentToneName = schedule.toneName;
 
         // Data is ready! Now we can show the UI.
         _isInit = false;
       }
+      // REMOVED: context.read<InventoryViewModel>().loadInventory(); from here
     }
   }
 
@@ -95,7 +107,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         time: _wakeTime,
         days: _selectedDays,
         isEnabled: true,
-        isSnoozeOn: _isSnoozeOn, // ← ADDED: Pass snooze setting
+        isSnoozeOn: _isSnoozeOn,
       );
     } else {
       // Cancel
@@ -184,6 +196,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       days: _selectedDays,
       isSmartAlarm: _isSmartAlarm,
       isSnoozeOn: _isSnoozeOn,
+      toneId: _currentToneId, // Save the ID
+      toneName: _currentToneName,
+      toneFile: '...',
     );
 
     await scheduleVM.saveSchedule(scheduleToSave);
@@ -204,6 +219,26 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       setState(() => _isEditing = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Schedule saved successfully")));
     }
+  }
+
+  void _openToneSelector() {
+    // Filter only AUDIO items
+    final allItems = context.read<InventoryViewModel>().myItems;
+    final audioItems = allItems.where((i) => i.details.type == StoreItemType.AUDIO).toList();
+
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => ToneSelector(
+        currentToneId: _currentToneId,
+        unlockedTones: audioItems,
+        onToneSelected: (item) {
+          setState(() {
+            _currentToneId = item.details.id;
+            _currentToneName = item.details.name;
+          });
+        },
+      ),
+    );
   }
 
   @override
@@ -311,6 +346,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               currentToneName: _currentToneName,
               isEditing: _isEditing,
               bg: surface, text: text, accent: accent,
+
+              // Connected the function here
+              onToneTap: _openToneSelector,
+
               onToggleAlarm: (val) {
                 setState(() => _isAlarmOn = val);
                 if (!_isEditing) _quickUpdate(val);

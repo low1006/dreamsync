@@ -17,6 +17,9 @@ class ScheduleControls extends StatelessWidget {
   final Function(bool) onToggleSmartAlarm;
   final Function(bool) onToggleNotification;
 
+  // 1. ADDED: Callback for tone selection
+  final VoidCallback onToneTap;
+
   const ScheduleControls({
     super.key,
     required this.isAlarmOn,
@@ -32,6 +35,8 @@ class ScheduleControls extends StatelessWidget {
     required this.onToggleSnooze,
     required this.onToggleSmartAlarm,
     required this.onToggleNotification,
+    // 2. ADDED: Receive it in constructor
+    required this.onToneTap,
   });
 
   @override
@@ -40,8 +45,6 @@ class ScheduleControls extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 1. MAIN ALARM TOGGLE
-        // Logic: Always Active (so user can turn alarm on/off quickly)
-        // BUT: We usually lock it if we are currently Editing to prevent confusion.
         IgnorePointer(
           ignoring: isEditing,
           child: AnimatedOpacity(
@@ -71,7 +74,6 @@ class ScheduleControls extends StatelessWidget {
         Text("ALARM SETTINGS", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         const SizedBox(height: 10),
 
-        // LOGIC: These are DISABLED unless we are in Edit Mode
         _buildSettingsCard(context),
 
         const SizedBox(height: 30),
@@ -80,7 +82,6 @@ class ScheduleControls extends StatelessWidget {
         Text("SMART FEATURES", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         const SizedBox(height: 10),
 
-        // LOGIC: These are DISABLED unless we are in Edit Mode
         _buildFeatureCard(
             "Smart Alarm", "Dynamic tones to prevent habituation.", Icons.music_note,
             isSmartAlarm, onToggleSmartAlarm
@@ -95,7 +96,7 @@ class ScheduleControls extends StatelessWidget {
   }
 
   Widget _buildSettingsCard(BuildContext context) {
-    // FIX: Only enabled if isEditing is TRUE.
+    // Only enabled if isEditing is TRUE.
     final bool isDisabled = !isEditing;
 
     return IgnorePointer(
@@ -120,7 +121,8 @@ class ScheduleControls extends StatelessWidget {
                   const SizedBox(width: 8),
                   Icon(Icons.arrow_forward_ios, size: 16, color: text.withOpacity(0.3)),
                 ]),
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Coming soon"))),
+                // 3. MODIFIED: Connected the callback here
+                onTap: onToneTap,
               ),
               Divider(height: 1, color: text.withOpacity(0.05)),
               ListTile(
@@ -137,14 +139,13 @@ class ScheduleControls extends StatelessWidget {
   }
 
   Widget _buildFeatureCard(String title, String subtitle, IconData icon, bool value, Function(bool) onChanged) {
-    // FIX: Only enabled if isEditing is TRUE.
     final bool isDisabled = !isEditing;
 
     return IgnorePointer(
       ignoring: isDisabled,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 300),
-        opacity: isDisabled ? 0.6 : 1.0, // Dimmed if not editing
+        opacity: isDisabled ? 0.6 : 1.0,
         child: Card(
           color: bg, elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: text.withOpacity(0.05))),

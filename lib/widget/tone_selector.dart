@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:dreamsync/models/inventory_model.dart';
 
 class ToneSelector extends StatefulWidget {
-  final String currentTone;
-  final Function(String) onToneSelected;
+  final int currentToneId;
+  final List<InventoryItem> unlockedTones; // Received from parent
+  final Function(InventoryItem) onToneSelected;
 
   const ToneSelector({
     super.key,
-    required this.currentTone,
+    required this.currentToneId,
+    required this.unlockedTones,
     required this.onToneSelected,
   });
 
@@ -17,30 +20,15 @@ class ToneSelector extends StatefulWidget {
 
 class _ToneSelectorState extends State<ToneSelector> {
   final AudioPlayer _audioPlayer = AudioPlayer();
-  String? _playingTone;
+  int? _playingId;
 
-  // MAP: Display Name -> Filename (without extension)
-  final Map<String, String> _tones = {
-    "Classic Alarm": "Classic",
-    "Buzzer Sounds": "Buzzer",
-
-  };
-
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
-  }
-
-  Future<void> _previewTone(String filename) async {
+  Future<void> _previewTone(String filename, int id) async {
     try {
       await _audioPlayer.stop();
-
-      // Plays from assets/sounds/{filename}.mp3
-      // Ensure your assets are defined in pubspec.yaml
-      await _audioPlayer.play(AssetSource('sounds/$filename.mp3'));
-
-      setState(() => _playingTone = filename);
+      // Assuming files are in assets/audio/ or assets/sounds/
+      // Adjust path based on your actual asset structure
+      await _audioPlayer.play(AssetSource('audio/$filename'));
+      setState(() => _playingId = id);
     } catch (e) {
       debugPrint("Error playing preview: $e");
     }
@@ -49,50 +37,35 @@ class _ToneSelectorState extends State<ToneSelector> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      // ... styling ...
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text("Select Alarm Tone",
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)
-          ),
-          const SizedBox(height: 10),
-          Divider(color: Colors.grey.withOpacity(0.2)),
-
+          // ... header ...
           Expanded(
             child: ListView.builder(
-              itemCount: _tones.length,
+              itemCount: widget.unlockedTones.length,
               itemBuilder: (context, index) {
-                final name = _tones.keys.elementAt(index);
-                final filename = _tones.values.elementAt(index);
-                final isSelected = widget.currentTone == name;
-                final isPlaying = _playingTone == filename;
+                final item = widget.unlockedTones[index];
+                final isSelected = widget.currentToneId == item.details.id;
+                final isPlaying = _playingId == item.details.id;
 
                 return ListTile(
-                  title: Text(name, style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? Theme.of(context).primaryColor : null,
-                  )),
-                  leading: Icon(
-                    isPlaying ? Icons.pause_circle : Icons.play_circle_outline,
-                    color: isPlaying ? Colors.orange : Colors.grey,
+                  title: Text(item.details.name),
+                  leading: IconButton(
+                    icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle_outline),
+                    onPressed: () {
+                      if (isPlaying) {
+                        _audioPlayer.stop();
+                        setState(() => _playingId = null);
+                      } else {
+                        // Use the file from metadata
+                        _previewTone(item.details.audioFile, item.details.id);
+                      }
+                    },
                   ),
                   trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
-                  onTap: () async {
-                    if (isPlaying) {
-                      await _audioPlayer.stop();
-                      setState(() => _playingTone = null);
-                    } else {
-                      await _previewTone(filename);
-                    }
-                  },
-                  onLongPress: () {
-                    // Select without playing
-                    widget.onToneSelected(name);
+                  onTap: () {
+                    widget.onToneSelected(item);
                     Navigator.pop(context);
                   },
                 );

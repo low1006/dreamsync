@@ -1,18 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:dreamsync/services/notification_service.dart';
 
 class AlarmRingScreen extends StatefulWidget {
-  final int notificationId;
-  final VoidCallback onStop; // Callback to stop alarm sound
-  final Function(int) onSnooze; // Callback to handle snooze
-
-  const AlarmRingScreen({
-    super.key,
-    required this.notificationId,
-    required this.onStop,
-    required this.onSnooze,
-  });
+  const AlarmRingScreen({super.key});
 
   @override
   State<AlarmRingScreen> createState() => _AlarmRingScreenState();
@@ -20,31 +12,52 @@ class AlarmRingScreen extends StatefulWidget {
 
 class _AlarmRingScreenState extends State<AlarmRingScreen>
     with SingleTickerProviderStateMixin {
+  static const platform = MethodChannel('com.example.dreamsync/alarm');
+
   late AnimationController _controller;
+  int _notificationId = -1;
+  String _title = "Wake Up!";
   bool _isSnoozeEnabled = true;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
-    // Check if snooze is enabled for this alarm
-    _checkSnoozeStatus();
+    // Get alarm data from AlarmActivity
+    _getAlarmData();
+
+    // Start playing alarm sound
+    NotificationService().playAlarmSound();
   }
 
-  Future<void> _checkSnoozeStatus() async {
-    // Extract the base alarm ID from notification ID
-    final baseId = (widget.notificationId ~/ 10) % 100000;
-    final isEnabled = NotificationService().isSnoozeEnabled(baseId);
+  Future<void> _getAlarmData() async {
+    try {
+      final Map<dynamic, dynamic> data = await platform.invokeMethod('getAlarmData');
 
-    setState(() {
-      _isSnoozeEnabled = isEnabled;
-    });
+      setState(() {
+        _notificationId = data['notificationId'] ?? -1;
+        _title = data['title'] ?? 'Wake Up!';
+        _isLoading = false;
+      });
 
-    debugPrint("💤 Snooze enabled for this alarm: $_isSnoozeEnabled");
+      // Check if snooze is enabled
+      final baseId = (_notificationId ~/ 10) % 100000;
+      _isSnoozeEnabled = NotificationService().isSnoozeEnabled(baseId);
+
+      debugPrint("ðŸ“± Alarm screen loaded with ID: $_notificationId");
+      debugPrint("ðŸ’¤ Snooze enabled: $_isSnoozeEnabled");
+    } catch (e) {
+      debugPrint("âŒ Error getting alarm data: $e");
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -53,24 +66,22 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     super.dispose();
   }
 
-  void _stopAlarm() {
-    debugPrint("🛑 Stop button pressed");
+  Future<void> _stopAlarm() async {
+    debugPrint("ðŸ›‘ Stop button pressed");
 
     // Stop the alarm sound
-    widget.onStop();
+    await NotificationService().stopAlarmSound();
 
-    // Cancel the notification
-    NotificationService()
-        .flutterLocalNotificationsPlugin
-        .cancel(widget.notificationId);
-
-    // Close the screen
-    Navigator.of(context).pop();
+    // Close the AlarmActivity
+    try {
+      await platform.invokeMethod('closeAlarm');
+    } catch (e) {
+      debugPrint("âŒ Error closing alarm: $e");
+    }
   }
 
-  void _snoozeAlarm() {
+  Future<void> _snoozeAlarm() async {
     if (!_isSnoozeEnabled) {
-      // If snooze is disabled, show a message
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Snooze is disabled for this alarm'),
@@ -80,21 +91,36 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
       return;
     }
 
-    debugPrint("😴 Snooze button pressed");
+    debugPrint("ðŸ˜´ Snooze button pressed");
 
-    // Trigger snooze callback (handles scheduling next alarm)
-    widget.onSnooze(widget.notificationId);
+    // Stop current sound
+    await NotificationService().stopAlarmSound();
 
-    // Close the screen
-    Navigator.of(context).pop();
+    // Schedule snooze alarm
+    await NotificationService().scheduleSnooze(_notificationId);
+
+    // Close the AlarmActivity
+    try {
+      await platform.invokeMethod('closeAlarm');
+    } catch (e) {
+      debugPrint("âŒ Error closing alarm: $e");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
     final timeStr = DateFormat('HH:mm').format(DateTime.now());
 
     return WillPopScope(
-      // Prevent back button from dismissing alarm
       onWillPop: () async => false,
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -130,7 +156,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
 
                 // "Wake Up!" text
                 Text(
-                  "WAKE UP!",
+                  _title.toUpperCase(),
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
                     fontSize: 32,
