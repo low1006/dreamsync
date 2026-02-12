@@ -1,18 +1,67 @@
+import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'dart:io' show Platform;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
+// --- BACKGROUND CALLBACK ---
 @pragma('vm:entry-point')
-void fireAlarmCallback(int id) {
-  // This runs in a separate isolate when the alarm fires.
-  // We re-initialize the NotificationService to show the UI.
-  NotificationService().showAlarmNotification(id);
+void fireAlarmCallback(int id, Map<String, dynamic> params) {
+  // 1. Show the Alarm Notification (Rings the device)
+  NotificationService().showAlarmNotification(
+    id: id,
+    title: params['title'] ?? 'Wake Up',
+    body: params['body'] ?? 'Time to wake up!',
+    payload: id.toString(),
+    soundFile: params['soundFile'],
+  );
+
+  // 2. RESCHEDULE FOR NEXT WEEK (The Fix)
+  // If this is a recurring alarm (loop: true), schedule it again for 7 days later.
+  bool loop = params['loop'] ?? false;
+  if (loop) {
+    _rescheduleNextWeek(id, params);
+  }
+}
+
+// Separate function to handle rescheduling in the background isolate
+void _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
+  // We need to initialize the plugin in the background isolate if it's not ready
+  // (Usually handled automatically, but safer to just call oneShotAt directly)
+
+  int hour = params['hour'];
+  int minute = params['minute'];
+
+  // Calculate exactly 7 days from NOW (approximate) or align to the target time
+  // Safest approach: Take current date + 7 days, set specific hour/minute.
+  DateTime now = DateTime.now();
+  DateTime nextRun = DateTime(
+    now.year,
+    now.month,
+    now.day + 7, // Add 7 days
+    hour,
+    minute,
+    0, // second
+  );
+
+  debugPrint("🔄 Rescheduling Alarm ID: $id for next week: $nextRun");
+
+  await AndroidAlarmManager.oneShotAt(
+    nextRun,
+    id,
+    fireAlarmCallback, // Recursive callback
+    exact: true,
+    wakeup: true,
+    alarmClock: true,
+    allowWhileIdle: true,
+    rescheduleOnReboot: true,
+    params: params, // Pass the SAME params so it keeps looping forever
+  );
 }
 
 class NotificationService {
@@ -20,31 +69,24 @@ class NotificationService {
   factory NotificationService() => _instance;
   NotificationService._internal();
 
-  // 1. Define the MethodChannel to match your Kotlin code
-  static const platform = MethodChannel('com.example.dreamsync/alarm');
-
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
   FlutterLocalNotificationsPlugin();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
-
-  // --- NEW: Store snooze preferences ---
-  final Map<int, bool> _snoozeEnabled = {};
-
+  final StreamController<String> _alarmStreamController = StreamController<String>.broadcast();
+  Stream<String> get onAlarmFired => _alarmStreamController.stream;
 
   Future<void> init() async {
-    // 1. Initialize Timezone Database
     tz.initializeTimeZones();
-
     try {
       final String timeZoneName = await FlutterTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(timeZoneName));
     } catch (e) {
-      debugPrint("âš ï¸ Error setting timezone: $e");
       tz.setLocalLocation(tz.getLocation('Asia/Kuala_Lumpur'));
     }
 
-    // 2. iOS Setup (Keep this for iOS support)
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
     const DarwinInitializationSettings initializationSettingsDarwin =
     DarwinInitializationSettings(
       requestSoundPermission: true,
@@ -53,61 +95,42 @@ class NotificationService {
     );
 
     final InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
       iOS: initializationSettingsDarwin,
-      android: const AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
 
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        if (response.payload != null) {
+          _alarmStreamController.add(response.payload!);
+        }
+      },
+    );
+
+    await requestPermissions();
   }
 
-  // --- FIXED: ADDED MISSING METHOD ---
-  bool isSnoozeEnabled(int alarmId) {
-    // Return true by default if not found (safe default)
-    return _snoozeEnabled[alarmId] ?? true;
-  }
+  Future<void> requestPermissions() async {
+    if (Platform.isAndroid) {
+      final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
 
-  // --- FIXED: ADDED MISSING METHOD ---
-  Future<void> scheduleSnooze(int notificationId) async {
-    debugPrint("ðŸ’¤ Scheduling snooze for ID: $notificationId");
-
-    // 1. Stop the audio
-    await stopAlarmSound();
-
-    // 2. Calculate snooze time (9 minutes from now)
-    final now = DateTime.now();
-    final snoozeTime = now.add(const Duration(minutes: 9));
-    final snoozeTimeMillis = snoozeTime.millisecondsSinceEpoch;
-
-    // 3. Create a unique snooze ID (add 100000 to avoid conflict with main alarms)
-    final snoozeId = notificationId + 100000;
-
-    try {
-      if (Platform.isAndroid) {
-        // Call Native Android Alarm
-        await platform.invokeMethod('scheduleAlarm', {
-          'notificationId': snoozeId,
-          'title': 'Snooze',
-          'scheduledTime': snoozeTimeMillis,
-          'repeatWeekly': false, // Snooze runs only once
-        });
-      } else {
-        // iOS Fallback
-        await flutterLocalNotificationsPlugin.zonedSchedule(
-          snoozeId,
-          "Snooze",
-          "Time to wake up!",
-          tz.TZDateTime.from(snoozeTime, tz.local),
-          const NotificationDetails(iOS: DarwinNotificationDetails(sound: 'buzzer.mp3', presentSound: true, presentAlert: true)),
-          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        );
+      if (androidImplementation != null) {
+        await androidImplementation.requestNotificationsPermission();
       }
-      debugPrint("âœ… Snooze scheduled for: $snoozeTime");
-    } catch (e) {
-      debugPrint("âŒ Error scheduling snooze: $e");
+
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        await Permission.scheduleExactAlarm.request();
+      }
+      if (await Permission.systemAlertWindow.isDenied) {
+        await Permission.systemAlertWindow.request();
+      }
     }
   }
 
+  // --- SCHEDULE ALARM ---
   Future<void> scheduleAlarm({
     required int id,
     required String title,
@@ -115,77 +138,144 @@ class NotificationService {
     required List<String> days,
     required bool isEnabled,
     required bool isSnoozeOn,
+    String? soundFile,
   }) async {
-    // 1. Cancel existing alarms first
     await cancelAlarm(id);
 
     if (!isEnabled || days.isEmpty) return;
 
-    // --- SAVE SNOOZE PREFERENCE ---
-    _snoozeEnabled[id] = isSnoozeOn;
-
-    // 2. Iterate through selected days
     for (String day in days) {
-      final notificationId = _createUniqueId(id, day);
+      final uniqueId = _createUniqueId(id, day);
       final nextTime = _nextInstanceOfDayAndTime(time, _getDayOfWeek(day));
 
-      // Calculate milliseconds for Java/Kotlin
-      final int scheduledTimeMillis = nextTime.millisecondsSinceEpoch;
+      debugPrint("📅 Scheduling Alarm for $day at $nextTime (ID: $uniqueId) with sound: $soundFile");
 
-      debugPrint("ðŸ“… Scheduling Native Alarm for $day at $nextTime (ID: $notificationId)");
-
-      try {
-        if (Platform.isAndroid) {
-          // CALL NATIVE KOTLIN METHOD
-          await platform.invokeMethod('scheduleAlarm', {
-            'notificationId': notificationId,
+      if (Platform.isAndroid) {
+        await AndroidAlarmManager.oneShotAt(
+          nextTime,
+          uniqueId,
+          fireAlarmCallback,
+          exact: true,
+          wakeup: true,
+          alarmClock: true,
+          allowWhileIdle: true,
+          rescheduleOnReboot: true,
+          params: {
             'title': title,
-            'scheduledTime': scheduledTimeMillis,
-            'repeatWeekly': true,
-          });
-        } else {
-          // iOS Fallback
-          _scheduleIOSAlarm(notificationId, title, nextTime);
-        }
-      } catch (e) {
-        debugPrint("âŒ Error scheduling native alarm: $e");
+            'body': 'Time to wake up!',
+            'payload': id.toString(),
+            'isSnoozeOn': isSnoozeOn,
+            'soundFile': soundFile,
+
+            // --- NEW PARAMS FOR RECURRENCE ---
+            'loop': true,             // Enable looping
+            'hour': time.hour,        // Store original hour
+            'minute': time.minute,    // Store original minute
+            'day': day,               // Store day name (debug/unused)
+          },
+        );
+      } else {
+        await _scheduleIOSAlarm(uniqueId, title, nextTime, soundFile);
       }
     }
+  }
+
+  // --- SHOW ALARM ---
+  Future<void> showAlarmNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+    String? soundFile,
+  }) async {
+
+    String cleanSoundName = (soundFile ?? 'buzzer').split('.').first;
+
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'alarm_channel_v3',
+      'High Priority Alarms',
+      channelDescription: 'This channel is for loud alarm notifications',
+      importance: Importance.max,
+      priority: Priority.max,
+      fullScreenIntent: true,
+      sound: RawResourceAndroidNotificationSound(cleanSoundName),
+      additionalFlags: Int32List.fromList(<int>[4]),
+      playSound: true,
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
+      ongoing: true,
+      autoCancel: false,
+      ticker: 'Alarm Ringing',
+    );
+
+    final NotificationDetails platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(
+          sound: '$cleanSoundName.mp3',
+          presentSound: true,
+          presentAlert: true
+      ),
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      id,
+      title,
+      body,
+      platformDetails,
+      payload: payload,
+    );
+  }
+
+  // --- SNOOZE ---
+  Future<void> scheduleSnooze(int originalId) async {
+    final now = DateTime.now();
+    final snoozeTime = now.add(const Duration(minutes: 9));
+    final snoozeId = originalId + 100000;
+
+    if (Platform.isAndroid) {
+      await AndroidAlarmManager.oneShotAt(
+        snoozeTime,
+        snoozeId,
+        fireAlarmCallback,
+        exact: true,
+        wakeup: true,
+        alarmClock: true,
+        // Snooze does NOT loop
+        params: {
+          'title': 'Snooze',
+          'body': 'Snooze over!',
+          'payload': originalId.toString(),
+          'soundFile': 'buzzer.mp3',
+          'loop': false // Important: Snooze does NOT repeat next week
+        },
+      );
+    } else {
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        snoozeId, "Snooze", "Snooze is over!", tz.TZDateTime.from(snoozeTime, tz.local),
+        const NotificationDetails(
+            iOS: DarwinNotificationDetails(sound: 'buzzer.mp3', presentSound: true, presentAlert: true)),
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+    }
+  }
+
+  // --- STOP & CANCEL ---
+  Future<void> stopNotification(int id) async {
+    await flutterLocalNotificationsPlugin.cancel(id);
   }
 
   Future<void> cancelAlarm(int id) async {
     final allDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     for (var day in allDays) {
       final uniqueId = _createUniqueId(id, day);
-
-      try {
-        if (Platform.isAndroid) {
-          // CANCEL NATIVE KOTLIN ALARM
-          await platform.invokeMethod('cancelAlarm', {'notificationId': uniqueId});
-          await platform.invokeMethod('cancelAlarm', {'notificationId': uniqueId + 100000}); // Snooze ID
-        } else {
-          await flutterLocalNotificationsPlugin.cancel(uniqueId);
-          await flutterLocalNotificationsPlugin.cancel(uniqueId + 100000);
-        }
-      } catch (e) {
-        debugPrint("âŒ Error canceling native alarm: $e");
+      if (Platform.isAndroid) {
+        await AndroidAlarmManager.cancel(uniqueId);
+        await AndroidAlarmManager.cancel(uniqueId + 100000);
       }
+      await flutterLocalNotificationsPlugin.cancel(uniqueId);
+      await flutterLocalNotificationsPlugin.cancel(uniqueId + 100000);
     }
-    _snoozeEnabled.remove(id);
-    debugPrint("ðŸ—‘ï¸ Cancelled all alarms for ID: $id");
-  }
-
-  // Helper for iOS only
-  Future<void> _scheduleIOSAlarm(int id, String title, tz.TZDateTime scheduledDate) async {
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      id,
-      title,
-      "Time to wake up!",
-      scheduledDate,
-      const NotificationDetails(iOS: DarwinNotificationDetails(sound: 'buzzer.mp3', presentSound: true, presentAlert: true)),
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-    );
   }
 
   // --- HELPERS ---
@@ -213,33 +303,22 @@ class NotificationService {
     tz.TZDateTime scheduledDate = tz.TZDateTime(
       tz.local, now.year, now.month, now.day, time.hour, time.minute,
     );
-
     while (scheduledDate.weekday != dayOfWeek) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
-
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 7));
     }
     return scheduledDate;
   }
 
-  // Expose player for Ring Screen
-  Future<void> playAlarmSound() async {
-    try {
-      await _audioPlayer.setSource(AssetSource('audio/buzzer.mp3'));
-      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-      await _audioPlayer.resume();
-    } catch(e) {
-      debugPrint("Error playing sound: $e");
-    }
-  }
-
-  Future<void> stopAlarmSound() async {
-    try {
-      await _audioPlayer.stop();
-    } catch(e) {
-      debugPrint("Error stopping sound: $e");
-    }
+  Future<void> _scheduleIOSAlarm(int id, String title, tz.TZDateTime scheduledDate, String? soundFile) async {
+    String cleanSound = (soundFile ?? 'buzzer').split('.').first;
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      id, title, "Time to wake up!", scheduledDate,
+      NotificationDetails(iOS: DarwinNotificationDetails(sound: '$cleanSound.mp3', presentSound: true, presentAlert: true)),
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+    );
   }
 }

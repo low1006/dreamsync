@@ -70,4 +70,7 @@ class StoreItem {
 
   // 4. For Items: Get an icon name if you stored one
   String get iconName => metadata['icon'] ?? 'help_outline';
+
+
+
 }

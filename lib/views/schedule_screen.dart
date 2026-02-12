@@ -6,7 +6,7 @@ import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 
 // --- IMPORT VIEWMODELS ---
-import 'package:dreamsync/viewmodels/inventory_viewmodel.dart'; // Added import
+import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/models/inventory_model.dart';
 
 // --- IMPORT WIDGETS ---
@@ -39,6 +39,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   // Tone Variables
   int _currentToneId = 1;
   String _currentToneName = "Classic";
+  String _currentToneFile = "classic.mp3"; // Default file
 
   // --- INITIALIZATION ---
   @override
@@ -54,7 +55,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isSnoozeOn = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // FIX: Load both Schedule and Inventory here (safe from build errors)
       context.read<ScheduleViewModel>().loadSchedules();
       context.read<InventoryViewModel>().loadInventory();
     });
@@ -64,11 +64,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // Only update local state if we haven't initialized yet
     if (_isInit) {
       final vm = context.watch<ScheduleViewModel>();
 
-      // STRICT CHECK: Only stop loading if we actually have data.
       if (!vm.isLoading && vm.schedules.isNotEmpty) {
         final schedule = vm.schedules.first;
 
@@ -81,17 +79,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _isSnoozeOn = schedule.isSnoozeOn;
         _currentToneId = schedule.toneId;
         _currentToneName = schedule.toneName;
+        _currentToneFile = schedule.toneFile; // Load the saved file
 
-        // Data is ready! Now we can show the UI.
         _isInit = false;
       }
-      // REMOVED: context.read<InventoryViewModel>().loadInventory(); from here
     }
   }
 
   // --- LOGIC ---
 
-  // Helper: Instantly toggles the Main Alarm without needing "Edit Mode"
   Future<void> _quickUpdate(bool isActive) async {
     if (_existingId == null) return;
 
@@ -100,7 +96,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     int notificationId = _existingId.hashCode;
 
     if (isActive) {
-      // Re-schedule with snooze setting
+      // Re-schedule with current settings
       await NotificationService().scheduleAlarm(
         id: notificationId,
         title: "Wake Up",
@@ -108,9 +104,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         days: _selectedDays,
         isEnabled: true,
         isSnoozeOn: _isSnoozeOn,
+        soundFile: _currentToneFile, // Pass the sound file
       );
     } else {
-      // Cancel
       await NotificationService().cancelAlarm(notificationId);
     }
 
@@ -135,7 +131,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Future<void> _pickTime(bool isBedtime) async {
-    // Only allow picking time if Editing
     if (!_isEditing) return;
 
     final initial = isBedtime ? _bedTime : _wakeTime;
@@ -161,7 +156,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final userVM = context.read<UserViewModel>();
     final double mySleepGoal = userVM.userProfile?.sleepGoalHours ?? 8.0;
 
-    // 1. Validation
     final String? hardError = scheduleVM.validateBlockingIssues(
       bedtime: _bedTime, wakeTime: _wakeTime, days: _selectedDays,
     );
@@ -170,7 +164,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       return;
     }
 
-    // 2. Warnings
     if (scheduleVM.isSleepDurationShort(bedtime: _bedTime, wakeTime: _wakeTime, sleepGoal: mySleepGoal)) {
       final bool? confirm = await showDialog<bool>(
         context: context,
@@ -186,7 +179,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (confirm != true) return;
     }
 
-    // 3. Save
     final scheduleToSave = ScheduleModel(
       id: _existingId ?? '',
       label: "Main Schedule",
@@ -196,23 +188,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       days: _selectedDays,
       isSmartAlarm: _isSmartAlarm,
       isSnoozeOn: _isSnoozeOn,
-      toneId: _currentToneId, // Save the ID
+      toneId: _currentToneId,
       toneName: _currentToneName,
-      toneFile: '...',
+      toneFile: _currentToneFile, // Save the actual filename
     );
 
     await scheduleVM.saveSchedule(scheduleToSave);
 
     int notificationId = scheduleToSave.id.hashCode;
 
-    // ← UPDATED: Pass isSnoozeOn parameter
     await NotificationService().scheduleAlarm(
       id: notificationId,
       title: "Wake Up",
       time: _wakeTime,
       days: _selectedDays,
       isEnabled: _isAlarmOn,
-      isSnoozeOn: _isSnoozeOn, // ← ADDED: Pass snooze setting
+      isSnoozeOn: _isSnoozeOn,
+      soundFile: _currentToneFile, // Pass the sound file
     );
 
     if (mounted) {
@@ -222,20 +214,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   void _openToneSelector() {
-    // Filter only AUDIO items
-    final allItems = context.read<InventoryViewModel>().myItems;
+    // 1. Get unlocked tones from Inventory
+    final inventoryVM = context.read<InventoryViewModel>();
+    final allItems = inventoryVM.myItems;
+
+    // Filter for AUDIO type
     final audioItems = allItems.where((i) => i.details.type == StoreItemType.AUDIO).toList();
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true, // Allows sheet to be taller
+      backgroundColor: Colors.transparent,
       builder: (_) => ToneSelector(
         currentToneId: _currentToneId,
         unlockedTones: audioItems,
-        onToneSelected: (item) {
+
+        // 2. Handle Selection
+        onToneSelected: (id, name, file) {
           setState(() {
-            _currentToneId = item.details.id;
-            _currentToneName = item.details.name;
+            _currentToneId = id;
+            _currentToneName = name;
+            _currentToneFile = file;
           });
+          // Note: We don't pop immediately so user can preview.
+          // Or you can add Navigator.pop(context); if you want instant close.
         },
       ),
     );
@@ -243,16 +245,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Theme Colors
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
     final accent = const Color(0xFF3B82F6);
     final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
-    // --- LOADING STATE ---
-    // If _isInit is still true, it means we are waiting for DB data.
-    // Show a loading spinner instead of the empty default UI.
     if (_isInit) {
       return Scaffold(
         backgroundColor: bg,
@@ -267,8 +265,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       );
     }
 
-    // --- MAIN CONTENT ---
-    // Only renders once data is loaded and copied to local variables
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -292,7 +288,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Your existing UI components...
             _buildAiRecommendationCard(isDark, text),
             const SizedBox(height: 24),
 
@@ -337,7 +332,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
             const SizedBox(height: 30),
 
-            // Controls
             ScheduleControls(
               isAlarmOn: _isAlarmOn,
               isSnoozeOn: _isSnoozeOn,
@@ -347,7 +341,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               isEditing: _isEditing,
               bg: surface, text: text, accent: accent,
 
-              // Connected the function here
               onToneTap: _openToneSelector,
 
               onToggleAlarm: (val) {

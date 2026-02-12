@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/util/global.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // ViewModels
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
@@ -15,7 +16,7 @@ import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 // Screens
 import 'package:dreamsync/views/auth_screen/login_screen.dart';
 import 'package:dreamsync/views/main_screen.dart';
-import 'package:dreamsync/views/alarm_ring_screen.dart'; // Import this
+import 'package:dreamsync/views/alarm_ring_screen.dart';
 
 const String supabaseURL = 'https://xagpcogenalviktbsmap.supabase.co';
 const String supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZ3Bjb2dlbmFsdmlrdGJzbWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTQxNDksImV4cCI6MjA4Mzg5MDE0OX0.8IrDPy-BYywk6A53q6M7gSSEdDqwNK6x6f-TYG93rds';
@@ -23,13 +24,8 @@ const String supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
   await Supabase.initialize(url: supabaseURL, anonKey: supabaseKey);
-
-  // Initialize Alarm Manager
-  await AndroidAlarmManager.initialize(); // Add this line
-
-  // Initialize Notification Service
+  await AndroidAlarmManager.initialize();
   await NotificationService().init();
 
   runApp(
@@ -40,8 +36,42 @@ Future<void> main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+
+  @override
+  void initState() {
+    super.initState();
+    _checkNotificationLaunch();
+
+    // Listen for alarms if app is already open
+    NotificationService().onAlarmFired.listen((payload) {
+      int id = int.tryParse(payload) ?? 0;
+      navigatorKey.currentState?.pushNamed('/alarm_ring', arguments: {'id': id});
+    });
+  }
+
+  // Detects if app was launched by the Full Screen Intent (Pop Out)
+  Future<void> _checkNotificationLaunch() async {
+    final NotificationAppLaunchDetails? details =
+    await NotificationService().flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+
+    if (details != null && details.didNotificationLaunchApp) {
+      String? payload = details.notificationResponse?.payload;
+      int id = int.tryParse(payload ?? '0') ?? 0;
+
+      // Wait slightly for Navigator to be ready
+      Future.delayed(const Duration(milliseconds: 500), () {
+        navigatorKey.currentState?.pushNamed('/alarm_ring', arguments: {'id': id});
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,11 +81,9 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
 
-      // --- CRITICAL: Add the route for the Alarm Activity ---
       routes: {
         '/alarm_ring': (context) => const AlarmRingScreen(),
       },
-      // ----------------------------------------------------
 
       theme: ThemeData(
         useMaterial3: true,
