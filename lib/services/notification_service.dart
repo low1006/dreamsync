@@ -8,11 +8,30 @@ import 'dart:io' show Platform;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:do_not_disturb/do_not_disturb.dart';
 
-// --- BACKGROUND CALLBACK ---
+// Create a global instance for the background tasks to use
+final _dndPlugin = DoNotDisturbPlugin();
+
+// --- WAKE UP CALLBACK (TURNS OFF DND & RINGS) ---
 @pragma('vm:entry-point')
-void fireAlarmCallback(int id, Map<String, dynamic> params) {
-  // 1. Show the Alarm Notification (Rings the device)
+void fireAlarmCallback(int id, Map<String, dynamic> params) async {
+  // 1. MUST ADD THIS FOR BACKGROUND PLUGINS TO WORK
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. Turn OFF DND if Smart Notification is enabled
+  bool isSmartNotification = params['isSmartNotification'] ?? false;
+  if (isSmartNotification) {
+    bool hasAccess = await _dndPlugin.isNotificationPolicyAccessGranted();
+    debugPrint("☀️ Wake Up DND Check - Has Access? $hasAccess");
+
+    if (hasAccess) {
+      await _dndPlugin.setInterruptionFilter(InterruptionFilter.all);
+      debugPrint("☀️ DND turned OFF (InterruptionFilter.all)");
+    }
+  }
+
+  // 3. Show the Alarm Notification
   NotificationService().showAlarmNotification(
     id: id,
     title: params['title'] ?? 'Wake Up',
@@ -21,46 +40,74 @@ void fireAlarmCallback(int id, Map<String, dynamic> params) {
     soundFile: params['soundFile'],
   );
 
-  // 2. RESCHEDULE FOR NEXT WEEK (The Fix)
-  // If this is a recurring alarm (loop: true), schedule it again for 7 days later.
+  // 4. Reschedule for next week
   bool loop = params['loop'] ?? false;
   if (loop) {
     _rescheduleNextWeek(id, params);
   }
 }
 
-// Separate function to handle rescheduling in the background isolate
 void _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
-  // We need to initialize the plugin in the background isolate if it's not ready
-  // (Usually handled automatically, but safer to just call oneShotAt directly)
-
   int hour = params['hour'];
   int minute = params['minute'];
 
-  // Calculate exactly 7 days from NOW (approximate) or align to the target time
-  // Safest approach: Take current date + 7 days, set specific hour/minute.
   DateTime now = DateTime.now();
   DateTime nextRun = DateTime(
-    now.year,
-    now.month,
-    now.day + 7, // Add 7 days
-    hour,
-    minute,
-    0, // second
+    now.year, now.month, now.day + 7, hour, minute, 0,
   );
 
   debugPrint("🔄 Rescheduling Alarm ID: $id for next week: $nextRun");
 
   await AndroidAlarmManager.oneShotAt(
-    nextRun,
-    id,
-    fireAlarmCallback, // Recursive callback
-    exact: true,
-    wakeup: true,
-    alarmClock: true,
-    allowWhileIdle: true,
-    rescheduleOnReboot: true,
-    params: params, // Pass the SAME params so it keeps looping forever
+    nextRun, id, fireAlarmCallback,
+    exact: true, wakeup: true, alarmClock: true, allowWhileIdle: true, rescheduleOnReboot: true,
+    params: params,
+  );
+}
+
+// --- BEDTIME CALLBACK (TURNS ON DND) ---
+@pragma('vm:entry-point')
+void fireBedtimeCallback(int id, Map<String, dynamic> params) async {
+  // 1. MUST ADD THIS FOR BACKGROUND PLUGINS TO WORK
+  WidgetsFlutterBinding.ensureInitialized();
+
+  debugPrint("🌙 Bedtime triggered! Turning ON Do Not Disturb.");
+
+  // 2. Turn ON DND (Allowing alarms through)
+  bool hasAccess = await _dndPlugin.isNotificationPolicyAccessGranted();
+  debugPrint("🌙 Bedtime DND Check - Has Access? $hasAccess");
+
+  if (hasAccess) {
+    await _dndPlugin.setInterruptionFilter(InterruptionFilter.alarms);
+    debugPrint("🌙 DND successfully set to ALARMS ONLY!");
+
+    // 3. Show the helpful UI Notification
+    await NotificationService().showDndNotification();
+  } else {
+    debugPrint("❌ ERROR: App does not have DND permissions in the background!");
+  }
+
+  bool loop = params['loop'] ?? false;
+  if (loop) {
+    _rescheduleBedtimeNextWeek(id, params);
+  }
+}
+
+void _rescheduleBedtimeNextWeek(int id, Map<String, dynamic> params) async {
+  int hour = params['hour'];
+  int minute = params['minute'];
+
+  DateTime now = DateTime.now();
+  DateTime nextRun = DateTime(
+    now.year, now.month, now.day + 7, hour, minute, 0,
+  );
+
+  debugPrint("🔄 Rescheduling Bedtime ID: $id for next week: $nextRun");
+
+  await AndroidAlarmManager.oneShotAt(
+    nextRun, id, fireBedtimeCallback,
+    exact: true, wakeup: true, alarmClock: false, allowWhileIdle: true, rescheduleOnReboot: true,
+    params: params,
   );
 }
 
@@ -130,14 +177,16 @@ class NotificationService {
     }
   }
 
-  // --- SCHEDULE ALARM ---
+  // --- SCHEDULE ALARM & BEDTIME ---
   Future<void> scheduleAlarm({
     required int id,
     required String title,
     required TimeOfDay time,
+    required TimeOfDay bedTime,
     required List<String> days,
     required bool isEnabled,
     required bool isSnoozeOn,
+    required bool isSmartNotification,
     String? soundFile,
   }) async {
     await cancelAlarm(id);
@@ -146,13 +195,25 @@ class NotificationService {
 
     for (String day in days) {
       final uniqueId = _createUniqueId(id, day);
-      final nextTime = _nextInstanceOfDayAndTime(time, _getDayOfWeek(day));
+      final bedtimeUniqueId = uniqueId + 200000;
 
-      debugPrint("📅 Scheduling Alarm for $day at $nextTime (ID: $uniqueId) with sound: $soundFile");
+      final nextWakeTime = _nextInstanceOfDayAndTime(time, _getDayOfWeek(day));
+
+      DateTime nextBedTime = DateTime(
+          nextWakeTime.year, nextWakeTime.month, nextWakeTime.day, bedTime.hour, bedTime.minute
+      );
+      if (nextBedTime.isAfter(nextWakeTime)) {
+        nextBedTime = nextBedTime.subtract(const Duration(days: 1));
+      }
+
+      debugPrint("📅 Scheduling Wake Up for $day at $nextWakeTime (ID: $uniqueId)");
+      if (isSmartNotification) {
+        debugPrint("🌙 Scheduling Bedtime DND for $day at $nextBedTime (ID: $bedtimeUniqueId)");
+      }
 
       if (Platform.isAndroid) {
         await AndroidAlarmManager.oneShotAt(
-          nextTime,
+          nextWakeTime,
           uniqueId,
           fireAlarmCallback,
           exact: true,
@@ -166,16 +227,35 @@ class NotificationService {
             'payload': id.toString(),
             'isSnoozeOn': isSnoozeOn,
             'soundFile': soundFile,
-
-            // --- NEW PARAMS FOR RECURRENCE ---
-            'loop': true,             // Enable looping
-            'hour': time.hour,        // Store original hour
-            'minute': time.minute,    // Store original minute
-            'day': day,               // Store day name (debug/unused)
+            'isSmartNotification': isSmartNotification,
+            'loop': true,
+            'hour': time.hour,
+            'minute': time.minute,
+            'day': day,
           },
         );
+
+        if (isSmartNotification) {
+          await AndroidAlarmManager.oneShotAt(
+            nextBedTime,
+            bedtimeUniqueId,
+            fireBedtimeCallback,
+            exact: true,
+            wakeup: true,
+            alarmClock: false,
+            allowWhileIdle: true,
+            rescheduleOnReboot: true,
+            params: {
+              'loop': true,
+              'hour': bedTime.hour,
+              'minute': bedTime.minute,
+              'day': day,
+            },
+          );
+        }
+
       } else {
-        await _scheduleIOSAlarm(uniqueId, title, nextTime, soundFile);
+        await _scheduleIOSAlarm(uniqueId, title, nextWakeTime, soundFile);
       }
     }
   }
@@ -240,13 +320,12 @@ class NotificationService {
         exact: true,
         wakeup: true,
         alarmClock: true,
-        // Snooze does NOT loop
         params: {
           'title': 'Snooze',
           'body': 'Snooze over!',
           'payload': originalId.toString(),
           'soundFile': 'buzzer.mp3',
-          'loop': false // Important: Snooze does NOT repeat next week
+          'loop': false
         },
       );
     } else {
@@ -272,6 +351,7 @@ class NotificationService {
       if (Platform.isAndroid) {
         await AndroidAlarmManager.cancel(uniqueId);
         await AndroidAlarmManager.cancel(uniqueId + 100000);
+        await AndroidAlarmManager.cancel(uniqueId + 200000);
       }
       await flutterLocalNotificationsPlugin.cancel(uniqueId);
       await flutterLocalNotificationsPlugin.cancel(uniqueId + 100000);
@@ -319,6 +399,42 @@ class NotificationService {
       NotificationDetails(iOS: DarwinNotificationDetails(sound: '$cleanSound.mp3', presentSound: true, presentAlert: true)),
       uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+    );
+  }
+
+  // --- NEW DND PERMISSION & NOTIFICATION HELPERS ---
+
+  // 1. Checks if we have permission
+  Future<bool> hasDndAccess() async {
+    return await _dndPlugin.isNotificationPolicyAccessGranted();
+  }
+
+  // 2. Opens the settings
+  Future<void> openDndSettings() async {
+    await _dndPlugin.openNotificationPolicyAccessSettings();
+  }
+
+  // 3. Shows the Bedtime Notification
+  Future<void> showDndNotification() async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'dnd_status_channel',
+      'DND Status',
+      channelDescription: 'Notifies you when Do Not Disturb is activated',
+      importance: Importance.low, // Low importance so it doesn't vibrate/make noise
+      priority: Priority.low,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    const NotificationDetails platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(),
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      9999, // Unique ID for DND status
+      'Bedtime Activated 🌙',
+      'Do Not Disturb is ON. Sleep well, your morning alarm will still ring!',
+      platformDetails,
     );
   }
 }

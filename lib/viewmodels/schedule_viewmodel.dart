@@ -54,6 +54,7 @@ class ScheduleViewModel extends ChangeNotifier {
         wakeTime: const TimeOfDay(hour: 7, minute: 0),
         days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
         isSmartAlarm: true,
+        isSmartNotification: true,
         itemId: defaultId,
         isSnoozeOn: true,
       );
@@ -71,6 +72,7 @@ class ScheduleViewModel extends ChangeNotifier {
           wakeTime: schedule.wakeTime,
           days: schedule.days,
           isSmartAlarm: schedule.isSmartAlarm,
+          isSmartNotification: schedule.isSmartNotification,
           itemId:
               2, // Hardcoded default for now until you build a Tone Selector UI
         );
@@ -86,6 +88,11 @@ class ScheduleViewModel extends ChangeNotifier {
   // ... toggleSchedule and deleteSchedule remain the same ...
   Future<void> toggleSchedule(String id, bool currentStatus) async {
     await _repository.toggleActive(id, currentStatus);
+    await loadSchedules();
+  }
+
+  Future<void> toggleSmartNotification(String id, bool currentStatus) async {
+    await _repository.toggleSmartNotification(id, currentStatus);
     await loadSchedules();
   }
 

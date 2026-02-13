@@ -8,9 +8,9 @@ class ScheduleModel {
   final bool isActive;
   final List<String> days;
   final bool isSmartAlarm;
+  final bool isSmartNotification; // <-- 1. ADD THIS
   final bool isSnoozeOn;
 
-  // ADDED: Tone information
   final int toneId;
   final String toneName;
   final String toneFile;
@@ -23,6 +23,7 @@ class ScheduleModel {
     required this.isActive,
     required this.days,
     this.isSmartAlarm = false,
+    this.isSmartNotification = true, // <-- 2. ADD THIS
     this.isSnoozeOn = true,
     this.toneId = 1,
     this.toneName = 'Classic',
@@ -30,7 +31,6 @@ class ScheduleModel {
   });
 
   factory ScheduleModel.fromMap(Map<String, dynamic> map) {
-    // Handle the joined store_items data
     final toneData = map['store_items'] ?? {};
     final metadata = toneData['metadata'] ?? {};
 
@@ -42,9 +42,8 @@ class ScheduleModel {
       isActive: map['is_alarm_on'] ?? true,
       days: _parseDays(map['days']),
       isSmartAlarm: map['is_smart_alarm'] ?? false,
+      isSmartNotification: map['is_smart_notification'] ?? true, // <-- 3. ADD THIS
       isSnoozeOn: map['is_snooze_on'] ?? true,
-
-      // Map new fields
       toneId: map['item_id'] ?? 1,
       toneName: toneData['name'] ?? 'Classic',
       toneFile: metadata['file'] ?? 'classic.mp3',

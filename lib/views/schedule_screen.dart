@@ -101,9 +101,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         id: notificationId,
         title: "Wake Up",
         time: _wakeTime,
+        bedTime: _bedTime,
         days: _selectedDays,
         isEnabled: true,
         isSnoozeOn: _isSnoozeOn,
+        isSmartNotification: _isSmartNotification,
         soundFile: _currentToneFile, // Pass the sound file
       );
     } else {
@@ -115,6 +117,41 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isActive ? "Alarm Enabled" : "Alarm Disabled"),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _quickUpdateNotification(bool isSmartNotif) async {
+    if (_existingId == null) return;
+
+    // 1. Update the database
+    await context.read<ScheduleViewModel>().toggleSmartNotification(_existingId!, isSmartNotif);
+
+    int notificationId = _existingId.hashCode;
+
+    // 2. Re-schedule the alarm to register or cancel the DND background tasks
+    if (_isAlarmOn) {
+      await NotificationService().scheduleAlarm(
+        id: notificationId,
+        title: "Wake Up",
+        time: _wakeTime,
+        bedTime: _bedTime,
+        days: _selectedDays,
+        isEnabled: true,
+        isSnoozeOn: _isSnoozeOn,
+        isSmartNotification: isSmartNotif, // Apply the new DND state
+        soundFile: _currentToneFile,
+      );
+    }
+
+    if(mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isSmartNotif ? "Do Not Disturb Enabled" : "Do Not Disturb Disabled"),
           duration: const Duration(seconds: 1),
           behavior: SnackBarBehavior.floating,
         ),
@@ -187,6 +224,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       isActive: _isAlarmOn,
       days: _selectedDays,
       isSmartAlarm: _isSmartAlarm,
+      isSmartNotification: _isSmartNotification,
       isSnoozeOn: _isSnoozeOn,
       toneId: _currentToneId,
       toneName: _currentToneName,
@@ -201,9 +239,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       id: notificationId,
       title: "Wake Up",
       time: _wakeTime,
+      bedTime: _bedTime,
       days: _selectedDays,
       isEnabled: _isAlarmOn,
       isSnoozeOn: _isSnoozeOn,
+      isSmartNotification: _isSmartNotification,
       soundFile: _currentToneFile, // Pass the sound file
     );
 

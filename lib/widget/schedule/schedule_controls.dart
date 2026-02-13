@@ -6,7 +6,7 @@ class ScheduleControls extends StatelessWidget {
   final bool isSmartAlarm;
   final bool isSmartNotification;
   final String currentToneName;
-  final bool isEditing; // Controls if we can change settings
+  final bool isEditing;
 
   final Color bg;
   final Color text;
@@ -16,8 +16,6 @@ class ScheduleControls extends StatelessWidget {
   final Function(bool) onToggleSnooze;
   final Function(bool) onToggleSmartAlarm;
   final Function(bool) onToggleNotification;
-
-  // 1. ADDED: Callback for tone selection
   final VoidCallback onToneTap;
 
   const ScheduleControls({
@@ -35,7 +33,6 @@ class ScheduleControls extends StatelessWidget {
     required this.onToggleSnooze,
     required this.onToggleSmartAlarm,
     required this.onToggleNotification,
-    // 2. ADDED: Receive it in constructor
     required this.onToneTap,
   });
 
@@ -70,7 +67,7 @@ class ScheduleControls extends StatelessWidget {
 
         const SizedBox(height: 30),
 
-        // 2. ALARM SETTINGS (Tone, Snooze)
+        // 2. ALARM SETTINGS
         Text("ALARM SETTINGS", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         const SizedBox(height: 10),
 
@@ -87,23 +84,24 @@ class ScheduleControls extends StatelessWidget {
             isSmartAlarm, onToggleSmartAlarm
         ),
         const SizedBox(height: 12),
+        // ---> MODIFIED THIS CALL: Set alwaysActive to true so it can be toggled without edit mode
         _buildFeatureCard(
             "Smart Notification", "Get intelligent sleep reminders.", Icons.notifications_active,
-            isSmartNotification, onToggleNotification
+            isSmartNotification, onToggleNotification,
+            alwaysActive: true
         ),
       ],
     );
   }
 
   Widget _buildSettingsCard(BuildContext context) {
-    // Only enabled if isEditing is TRUE.
     final bool isDisabled = !isEditing;
 
     return IgnorePointer(
       ignoring: isDisabled,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 300),
-        opacity: isDisabled ? 0.6 : 1.0, // Dimmed if not editing
+        opacity: isDisabled ? 0.6 : 1.0,
         child: Container(
           decoration: BoxDecoration(
             color: bg,
@@ -121,7 +119,6 @@ class ScheduleControls extends StatelessWidget {
                   const SizedBox(width: 8),
                   Icon(Icons.arrow_forward_ios, size: 16, color: text.withOpacity(0.3)),
                 ]),
-                // 3. MODIFIED: Connected the callback here
                 onTap: onToneTap,
               ),
               Divider(height: 1, color: text.withOpacity(0.05)),
@@ -138,8 +135,10 @@ class ScheduleControls extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureCard(String title, String subtitle, IconData icon, bool value, Function(bool) onChanged) {
-    final bool isDisabled = !isEditing;
+  // ---> MODIFIED SIGNATURE: Added alwaysActive parameter
+  Widget _buildFeatureCard(String title, String subtitle, IconData icon, bool value, Function(bool) onChanged, {bool alwaysActive = false}) {
+    // If alwaysActive is true, it is never disabled. Otherwise, disabled when NOT editing.
+    final bool isDisabled = alwaysActive ? false : !isEditing;
 
     return IgnorePointer(
       ignoring: isDisabled,

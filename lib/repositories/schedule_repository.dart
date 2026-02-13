@@ -26,6 +26,7 @@ class ScheduleRepository {
     required TimeOfDay wakeTime,
     required List<String> days,
     required bool isSmartAlarm,
+    required bool isSmartNotification, // <-- ADDED THIS
     required int itemId,
     bool isSnoozeOn = true,
   }) async {
@@ -39,6 +40,7 @@ class ScheduleRepository {
       'days': days,
       'is_alarm_on': true,
       'is_smart_alarm': isSmartAlarm,
+      'is_smart_notification': isSmartNotification, // <-- ADDED THIS
       'item_id': itemId,
       'is_snooze_on': isSnoozeOn,
     });
@@ -52,12 +54,18 @@ class ScheduleRepository {
       'days': schedule.days,
       'is_alarm_on': schedule.isActive,
       'is_smart_alarm': schedule.isSmartAlarm,
+      'is_smart_notification': schedule.isSmartNotification, // <-- ADDED THIS
       'is_snooze_on' : schedule.isSnoozeOn,
+      // 'item_id': schedule.toneId, // Optional: uncomment if you also want to update the tone id here
     }).eq('schedule_id', schedule.id);
   }
 
   Future<void> toggleActive(String id, bool currentValue) async {
     await _client.from(_tableName).update({'is_alarm_on': currentValue}).eq('schedule_id', id);
+  }
+
+  Future<void> toggleSmartNotification(String id, bool currentValue) async {
+    await _client.from(_tableName).update({'is_smart_notification': currentValue}).eq('schedule_id', id);
   }
 
   Future<void> deleteSchedule(String id) async {
