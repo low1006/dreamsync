@@ -12,6 +12,7 @@ import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 
 // Screens
 import 'package:dreamsync/views/auth_screen/login_screen.dart';
@@ -119,6 +120,7 @@ class _MyAppState extends State<MyApp> {
                 ChangeNotifierProvider(create: (_) => AchievementViewModel()),
                 ChangeNotifierProvider(create: (_) => ScheduleViewModel()),
                 ChangeNotifierProvider(create: (_) => InventoryViewModel()),
+                ChangeNotifierProvider(create: (_) => FriendViewModel()),
               ],
               child: const MainScreen(),
             );

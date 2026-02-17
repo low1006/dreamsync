@@ -9,6 +9,7 @@ class UserModel {
   final String uidText;
   final int currentPoints;
   final double sleepGoalHours;
+  final int streak; // <--- ADDED THIS FIELD
 
   UserModel({
     required this.userId,
@@ -20,9 +21,10 @@ class UserModel {
     required this.height,
     required this.uidText,
     required this.currentPoints,
-    required this.sleepGoalHours
-
+    required this.sleepGoalHours,
+    this.streak = 0, // <--- DEFAULT 0
   });
+
 
   int get age {
     if(dateBirth.isEmpty) return 0;
@@ -45,31 +47,33 @@ class UserModel {
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      userId: json['user_id'],
-      username: json['username'] ?? '',
+      userId: json['user_id'] ?? '',
+      username: json['username'] ?? 'Unknown',
       email: json['email'] ?? '',
       gender: json['gender'] ?? '',
       dateBirth: json['date_birth'] ?? '',
-      weight: (json['weight'] ?? 0.0).toDouble(),
-      height: (json['height'] ?? 0.0).toDouble(),
+      weight: (json['weight'] ?? 0).toDouble(),
+      height: (json['height'] ?? 0).toDouble(),
       uidText: json['uid_text'] ?? '',
       currentPoints: json['current_points'] ?? 0,
-      sleepGoalHours: (json['sleep_goal_hours'] ?? 8.0).toDouble(),
+      sleepGoalHours: (json['sleep_goal_hours'] ?? 8).toDouble(),
+      streak: json['streak'] ?? 0, // <--- MAP IT FROM DATABASE
     );
   }
 
-  Map<String, dynamic> toJson(){
-    return{
-      'user_id':userId,
-      'username':username,
-      'email':email,
-      'gender':gender,
-      'date_birth':dateBirth,
-      'weight':weight,
-      'height':height,
-      'uid_text':uidText,
-      'current_points':currentPoints,
-      'sleep_goal_hours':sleepGoalHours,
+  Map<String, dynamic> toJson() {
+    return {
+      'user_id': userId,
+      'username': username,
+      'email': email,
+      'gender': gender,
+      'date_birth': dateBirth,
+      'weight': weight,
+      'height': height,
+      'uid_text': uidText,
+      'current_points': currentPoints,
+      'sleep_goal_hours': sleepGoalHours,
+      'streak': streak, // <--- SAVE IT
     };
   }
 }

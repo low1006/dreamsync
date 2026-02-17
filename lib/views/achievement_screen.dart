@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
-import 'package:dreamsync/models/user_achievement_model.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart'; // Import ProfileViewModel
+import 'package:dreamsync/models/user_model.dart';
 
 class AchievementScreen extends StatefulWidget {
   const AchievementScreen({super.key});
@@ -11,295 +12,354 @@ class AchievementScreen extends StatefulWidget {
   State<AchievementScreen> createState() => _AchievementScreenState();
 }
 
-class _AchievementScreenState extends State<AchievementScreen> {
+class _AchievementScreenState extends State<AchievementScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+
+    // Load Data on Init
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchData();
+      final profileVM = context.read<UserViewModel>(); // Use ProfileViewModel here
+      final user = profileVM.userProfile;
+
+      if (user != null) {
+        context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
+      }
+
+      context.read<FriendViewModel>().loadLeaderboard();
     });
   }
 
-  Future<void> _fetchData() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId != null && mounted) {
-      await context.read<AchievementViewModel>().fetchUserAchievements(userId);
-    }
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // 1. Theme Logic
+    // --- THEME COLORS (Matching FriendListScreen) ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scaffoldBg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final primaryText = Theme.of(context).colorScheme.onSurface;
-
-    // Surface colors for Cards
-    final surfaceColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9);
+    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final text = isDark ? Colors.white : const Color(0xFF1E293B);
+    final accent = const Color(0xFF3B82F6); // The blue accent color
 
     return Scaffold(
-      backgroundColor: scaffoldBg,
+      backgroundColor: bg,
       appBar: AppBar(
-        title: Text(
-          "My Achievements",
-          style: TextStyle(color: primaryText, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: scaffoldBg,
+        backgroundColor: bg,
         elevation: 0,
-        iconTheme: IconThemeData(color: primaryText),
+        centerTitle: true,
+        title: Text(
+            "Achievements",
+            style: TextStyle(color: text, fontWeight: FontWeight.bold)
+        ),
+        iconTheme: IconThemeData(color: text),
+
+        // --- UPDATED TAB BAR DESIGN ---
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: accent,
+          labelColor: accent,
+          unselectedLabelColor: text.withOpacity(0.5),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          dividerColor: text.withOpacity(0.1),
+          tabs: const [
+            Tab(text: "Badges"),
+            Tab(text: "Leaderboard"),
+          ],
+        ),
       ),
-      body: Consumer<AchievementViewModel>(
-        builder: (context, viewModel, child) {
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          // TAB 1: BADGES
+          _buildBadgesTab(context, text, accent),
 
-          // Loading
-          if (viewModel.isLoading) {
-            return Center(child: CircularProgressIndicator(color: const Color(0xFF3B82F6)));
-          }
+          // TAB 2: LEADERBOARD
+          _buildLeaderboardTab(context, text, accent),
+        ],
+      ),
+    );
+  }
 
-          // Empty
-          if (viewModel.userAchievements.isEmpty) {
-            return RefreshIndicator(
-              onRefresh: _fetchData,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+  // --- BADGES TAB ---
+  Widget _buildBadgesTab(BuildContext context, Color text, Color accent) {
+    return Consumer<AchievementViewModel>(
+      builder: (context, vm, child) {
+        if (vm.isLoading) return Center(child: CircularProgressIndicator(color: accent));
+
+        if (vm.userAchievements.isEmpty) {
+          return Center(child: Text("No achievements yet!", style: TextStyle(color: text.withOpacity(0.5))));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(20),
+          itemCount: vm.userAchievements.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final userAchievement = vm.userAchievements[index];
+            final badge = userAchievement.achievement;
+
+            if (badge == null) return const SizedBox.shrink();
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor, // Uses default card color (adaptable) or explicit surface color if passed
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: text.withOpacity(0.05)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  )
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 200),
-                  Center(
-                    child: Text(
-                      "No achievements found.",
-                      style: TextStyle(color: primaryText.withOpacity(0.7)),
+                  // Icon
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: userAchievement.isUnlocked ? Colors.amber.withOpacity(0.1) : text.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.emoji_events,
+                      color: userAchievement.isUnlocked ? Colors.amber : text.withOpacity(0.3),
+                      size: 28,
                     ),
                   ),
+                  const SizedBox(width: 16),
+
+                  // Text Content
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          badge.title, // Assuming your model has 'title' or 'name'
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          badge.description,
+                          style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Progress Bar
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: (userAchievement.currentProgress / badge.criteriaValue).clamp(0.0, 1.0),
+                            backgroundColor: text.withOpacity(0.1),
+                            color: userAchievement.isUnlocked ? Colors.green : accent,
+                            minHeight: 6,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
+                          style: TextStyle(fontSize: 12, color: text.withOpacity(0.5), fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (userAchievement.isUnlocked)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 8.0),
+                      child: Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    ),
                 ],
               ),
             );
-          }
-
-          // List
-          return RefreshIndicator(
-            onRefresh: _fetchData,
-            color: const Color(0xFF3B82F6),
-            child: Scrollbar(
-              thumbVisibility: true,
-              child: ListView.builder(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                itemCount: viewModel.userAchievements.length,
-                itemBuilder: (context, index) {
-                  final userAchievement = viewModel.userAchievements[index];
-                  return AchievementTile(
-                    userAchievement: userAchievement,
-                    viewModel: viewModel,
-                    isDark: isDark,
-                    surfaceColor: surfaceColor,
-                    textColor: primaryText,
-                  );
-                },
-              ),
-            ),
-          );
-        },
-      ),
+          },
+        );
+      },
     );
   }
-}
 
-// --- TILE WIDGET (THEMED) ---
-class AchievementTile extends StatefulWidget {
-  final UserAchievementModel userAchievement;
-  final AchievementViewModel viewModel;
+  // --- LEADERBOARD TAB ---
+  Widget _buildLeaderboardTab(BuildContext context, Color text, Color accent) {
+    return Consumer2<FriendViewModel, UserViewModel>( // Use ProfileViewModel here
+      builder: (context, friendVM, profileVM, child) {
 
-  // Theme props
-  final bool isDark;
-  final Color surfaceColor;
-  final Color textColor;
+        final currentUser = profileVM.userProfile;
 
-  const AchievementTile({
-    super.key,
-    required this.userAchievement,
-    required this.viewModel,
-    required this.isDark,
-    required this.surfaceColor,
-    required this.textColor,
-  });
+        if (currentUser == null) {
+          return Center(child: CircularProgressIndicator(color: accent));
+        }
 
-  @override
-  State<AchievementTile> createState() => _AchievementTileState();
-}
+        if (friendVM.isLoading && friendVM.leaderboardUsers.isEmpty) {
+          return Center(child: CircularProgressIndicator(color: accent));
+        }
 
-class _AchievementTileState extends State<AchievementTile> {
-  late double _localSliderValue;
+        final leaderboard = friendVM.leaderboardUsers;
+        bool noFriends = leaderboard.length <= 1;
 
-  @override
-  void initState() {
-    super.initState();
-    _localSliderValue = widget.userAchievement.currentProgress;
-  }
+        if (noFriends) {
+          return _buildNoFriendsView(currentUser, text, accent, context);
+        }
 
-  @override
-  void didUpdateWidget(covariant AchievementTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.userAchievement.currentProgress !=
-        widget.userAchievement.currentProgress) {
-      _localSliderValue = widget.userAchievement.currentProgress;
-    }
-  }
+        return ListView.separated(
+          padding: const EdgeInsets.all(20),
+          itemCount: leaderboard.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final user = leaderboard[index];
+            final rank = index + 1;
+            final isMe = user.userId == currentUser.userId;
 
-  @override
-  Widget build(BuildContext context) {
-    final details = widget.userAchievement.achievement;
-    if (details == null) return const SizedBox.shrink();
-
-    final isUnlocked = widget.userAchievement.isUnlocked;
-
-    // Colors
-    final secondaryText = widget.isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
-    final accentBrand = const Color(0xFF3B82F6); // Bright Blue
-    final goldColor = const Color(0xFFFFB020);   // Achievement Gold
-
-    // Determine Icon & Color
-    final iconColor = isUnlocked ? goldColor : secondaryText.withOpacity(0.5);
-    final iconBg = isUnlocked ? goldColor.withOpacity(0.15) : Colors.black.withOpacity(0.05);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: widget.surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(widget.isDark ? 0.2 : 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        // Optional: Gold border if unlocked
-        border: isUnlocked ? Border.all(color: goldColor.withOpacity(0.3), width: 1) : null,
-      ),
-      child: Column(
-        children: [
-          // Header Row
-          Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  isUnlocked ? Icons.emoji_events_rounded : Icons.lock_outline_rounded,
-                  color: iconColor,
-                  size: 28,
-                ),
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isMe ? accent.withOpacity(0.1) : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(16),
+                border: isMe
+                    ? Border.all(color: accent, width: 1.5)
+                    : Border.all(color: text.withOpacity(0.05)),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      details.title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: widget.textColor,
-                      ),
+              child: Row(
+                children: [
+                  // Rank Badge
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: _getRankColor(rank, accent),
+                      shape: BoxShape.circle,
                     ),
-                    const SizedBox(height: 4),
+                    child: Text(
+                      "#$rank",
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+
+                  // Name & Streak
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isMe ? "${user.username} (You)" : user.username,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isMe ? accent : text,
+                              fontSize: 16
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
+                            const SizedBox(width: 4),
+                            Text(
+                              "${user.streak} Day Streak",
+                              style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (isMe)
+                    Icon(Icons.star, color: Colors.amber.shade400, size: 24),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // [A1: No Friend List Logic]
+  Widget _buildNoFriendsView(UserModel currentUser, Color text, Color accent, BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // User's Own Streak Card
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: text.withOpacity(0.1)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                )
+              ],
+            ),
+            child: Column(
+              children: [
+                Text("Your Current Streak", style: TextStyle(fontSize: 14, color: text.withOpacity(0.5), fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.local_fire_department, color: Colors.orange, size: 40),
+                    const SizedBox(width: 8),
                     Text(
-                      details.description,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: secondaryText,
-                        height: 1.2,
-                      ),
+                      "${currentUser.streak}",
+                      style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: text),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 40),
 
-          // Slider Row
-          Row(
-            children: [
-              // Current Value
-              Container(
-                width: 45,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: widget.isDark ? Colors.black26 : Colors.grey[200],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  "${_localSliderValue.toInt()}",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: widget.textColor,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-
-              // Custom Styled Slider
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 6.0,
-                    activeTrackColor: isUnlocked ? goldColor : accentBrand,
-                    inactiveTrackColor: widget.isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-                    thumbColor: isUnlocked ? goldColor : accentBrand,
-                    overlayColor: (isUnlocked ? goldColor : accentBrand).withOpacity(0.2),
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 20.0),
-                  ),
-                  child: Slider(
-                    value: _localSliderValue.clamp(0.0, details.criteriaValue),
-                    min: 0.0,
-                    max: details.criteriaValue,
-                    onChanged: (newValue) {
-                      setState(() {
-                        _localSliderValue = newValue;
-                      });
-                    },
-                    // Critical: Only update DB when user STOPS dragging
-                    onChangeEnd: (finalValue) {
-                      final difference = finalValue - widget.userAchievement.currentProgress;
-                      if (difference.abs() > 0) {
-                        widget.viewModel.updateProgress(
-                          widget.userAchievement.userAchievementId,
-                          difference,
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ),
-
-              // Max Value
-              Container(
-                width: 45,
-                alignment: Alignment.centerRight,
-                child: Text(
-                  "${details.criteriaValue.toInt()}",
-                  style: TextStyle(
-                      color: secondaryText,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600
-                  ),
-                ),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40.0),
+            child: Text(
+              "You haven’t added any friends yet.\nAdd friends to compete on the leaderboard!",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15, color: text.withOpacity(0.6), height: 1.5),
+            ),
           ),
+
+          const SizedBox(height: 24),
+
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 4,
+            ),
+            onPressed: () {
+              Navigator.pushNamed(context, '/friend_list');
+            },
+            icon: const Icon(Icons.person_add),
+            label: const Text("Find Friends", style: TextStyle(fontWeight: FontWeight.bold)),
+          )
         ],
       ),
     );
+  }
+
+  Color _getRankColor(int rank, Color defaultColor) {
+    if (rank == 1) return const Color(0xFFFFD700); // Gold
+    if (rank == 2) return const Color(0xFFC0C0C0); // Silver
+    if (rank == 3) return const Color(0xFFCD7F32); // Bronze
+    return defaultColor.withOpacity(0.5);          // Blueish grey
   }
 }

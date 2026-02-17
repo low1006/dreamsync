@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-
 class FriendViewModel extends ChangeNotifier {
   final _client = Supabase.instance.client;
 
+  // --- ORIGINAL VARIABLES (For Friend List Screen) ---
   List<Map<String, dynamic>> friends = [];
   List<Map<String, dynamic>> pendingRequests = [];
   bool isLoading = false;
@@ -15,6 +15,12 @@ class FriendViewModel extends ChangeNotifier {
   UserModel? searchedUser;
   String? friendshipStatus; // 'none', 'pending', 'accepted'
 
+  // --- NEW VARIABLE (For Leaderboard Screen) ---
+  List<UserModel> leaderboardUsers = [];
+
+  // =========================================================
+  // 1. ORIGINAL FUNCTION: LOAD FRIENDS (Keep this exactly as is)
+  // =========================================================
   Future<void> loadFriendListData() async {
     isLoading = true;
     notifyListeners();
@@ -57,13 +63,69 @@ class FriendViewModel extends ChangeNotifier {
         }
       }
     } catch (e) {
-      print("LOAD ERROR: $e");
+      debugPrint("LOAD ERROR: $e");
       errorMessage = 'Error loading friends';
     }
 
     isLoading = false;
     notifyListeners();
   }
+
+  // =========================================================
+  // 2. NEW FUNCTION: LOAD LEADERBOARD (Added for Achievement Screen)
+  // =========================================================
+  Future<void> loadLeaderboard() async {
+    final currentUser = _client.auth.currentUser;
+    if (currentUser == null) return;
+
+    // Note: We don't set global isLoading = true here to avoid flickering
+    // the FriendList screen if they are running simultaneously.
+
+    try {
+      // 1. Fetch Friend IDs (Accepted only)
+      final response = await _client
+          .from('friendships')
+          .select('sender_id, receiver_id')
+          .or('sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}')
+          .eq('status', 'accepted');
+
+      List<String> userIds = [];
+      for (var record in response) {
+        if (record['sender_id'] == currentUser.id) {
+          userIds.add(record['receiver_id']);
+        } else {
+          userIds.add(record['sender_id']);
+        }
+      }
+
+      // 2. Add Current User to list (so you appear on the board)
+      userIds.add(currentUser.id);
+
+      // 3. Fetch Full Profiles (to get 'streak' and 'username')
+      final profilesData = await _client
+          .from('profile')
+          .select()
+          .inFilter('user_id', userIds);
+
+      // 4. Map to UserModel
+      leaderboardUsers = (profilesData as List)
+          .map((data) => UserModel.fromJson(data))
+          .toList();
+
+      // 5. Sort by Streak Descending
+      // (Ensure your UserModel has the 'streak' field as added in the previous step)
+      leaderboardUsers.sort((a, b) => b.streak.compareTo(a.streak));
+
+      notifyListeners();
+
+    } catch (e) {
+      debugPrint("Error loading leaderboard: $e");
+    }
+  }
+
+  // =========================================================
+  // 3. ORIGINAL SEARCH & REQUEST FUNCTIONS (Keep as is)
+  // =========================================================
 
   // Search User
   Future<bool> searchUserByUid(String shortUid) async {
@@ -75,13 +137,10 @@ class FriendViewModel extends ChangeNotifier {
     try {
       final myId = _client.auth.currentUser!.id;
 
-      // 1. CHANGE THIS: Get a List instead of .maybeSingle()
-      // This prevents the "406 Not Acceptable" crash
       final List<dynamic> response = await _client.rpc('search_user_by_uid', params: {
         'search_uid': shortUid,
       });
 
-      // 2. CHECK MANUALLY: Is the list empty?
       if (response.isEmpty) {
         errorMessage = "User not found. Check the UID and try again.";
         isLoading = false;
@@ -89,12 +148,9 @@ class FriendViewModel extends ChangeNotifier {
         return false;
       }
 
-      // 3. GET DATA: Take the first item safely
       final data = response.first;
-
       searchedUser = UserModel.fromJson(data);
 
-      // CASE 2: The user is YOU
       if (searchedUser!.userId == myId) {
         errorMessage = "You cannot add yourself as a friend.";
         isLoading = false;
@@ -102,7 +158,6 @@ class FriendViewModel extends ChangeNotifier {
         return false;
       }
 
-      // CASE 3: Valid User Found -> Check Friend Status
       final connection = await _client
           .from('friendships')
           .select('status')
@@ -138,22 +193,20 @@ class FriendViewModel extends ChangeNotifier {
     try {
       await _client.from('friendships').insert({
         'sender_id': myId,
-        'receiver_id': searchedUser!.userId, // Use the long UUID
+        'receiver_id': searchedUser!.userId,
         'status': 'pending',
       });
 
-      friendshipStatus = 'pending'; // Update UI instantly
+      friendshipStatus = 'pending';
       notifyListeners();
-
-      // Optionally reload data
-      loadFriendListData();
+      loadFriendListData(); // Reload list to reflect changes
     } catch (e) {
       errorMessage = 'Could not send request.';
       notifyListeners();
     }
   }
 
-  // --- 4. Accept Request (MISSING FUNCTION ADDED HERE) ---
+  // Accept Request
   Future<void> acceptRequest(String friendshipId) async {
     try {
       await _client
@@ -161,7 +214,6 @@ class FriendViewModel extends ChangeNotifier {
           .update({'status': 'accepted'})
           .eq('id', friendshipId);
 
-      // Refresh the list to move them from Pending -> Friends
       await loadFriendListData();
     } catch (e) {
       errorMessage = 'Failed to accept request.';

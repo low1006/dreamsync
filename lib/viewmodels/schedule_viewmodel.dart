@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ScheduleViewModel extends ChangeNotifier {
   final ScheduleRepository _repository = ScheduleRepository();
+  final _supabase = Supabase.instance.client; // Add direct client access
+
   List<ScheduleModel> schedules = [];
   bool isLoading = false;
 
@@ -13,7 +15,6 @@ class ScheduleViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       schedules = await _repository.fetchSchedules();
-
       if (schedules.isEmpty) {
         await _createDefaultSchedule();
         schedules = await _repository.fetchSchedules();
@@ -28,27 +29,16 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> _createDefaultSchedule() async {
     try {
-      final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
-
-      final defaultToneData = await supabase
+      final userId = _supabase.auth.currentUser!.id;
+      final defaultToneData = await _supabase
           .from('store_items')
-          .select()
-          .eq('cost', 0)
-          .eq('type', 'TONE')
-          .limit(1)
-          .maybeSingle();
+          .select().eq('cost', 0).eq('type', 'TONE').limit(1).maybeSingle();
+      final int defaultId = defaultToneData != null ? defaultToneData['item_id'] : 1;
 
-      final int defaultId = defaultToneData != null
-          ? defaultToneData['item_id']
-          : 1;
-
-      await supabase.from('user_inventory').upsert({
-        'user_id': userId,
-        'item_id': defaultId,
+      await _supabase.from('user_inventory').upsert({
+        'user_id': userId, 'item_id': defaultId,
       }, onConflict: 'user_id, item_id');
 
-      // 3. Create Schedule with that ID
       await _repository.createSchedule(
         bedtime: const TimeOfDay(hour: 22, minute: 30),
         wakeTime: const TimeOfDay(hour: 7, minute: 0),
@@ -66,15 +56,9 @@ class ScheduleViewModel extends ChangeNotifier {
   Future<void> saveSchedule(ScheduleModel schedule) async {
     try {
       if (schedule.id.isEmpty) {
-        // For manual creation, default to ID 2 (Classic) if we don't have a selector yet
         await _repository.createSchedule(
-          bedtime: schedule.bedtime,
-          wakeTime: schedule.wakeTime,
-          days: schedule.days,
-          isSmartAlarm: schedule.isSmartAlarm,
-          isSmartNotification: schedule.isSmartNotification,
-          itemId:
-              2, // Hardcoded default for now until you build a Tone Selector UI
+          bedtime: schedule.bedtime, wakeTime: schedule.wakeTime, days: schedule.days,
+          isSmartAlarm: schedule.isSmartAlarm, isSmartNotification: schedule.isSmartNotification, itemId: 2,
         );
       } else {
         await _repository.updateSchedule(schedule);
@@ -85,7 +69,6 @@ class ScheduleViewModel extends ChangeNotifier {
     }
   }
 
-  // ... toggleSchedule and deleteSchedule remain the same ...
   Future<void> toggleSchedule(String id, bool currentStatus) async {
     await _repository.toggleActive(id, currentStatus);
     await loadSchedules();
@@ -96,67 +79,54 @@ class ScheduleViewModel extends ChangeNotifier {
     await loadSchedules();
   }
 
+  // --- FIXED: Direct DB Update for Snooze ---
+  Future<void> toggleSnooze(String id, bool isSnoozeOn) async {
+    try {
+      // 1. Update DB directly to avoid Model conversion errors
+      await _supabase
+          .from('schedules')
+          .update({'is_snooze_on': isSnoozeOn})
+          .eq('id', id);
+
+      // 2. Update Local State immediately
+      final index = schedules.indexWhere((s) => s.id == id);
+      if (index != -1) {
+        final old = schedules[index];
+        schedules[index] = ScheduleModel(
+          id: old.id, label: old.label, bedtime: old.bedtime, wakeTime: old.wakeTime,
+          isActive: old.isActive, days: old.days,
+          isSmartAlarm: old.isSmartAlarm, isSmartNotification: old.isSmartNotification,
+          isSnoozeOn: isSnoozeOn, // Local update
+          toneId: old.toneId, toneName: old.toneName, toneFile: old.toneFile,
+        );
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint("Error toggling snooze: $e");
+    }
+  }
+
+  // ... (keep deleteSchedule and validation methods as they were) ...
   Future<void> deleteSchedule(String id) async {
     await _repository.deleteSchedule(id);
     schedules.removeWhere((s) => s.id == id);
     notifyListeners();
   }
 
-  //================================================
-  // SCHEDULE VALIDATION
-  //================================================
-
-  String? validateBlockingIssues({
-    required TimeOfDay bedtime,
-    required TimeOfDay wakeTime,
-    required List<String> days,
-  }) {
-    // 1. Must select days
-    if (days.isEmpty) {
-      return "Please select at least one day";
-    }
-
-    // 2. Times cannot be identical
-    if (bedtime.hour == wakeTime.hour && bedtime.minute == wakeTime.minute) {
-      return "Bedtime and wake time cannot be the same";
-    }
-
-    // 3. Safety: Block < 1 hour sleep (Nonsensical)
+  String? validateBlockingIssues({required TimeOfDay bedtime, required TimeOfDay wakeTime, required List<String> days}) {
+    if (days.isEmpty) return "Please select at least one day";
+    if (bedtime.hour == wakeTime.hour && bedtime.minute == wakeTime.minute) return "Bedtime and wake time cannot be the same";
     double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
     double duration = toDouble(wakeTime) - toDouble(bedtime);
     if (duration <= 0) duration += 24;
-
-    if (duration < 1.0) {
-      return "Sleep duration must be at least 1 hour.";
-    }
-
-    return null; // No blocking errors
+    if (duration < 1.0) return "Sleep duration must be at least 1 hour.";
+    return null;
   }
 
-  // 2. CHECK WARNING (Triggers the Confirmation Dialog)
-  bool isSleepDurationShort({
-    required TimeOfDay bedtime,
-    required TimeOfDay wakeTime,
-    required double sleepGoal,
-  }) {
+  bool isSleepDurationShort({required TimeOfDay bedtime, required TimeOfDay wakeTime, required double sleepGoal}) {
     double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
     double duration = toDouble(wakeTime) - toDouble(bedtime);
-
-    // Handle overnight logic (e.g., 23:00 to 07:00)
     if (duration <= 0) duration += 24;
-
     return duration < sleepGoal;
-  }
-
-  bool isSleepDurationLong({
-    required TimeOfDay bedtime,
-    required TimeOfDay wakeTime,
-  }) {
-    double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
-    double duration = toDouble(wakeTime) - toDouble(bedtime);
-    if (duration <= 0) duration += 24;
-
-    // Trigger warning if duration is more than 12 hours
-    return duration > 12.0;
   }
 }
