@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ScheduleViewModel extends ChangeNotifier {
   final ScheduleRepository _repository = ScheduleRepository();
-  final _supabase = Supabase.instance.client; // Add direct client access
+  final _supabase = Supabase.instance.client;
 
   List<ScheduleModel> schedules = [];
   bool isLoading = false;
@@ -58,7 +58,7 @@ class ScheduleViewModel extends ChangeNotifier {
       if (schedule.id.isEmpty) {
         await _repository.createSchedule(
           bedtime: schedule.bedtime, wakeTime: schedule.wakeTime, days: schedule.days,
-          isSmartAlarm: schedule.isSmartAlarm, isSmartNotification: schedule.isSmartNotification, itemId: 2,
+          isSmartAlarm: schedule.isSmartAlarm, isSmartNotification: schedule.isSmartNotification, itemId: schedule.toneId,
         );
       } else {
         await _repository.updateSchedule(schedule);
@@ -79,34 +79,21 @@ class ScheduleViewModel extends ChangeNotifier {
     await loadSchedules();
   }
 
-  // --- FIXED: Direct DB Update for Snooze ---
+  // --- ADDED ---
+  Future<void> toggleSmartAlarm(String id, bool currentStatus) async {
+    await _repository.toggleSmartAlarm(id, currentStatus);
+    await loadSchedules();
+  }
+
   Future<void> toggleSnooze(String id, bool isSnoozeOn) async {
     try {
-      // 1. Update DB directly to avoid Model conversion errors
-      await _supabase
-          .from('schedules')
-          .update({'is_snooze_on': isSnoozeOn})
-          .eq('id', id);
-
-      // 2. Update Local State immediately
-      final index = schedules.indexWhere((s) => s.id == id);
-      if (index != -1) {
-        final old = schedules[index];
-        schedules[index] = ScheduleModel(
-          id: old.id, label: old.label, bedtime: old.bedtime, wakeTime: old.wakeTime,
-          isActive: old.isActive, days: old.days,
-          isSmartAlarm: old.isSmartAlarm, isSmartNotification: old.isSmartNotification,
-          isSnoozeOn: isSnoozeOn, // Local update
-          toneId: old.toneId, toneName: old.toneName, toneFile: old.toneFile,
-        );
-        notifyListeners();
-      }
+      await _supabase.from('sleep_schedules').update({'is_snooze_on': isSnoozeOn}).eq('schedule_id', id);
+      await loadSchedules(); // Reload to refresh state
     } catch (e) {
       debugPrint("Error toggling snooze: $e");
     }
   }
 
-  // ... (keep deleteSchedule and validation methods as they were) ...
   Future<void> deleteSchedule(String id) async {
     await _repository.deleteSchedule(id);
     schedules.removeWhere((s) => s.id == id);

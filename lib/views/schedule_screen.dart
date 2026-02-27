@@ -7,7 +7,9 @@ import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/models/inventory_model.dart';
 import 'package:dreamsync/widget/schedule/day_selector.dart';
+import 'package:dreamsync/widget/schedule/schedule_controls.dart';
 import 'package:dreamsync/widget/tone_selector.dart';
+import 'package:dreamsync/widget/schedule/time_card.dart'; // Ensure this import exists if you use TimeCard widget
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -25,7 +27,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   late TimeOfDay _bedTime;
   late TimeOfDay _wakeTime;
   late List<String> _selectedDays;
-  late bool _isSmartAlarm;
+  late bool _isSmartAlarm; // <--- ADDED
   late bool _isSmartNotification;
   late bool _isAlarmOn;
   late bool _isSnoozeOn;
@@ -41,7 +43,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _bedTime = const TimeOfDay(hour: 22, minute: 30);
     _wakeTime = const TimeOfDay(hour: 7, minute: 0);
     _selectedDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-    _isSmartAlarm = true;
+    _isSmartAlarm = true; // Default to true
     _isSmartNotification = true;
     _isAlarmOn = true;
     _isSnoozeOn = true;
@@ -66,12 +68,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _wakeTime = schedule.wakeTime;
         _selectedDays = List.from(schedule.days);
         _isAlarmOn = schedule.isActive;
-        _isSmartAlarm = schedule.isSmartAlarm;
+        _isSmartAlarm = schedule.isSmartAlarm; // <--- LOAD FROM DB
         _isSnoozeOn = schedule.isSnoozeOn;
         _currentToneId = schedule.toneId;
         _currentToneName = schedule.toneName;
         _currentToneFile = schedule.toneFile;
-
         _isSmartNotification = schedule.isSmartNotification;
 
         _isInit = false;
@@ -97,6 +98,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: isAlarmActive,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: _isSmartNotification,
+        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
         soundFile: _currentToneFile,
       );
     } else {
@@ -141,6 +143,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: isSmartNotif,
+        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
         soundFile: _currentToneFile,
       );
     } else {
@@ -176,6 +179,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: isSnooze,
         isSmartNotification: _isSmartNotification,
+        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
         soundFile: _currentToneFile,
       );
     }
@@ -295,7 +299,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       wakeTime: _wakeTime,
       isActive: _isAlarmOn,
       days: _selectedDays,
-      isSmartAlarm: _isSmartAlarm,
+      isSmartAlarm: _isSmartAlarm, // <--- SAVE NEW VALUE
       isSmartNotification: _isSmartNotification,
       isSnoozeOn: _isSnoozeOn,
       toneId: _currentToneId,
@@ -317,6 +321,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: _isSmartNotification,
+        isSmartAlarm: _isSmartAlarm, // <--- PASS NEW VALUE
         soundFile: _currentToneFile,
       );
     } else {
@@ -398,198 +403,79 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
             // 1. TIME DISPLAY (TOP)
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("CURRENT SCHEDULE", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                if (!_isEditing)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: text.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Row(
-                      children: [
-                        Icon(Icons.lock, size: 12, color: text.withOpacity(0.5)),
-                        const SizedBox(width: 4),
-                        Text("Tap Edit to Change", style: TextStyle(fontSize: 10, color: text.withOpacity(0.5))),
-                      ],
-                    ),
-                  ),
+                Expanded(child: TimeCard(
+                    title: "BEDTIME", time: _bedTime, icon: Icons.bed,
+                    bg: surface, text: text, accent: accent,
+                    isEditing: _isEditing, onTap: () => _pickTime(true)
+                )),
+                const SizedBox(width: 16),
+                Expanded(child: TimeCard(
+                    title: "WAKE UP", time: _wakeTime, icon: Icons.wb_sunny,
+                    bg: surface, text: text, accent: Colors.orange,
+                    isEditing: _isEditing, onTap: () => _pickTime(false)
+                )),
               ],
             ),
-            const SizedBox(height: 12),
 
-            Opacity(
-              opacity: _isEditing ? 1.0 : 1.0,
-              child: IgnorePointer(
-                ignoring: !_isEditing,
-                child: Row(
-                  children: [
-                    Expanded(child: _buildTimeCard("BEDTIME", _bedTime, Icons.bed, surface, text, accent, () => _pickTime(true))),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildTimeCard("WAKE UP", _wakeTime, Icons.wb_sunny, surface, text, Colors.orange, () => _pickTime(false))),
-                  ],
-                ),
+            const SizedBox(height: 30),
+
+            Center(
+              child: Column(
+                children: [
+                  Text("REPEAT ON", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  const SizedBox(height: 16),
+                  DaySelector(
+                    selectedDays: _selectedDays,
+                    activeColor: accent,
+                    textColor: text,
+                    isEditing: _isEditing,
+                    onToggle: (day) {
+                      if (!_isEditing) return;
+                      setState(() {
+                        _selectedDays.contains(day) ? _selectedDays.remove(day) : _selectedDays.add(day);
+                      });
+                    },
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
 
-            Opacity(
-              opacity: _isEditing ? 1.0 : 0.8,
-              child: IgnorePointer(
-                ignoring: !_isEditing,
-                child: DaySelector(
-                  selectedDays: _selectedDays,
-                  activeColor: accent,
-                  textColor: text,
-                  isEditing: true,
-                  onToggle: (day) => setState(() => _selectedDays.contains(day) ? _selectedDays.remove(day) : _selectedDays.add(day)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 30),
 
-            // 2. TOGGLES (MIDDLE)
-            Text("QUICK CONTROLS", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-            const SizedBox(height: 12),
-
-            // --- ALARM (1st) ---
-            _buildToggleCard(
-              title: "Alarm Active",
-              subtitle: _isAlarmOn ? "Will ring at ${_formatTime(_wakeTime)}" : "Alarm is off",
-              isActive: _isAlarmOn,
-              icon: Icons.alarm,
+            // 2. CONTROLS (Updated with Smart Alarm Support)
+            ScheduleControls(
+              isAlarmOn: _isAlarmOn,
+              isSnoozeOn: _isSnoozeOn,
+              isSmartAlarm: _isSmartAlarm, // <--- Pass State
+              isSmartNotification: _isSmartNotification,
+              currentToneName: _currentToneName,
+              isEditing: _isEditing,
+              bg: surface,
+              text: text,
               accent: accent,
-              surface: surface,
-              text: text,
-              onToggle: (val) {
+              onToneTap: _openToneSelector,
+
+              onToggleAlarm: (val) {
                 setState(() => _isAlarmOn = val);
-                _quickUpdate(val);
+                if (!_isEditing) _quickUpdate(val);
               },
-            ),
-            const SizedBox(height: 12),
+              onToggleSnooze: (val) => setState(() => _isSnoozeOn = val),
 
-            // --- SNOOZE (2nd - MOVED HERE) ---
-            // Wrapped in Opacity/IgnorePointer to disable if Alarm is OFF
-            Opacity(
-              opacity: _isAlarmOn ? 1.0 : 0.5, // Visual Cue: Dimmed if Alarm OFF
-              child: IgnorePointer(
-                ignoring: !_isAlarmOn, // Logic: Unclickable if Alarm OFF
-                child: _buildToggleCard(
-                  title: "Snooze Mode",
-                  subtitle: "Allow 5 min snooze",
-                  isActive: _isSnoozeOn,
-                  icon: Icons.snooze,
-                  accent: Colors.orangeAccent,
-                  surface: surface,
-                  text: text,
-                  onToggle: (val) {
-                    setState(() => _isSnoozeOn = val);
-                    _quickUpdateSnooze(val);
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
+              // Only update state here. Saved on "Check" button.
+              onToggleSmartAlarm: (val) => setState(() => _isSmartAlarm = val),
 
-            // --- SMART NOTIFICATION (3rd) ---
-            _buildToggleCard(
-              title: "Smart Notification",
-              subtitle: "Auto DND during sleep",
-              isActive: _isSmartNotification,
-              icon: Icons.notifications_paused,
-              accent: Colors.purpleAccent,
-              surface: surface,
-              text: text,
-              onToggle: (val) {
+              onToggleNotification: (val) {
                 setState(() => _isSmartNotification = val);
-                _quickUpdateNotification(val);
+                if (!_isEditing) _quickUpdateNotification(val);
               },
             ),
 
-            const SizedBox(height: 32),
-
-            // 3. TONE (BOTTOM)
-            Opacity(
-              opacity: _isEditing ? 1.0 : 0.6,
-              child: IgnorePointer(
-                ignoring: !_isEditing,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: text.withOpacity(0.05)),
-                  ),
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: accent.withOpacity(0.1), shape: BoxShape.circle),
-                      child: Icon(Icons.music_note, color: accent),
-                    ),
-                    title: Text("Alarm Tone", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
-                    subtitle: Text(_currentToneName, style: TextStyle(color: text.withOpacity(0.6))),
-                    trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                    onTap: _openToneSelector,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- WIDGET HELPERS ---
-
-  Widget _buildToggleCard({required String title, required String subtitle, required bool isActive, required IconData icon, required Color accent, required Color surface, required Color text, required Function(bool) onToggle}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isActive ? accent.withOpacity(0.5) : text.withOpacity(0.05)),
-        boxShadow: isActive ? [BoxShadow(color: accent.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))] : [],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: isActive ? accent : text.withOpacity(0.05),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: isActive ? Colors.white : text.withOpacity(0.3), size: 24),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(color: text.withOpacity(0.5), fontSize: 12)),
-              ],
-            ),
-          ),
-          Switch(value: isActive, activeColor: accent, onChanged: onToggle),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimeCard(String title, TimeOfDay time, IconData icon, Color bg, Color text, Color accent, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20), border: Border.all(color: text.withOpacity(0.05))),
-        child: Column(
-          children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, size: 16, color: accent), const SizedBox(width: 8), Text(title, style: TextStyle(color: text.withOpacity(0.6), fontSize: 12, fontWeight: FontWeight.bold))]),
-            const SizedBox(height: 12),
-            Text(_formatTime(time), style: TextStyle(color: text, fontSize: 26, fontWeight: FontWeight.bold)),
+            if (_isEditing) ...[
+              const SizedBox(height: 40),
+              Center(child: Text("Tap 'Check' to save changes.", style: TextStyle(color: text.withOpacity(0.4), fontStyle: FontStyle.italic))),
+              const SizedBox(height: 40),
+            ],
           ],
         ),
       ),
@@ -600,6 +486,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final gradientColors = isDark ? [const Color(0xFF1E3A8A), const Color(0xFF2563EB)] : [const Color(0xFFEFF6FF), const Color(0xFFDBEAFE)];
     final iconColor = isDark ? Colors.amber : Colors.orange;
     final realTitleColor = isDark ? Colors.white : const Color(0xFF1E40AF);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -619,11 +506,5 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ],
       ),
     );
-  }
-
-  String _formatTime(TimeOfDay time) {
-    final now = DateTime.now();
-    final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);
-    return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
   }
 }

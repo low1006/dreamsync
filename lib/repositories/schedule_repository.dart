@@ -6,12 +6,10 @@ class ScheduleRepository {
   final SupabaseClient _client = Supabase.instance.client;
   final String _tableName = 'sleep_schedules';
 
-  // Fetch all schedules
   Future<List<ScheduleModel>> fetchSchedules() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return [];
 
-    // FIX: Join with store_items so we know the tone name/file
     final data = await _client
         .from(_tableName)
         .select('*, store_items(*)')
@@ -20,13 +18,12 @@ class ScheduleRepository {
     return (data as List).map((e) => ScheduleModel.fromMap(e)).toList();
   }
 
-  // Create (Now requires itemId)
   Future<void> createSchedule({
     required TimeOfDay bedtime,
     required TimeOfDay wakeTime,
     required List<String> days,
-    required bool isSmartAlarm,
-    required bool isSmartNotification, // <-- ADDED THIS
+    required bool isSmartAlarm,        // Pass to DB
+    required bool isSmartNotification,
     required int itemId,
     bool isSnoozeOn = true,
   }) async {
@@ -40,13 +37,12 @@ class ScheduleRepository {
       'days': days,
       'is_alarm_on': true,
       'is_smart_alarm': isSmartAlarm,
-      'is_smart_notification': isSmartNotification, // <-- ADDED THIS
+      'is_smart_notification': isSmartNotification,
       'item_id': itemId,
       'is_snooze_on': isSnoozeOn,
     });
   }
 
-  // Update
   Future<void> updateSchedule(ScheduleModel schedule) async {
     await _client.from(_tableName).update({
       'target_bed_time': ScheduleModel.formatTimeForDB(schedule.bedtime),
@@ -54,9 +50,9 @@ class ScheduleRepository {
       'days': schedule.days,
       'is_alarm_on': schedule.isActive,
       'is_smart_alarm': schedule.isSmartAlarm,
-      'is_smart_notification': schedule.isSmartNotification, // <-- ADDED THIS
+      'is_smart_notification': schedule.isSmartNotification,
       'is_snooze_on' : schedule.isSnoozeOn,
-      // 'item_id': schedule.toneId, // Optional: uncomment if you also want to update the tone id here
+      'item_id': schedule.toneId,
     }).eq('schedule_id', schedule.id);
   }
 
@@ -66,6 +62,11 @@ class ScheduleRepository {
 
   Future<void> toggleSmartNotification(String id, bool currentValue) async {
     await _client.from(_tableName).update({'is_smart_notification': currentValue}).eq('schedule_id', id);
+  }
+
+  // --- ADDED THIS METHOD ---
+  Future<void> toggleSmartAlarm(String id, bool currentValue) async {
+    await _client.from(_tableName).update({'is_smart_alarm': currentValue}).eq('schedule_id', id);
   }
 
   Future<void> deleteSchedule(String id) async {

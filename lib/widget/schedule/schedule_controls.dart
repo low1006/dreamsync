@@ -67,7 +67,6 @@ class ScheduleControls extends StatelessWidget {
 
         const SizedBox(height: 30),
 
-        // 2. ALARM SETTINGS
         Text("ALARM SETTINGS", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         const SizedBox(height: 10),
 
@@ -75,16 +74,19 @@ class ScheduleControls extends StatelessWidget {
 
         const SizedBox(height: 30),
 
-        // 3. SMART FEATURES
         Text("SMART FEATURES", style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         const SizedBox(height: 10),
 
+        // Smart Alarm: Only editable in "Edit Mode"
         _buildFeatureCard(
             "Smart Alarm", "Dynamic tones to prevent habituation.", Icons.music_note,
-            isSmartAlarm, onToggleSmartAlarm
+            isSmartAlarm, onToggleSmartAlarm,
+            alwaysActive: false // Disabled unless editing
         ),
+
         const SizedBox(height: 12),
-        // ---> MODIFIED THIS CALL: Set alwaysActive to true so it can be toggled without edit mode
+
+        // Smart Notification: Always active (Nightly toggle)
         _buildFeatureCard(
             "Smart Notification", "Get intelligent sleep reminders.", Icons.notifications_active,
             isSmartNotification, onToggleNotification,
@@ -135,9 +137,7 @@ class ScheduleControls extends StatelessWidget {
     );
   }
 
-  // ---> MODIFIED SIGNATURE: Added alwaysActive parameter
   Widget _buildFeatureCard(String title, String subtitle, IconData icon, bool value, Function(bool) onChanged, {bool alwaysActive = false}) {
-    // If alwaysActive is true, it is never disabled. Otherwise, disabled when NOT editing.
     final bool isDisabled = alwaysActive ? false : !isEditing;
 
     return IgnorePointer(

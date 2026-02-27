@@ -1,3 +1,4 @@
+import 'dart:convert'; // Add this import
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,7 +13,6 @@ import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
-import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 
 // Screens
 import 'package:dreamsync/views/auth_screen/login_screen.dart';
@@ -51,25 +51,49 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     _checkNotificationLaunch();
 
-    // Listen for alarms if app is already open
     NotificationService().onAlarmFired.listen((payload) {
-      int id = int.tryParse(payload) ?? 0;
-      navigatorKey.currentState?.pushNamed('/alarm_ring', arguments: {'id': id});
+      _navigateToAlarm(payload);
     });
   }
 
-  // Detects if app was launched by the Full Screen Intent (Pop Out)
+  void _navigateToAlarm(String? payload) {
+    if (payload == null) return;
+
+    int id = 0;
+    bool isSmartAlarm = false;
+    bool isSnoozeOn = true;
+    int snoozeCount = 0;
+    String soundFile = "classic.mp3";
+
+    try {
+      final Map<String, dynamic> data = jsonDecode(payload);
+      id = data['id'];
+      isSmartAlarm = data['isSmartAlarm'] ?? false;
+      isSnoozeOn = data['isSnoozeOn'] ?? true;
+      snoozeCount = data['snoozeCount'] ?? 0;
+      soundFile = data['soundFile'] ?? "classic.mp3"; // <--- Parse sound
+    } catch (e) {
+      id = int.tryParse(payload) ?? 0;
+    }
+
+    navigatorKey.currentState?.pushNamed('/alarm_ring', arguments: {
+      'id': id,
+      'isSmartAlarm': isSmartAlarm,
+      'isSnoozeOn': isSnoozeOn,
+      'snoozeCount': snoozeCount,
+      'soundFile': soundFile,
+    });
+  }
+
   Future<void> _checkNotificationLaunch() async {
     final NotificationAppLaunchDetails? details =
     await NotificationService().flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
 
     if (details != null && details.didNotificationLaunchApp) {
       String? payload = details.notificationResponse?.payload;
-      int id = int.tryParse(payload ?? '0') ?? 0;
-
-      // Wait slightly for Navigator to be ready
+      // Delay needed for context to be ready
       Future.delayed(const Duration(milliseconds: 500), () {
-        navigatorKey.currentState?.pushNamed('/alarm_ring', arguments: {'id': id});
+        _navigateToAlarm(payload);
       });
     }
   }
@@ -120,7 +144,6 @@ class _MyAppState extends State<MyApp> {
                 ChangeNotifierProvider(create: (_) => AchievementViewModel()),
                 ChangeNotifierProvider(create: (_) => ScheduleViewModel()),
                 ChangeNotifierProvider(create: (_) => InventoryViewModel()),
-                ChangeNotifierProvider(create: (_) => FriendViewModel()),
               ],
               child: const MainScreen(),
             );
