@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
-import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart'; // Import ProfileViewModel
+import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/user_model.dart';
 
 class AchievementScreen extends StatefulWidget {
@@ -19,18 +19,8 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-
-    // Load Data on Init
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final profileVM = context.read<UserViewModel>(); // Use ProfileViewModel here
-      final user = profileVM.userProfile;
-
-      if (user != null) {
-        context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
-      }
-
-      context.read<FriendViewModel>().loadLeaderboard();
-    });
+    // UPDATED: Completely removed the fetching logic from here!
+    // It is now handled automatically by the MainScreen.
   }
 
   @override
@@ -41,11 +31,10 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    // --- THEME COLORS (Matching FriendListScreen) ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6); // The blue accent color
+    final accent = const Color(0xFF3B82F6);
 
     return Scaffold(
       backgroundColor: bg,
@@ -58,8 +47,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
             style: TextStyle(color: text, fontWeight: FontWeight.bold)
         ),
         iconTheme: IconThemeData(color: text),
-
-        // --- UPDATED TAB BAR DESIGN ---
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: accent,
@@ -76,10 +63,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
       body: TabBarView(
         controller: _tabController,
         children: [
-          // TAB 1: BADGES
           _buildBadgesTab(context, text, accent),
-
-          // TAB 2: LEADERBOARD
           _buildLeaderboardTab(context, text, accent),
         ],
       ),
@@ -109,7 +93,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
             return Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor, // Uses default card color (adaptable) or explicit surface color if passed
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: text.withOpacity(0.05)),
                 boxShadow: [
@@ -123,7 +107,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Icon
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
@@ -137,14 +120,12 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                     ),
                   ),
                   const SizedBox(width: 16),
-
-                  // Text Content
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          badge.title, // Assuming your model has 'title' or 'name'
+                          badge.title,
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text),
                         ),
                         const SizedBox(height: 4),
@@ -153,8 +134,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                           style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
                         ),
                         const SizedBox(height: 12),
-
-                        // Progress Bar
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
@@ -172,7 +151,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                       ],
                     ),
                   ),
-
                   if (userAchievement.isUnlocked)
                     const Padding(
                       padding: EdgeInsets.only(left: 8.0),
@@ -189,7 +167,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
 
   // --- LEADERBOARD TAB ---
   Widget _buildLeaderboardTab(BuildContext context, Color text, Color accent) {
-    return Consumer2<FriendViewModel, UserViewModel>( // Use ProfileViewModel here
+    return Consumer2<FriendViewModel, UserViewModel>(
       builder: (context, friendVM, profileVM, child) {
 
         final currentUser = profileVM.userProfile;
@@ -229,7 +207,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
               ),
               child: Row(
                 children: [
-                  // Rank Badge
                   Container(
                     width: 36,
                     height: 36,
@@ -244,8 +221,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                     ),
                   ),
                   const SizedBox(width: 16),
-
-                  // Name & Streak
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,7 +247,6 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                       ],
                     ),
                   ),
-
                   if (isMe)
                     Icon(Icons.star, color: Colors.amber.shade400, size: 24),
                 ],
@@ -284,13 +258,11 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
     );
   }
 
-  // [A1: No Friend List Logic]
   Widget _buildNoFriendsView(UserModel currentUser, Color text, Color accent, BuildContext context) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // User's Own Streak Card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
             decoration: BoxDecoration(
@@ -323,9 +295,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
               ],
             ),
           ),
-
           const SizedBox(height: 40),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40.0),
             child: Text(
@@ -334,9 +304,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
               style: TextStyle(fontSize: 15, color: text.withOpacity(0.6), height: 1.5),
             ),
           ),
-
           const SizedBox(height: 24),
-
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: accent,
@@ -357,9 +325,9 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
   }
 
   Color _getRankColor(int rank, Color defaultColor) {
-    if (rank == 1) return const Color(0xFFFFD700); // Gold
-    if (rank == 2) return const Color(0xFFC0C0C0); // Silver
-    if (rank == 3) return const Color(0xFFCD7F32); // Bronze
-    return defaultColor.withOpacity(0.5);          // Blueish grey
+    if (rank == 1) return const Color(0xFFFFD700);
+    if (rank == 2) return const Color(0xFFC0C0C0);
+    if (rank == 3) return const Color(0xFFCD7F32);
+    return defaultColor.withOpacity(0.5);
   }
 }

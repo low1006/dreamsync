@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // NEW: Imported provider
+
+// Screens
 import 'package:dreamsync/views/achievement_screen.dart';
-// Import other screens here as you build them
 import 'package:dreamsync/views/schedule_screen.dart';
-// import 'package:dreamsync/views/home_screen.dart';
 import 'package:dreamsync/views/user_screen/user_profile_screen_view.dart';
 import 'package:dreamsync/views/advisor_screen/chat_bot_screen.dart';
+import 'package:dreamsync/views/sleep_dashboard_screen/sleep_dashboard_screen_view.dart';
+
+// ViewModels
+import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
+import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
+import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -14,20 +23,19 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  // 1. Track which tab is currently selected
-  int _selectedIndex = 2; // Default to index 2 (Home) - change if you want
+  int _selectedIndex = 2;
 
-  // 2. Define your list of pages
-  // We use "Placeholder" widgets for pages you haven't built yet
+  // NEW: Flag to make sure we only fetch data ONCE when they log in
+  bool _hasFetchedInitialData = false;
+
   final List<Widget> _pages = [
-    const ScheduleScreen(), // Index 0
-    const ChatScreen(),  // Index 1
-    const Center(child: Text("Home Screen")),     // Index 2
-    const AchievementScreen(),                    // Index 3 (Your actual Achievement Screen!)
-    const UserScreen(),             // Index 4 (The Profile UI from your image)
+    const ScheduleScreen(),
+    const ChatScreen(),
+    const SleepDashboardScreen(),
+    const AchievementScreen(),
+    const UserScreen(),
   ];
 
-  // 3. Function to handle tapping a tab
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -36,46 +44,60 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // 4. The Body switches based on the index
-      body: _pages[_selectedIndex],
+    // NEW: Watch for the user profile to finish loading
+    final profileVM = context.watch<UserViewModel>();
+    final user = profileVM.userProfile;
 
-      // 5. The Bottom Navigation Bar
+    // NEW: If user exists and we haven't fetched yet, trigger everything!
+    if (user != null && !_hasFetchedInitialData) {
+      _hasFetchedInitialData = true; // Lock it so it doesn't run again
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print("🚀 BACKGROUND FETCH: Loading all app data now...");
+
+        // 1. Fetch Achievements & Leaderboard in the background
+        context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
+        context.read<FriendViewModel>().loadLeaderboard();
+
+        // 2. You can also pre-fetch Schedule or Inventory here!
+        // (Uncomment these if you have fetch functions inside them)
+        // context.read<ScheduleViewModel>().fetchSchedule(user.userId);
+        // context.read<InventoryViewModel>().fetchInventory(user.userId);
+      });
+    }
+
+    return Scaffold(
+      body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Required for 4+ items
-        backgroundColor: const Color(0xFF1E3A8A), // Dark Blue from your theme
-        selectedItemColor: Colors.white,          // Color of the active icon
-        unselectedItemColor: Colors.white60,      // Color of inactive icons
-        showSelectedLabels: false,                // Hide text labels (like your design)
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF1E3A8A),
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white60,
+        showSelectedLabels: false,
         showUnselectedLabels: false,
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          // Index 0: Calendar
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today_outlined),
             activeIcon: Icon(Icons.calendar_month),
             label: 'Calendar',
           ),
-          // Index 1: Robot/Chat
           BottomNavigationBarItem(
             icon: Icon(Icons.smart_toy_outlined),
             activeIcon: Icon(Icons.smart_toy),
             label: 'Chat',
           ),
-          // Index 2: Home
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
             activeIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          // Index 3: Achievement (The Ribbon/Medal)
           BottomNavigationBarItem(
-            icon: Icon(Icons.verified_outlined), // Or Icons.emoji_events
+            icon: Icon(Icons.verified_outlined),
             activeIcon: Icon(Icons.verified),
             label: 'Achievements',
           ),
-          // Index 4: Profile
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             activeIcon: Icon(Icons.person),

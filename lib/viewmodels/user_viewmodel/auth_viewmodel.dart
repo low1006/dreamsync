@@ -10,6 +10,7 @@ class AuthViewModel extends ChangeNotifier {
 
   bool isLoading = false;
   String? errorMessage;
+  bool _isDisposed = false;
 
   // --- Login Attempt Tracking ---
   int _failedAttempts = 0;
@@ -21,8 +22,17 @@ class AuthViewModel extends ChangeNotifier {
   double height = 175.0;
   double sleepGoal = 8.0;
 
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
+  }
+
   // Set loading state
   void _setLoading(bool loading) {
+    if (_isDisposed) return;
+
     isLoading = loading;
     if (loading) errorMessage = null;
     notifyListeners();
