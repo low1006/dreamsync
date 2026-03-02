@@ -9,7 +9,7 @@ import 'package:dreamsync/models/inventory_model.dart';
 import 'package:dreamsync/widget/schedule/day_selector.dart';
 import 'package:dreamsync/widget/schedule/schedule_controls.dart';
 import 'package:dreamsync/widget/tone_selector.dart';
-import 'package:dreamsync/widget/schedule/time_card.dart'; // Ensure this import exists if you use TimeCard widget
+import 'package:dreamsync/widget/schedule/time_card.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -27,7 +27,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   late TimeOfDay _bedTime;
   late TimeOfDay _wakeTime;
   late List<String> _selectedDays;
-  late bool _isSmartAlarm; // <--- ADDED
+  late bool _isSmartAlarm;
   late bool _isSmartNotification;
   late bool _isAlarmOn;
   late bool _isSnoozeOn;
@@ -68,7 +68,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _wakeTime = schedule.wakeTime;
         _selectedDays = List.from(schedule.days);
         _isAlarmOn = schedule.isActive;
-        _isSmartAlarm = schedule.isSmartAlarm; // <--- LOAD FROM DB
+        _isSmartAlarm = schedule.isSmartAlarm;
         _isSnoozeOn = schedule.isSnoozeOn;
         _currentToneId = schedule.toneId;
         _currentToneName = schedule.toneName;
@@ -82,11 +82,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   // --- LOGIC ---
 
+  // 0. STABLE ID GENERATOR
+  // Generates a consistent, stable integer ID from a String UUID
+  int _getStableId(String uuid) {
+    int hash = 0;
+    for (int i = 0; i < uuid.length; i++) {
+      hash = (31 * hash + uuid.codeUnitAt(i)) & 0x7FFFFFFF;
+    }
+    return hash;
+  }
+
   // 1. ALARM TOGGLE
   Future<void> _quickUpdate(bool isAlarmActive) async {
     if (_existingId == null) return;
     await context.read<ScheduleViewModel>().toggleSchedule(_existingId!, isAlarmActive);
-    int notificationId = _existingId.hashCode;
+
+    // Use stable ID instead of .hashCode
+    int notificationId = _getStableId(_existingId!);
 
     if (isAlarmActive || _isSmartNotification) {
       await NotificationService().scheduleAlarm(
@@ -98,7 +110,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: isAlarmActive,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: _isSmartNotification,
-        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
+        isSmartAlarm: _isSmartAlarm,
         soundFile: _currentToneFile,
       );
     } else {
@@ -131,7 +143,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       }
     }
 
-    int notificationId = _existingId.hashCode;
+    // Use stable ID instead of .hashCode
+    int notificationId = _getStableId(_existingId!);
 
     if (_isAlarmOn || isSmartNotif) {
       await NotificationService().scheduleAlarm(
@@ -143,7 +156,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: isSmartNotif,
-        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
+        isSmartAlarm: _isSmartAlarm,
         soundFile: _currentToneFile,
       );
     } else {
@@ -168,7 +181,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     await context.read<ScheduleViewModel>().toggleSnooze(_existingId!, isSnooze);
 
-    int notificationId = _existingId.hashCode;
+    // Use stable ID instead of .hashCode
+    int notificationId = _getStableId(_existingId!);
+
     if (_isAlarmOn || _isSmartNotification) {
       await NotificationService().scheduleAlarm(
         id: notificationId,
@@ -179,7 +194,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: isSnooze,
         isSmartNotification: _isSmartNotification,
-        isSmartAlarm: _isSmartAlarm, // <--- PASS CURRENT STATE
+        isSmartAlarm: _isSmartAlarm,
         soundFile: _currentToneFile,
       );
     }
@@ -299,7 +314,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       wakeTime: _wakeTime,
       isActive: _isAlarmOn,
       days: _selectedDays,
-      isSmartAlarm: _isSmartAlarm, // <--- SAVE NEW VALUE
+      isSmartAlarm: _isSmartAlarm,
       isSmartNotification: _isSmartNotification,
       isSnoozeOn: _isSnoozeOn,
       toneId: _currentToneId,
@@ -309,7 +324,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     await scheduleVM.saveSchedule(scheduleToSave);
 
-    int notificationId = scheduleToSave.id.hashCode;
+    // Use stable ID instead of .hashCode
+    int notificationId = _getStableId(scheduleToSave.id);
 
     if (_isAlarmOn || _isSmartNotification) {
       await NotificationService().scheduleAlarm(
@@ -321,7 +337,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: _isSmartNotification,
-        isSmartAlarm: _isSmartAlarm, // <--- PASS NEW VALUE
+        isSmartAlarm: _isSmartAlarm,
         soundFile: _currentToneFile,
       );
     } else {
@@ -443,11 +459,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
             const SizedBox(height: 30),
 
-            // 2. CONTROLS (Updated with Smart Alarm Support)
+            // 2. CONTROLS
             ScheduleControls(
               isAlarmOn: _isAlarmOn,
               isSnoozeOn: _isSnoozeOn,
-              isSmartAlarm: _isSmartAlarm, // <--- Pass State
+              isSmartAlarm: _isSmartAlarm,
               isSmartNotification: _isSmartNotification,
               currentToneName: _currentToneName,
               isEditing: _isEditing,
@@ -460,7 +476,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 setState(() => _isAlarmOn = val);
                 if (!_isEditing) _quickUpdate(val);
               },
-              onToggleSnooze: (val) => setState(() => _isSnoozeOn = val),
+              onToggleSnooze: (val) {
+                setState(() => _isSnoozeOn = val);
+                if (!_isEditing) _quickUpdateSnooze(val);
+              },
 
               // Only update state here. Saved on "Check" button.
               onToggleSmartAlarm: (val) => setState(() => _isSmartAlarm = val),

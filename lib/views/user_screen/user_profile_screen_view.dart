@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:health/health.dart'; // <--- ADDED IMPORT
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/views/user_screen/friend_list_screen.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
@@ -12,7 +13,7 @@ class UserScreen extends StatefulWidget {
 }
 
 class _UserScreenState extends State<UserScreen> {
-  // --- STATE VARIABLES (Matching ScheduleScreen pattern) ---
+  // --- STATE VARIABLES ---
   bool _isEditing = false;
   bool _isInit = true;
 
@@ -20,6 +21,16 @@ class _UserScreenState extends State<UserScreen> {
   late double _tempWeight;
   late double _tempHeight;
   late double _tempSleepGoal;
+
+  // Health Connect variables
+  bool? _isHealthConnected;
+  final Health _health = Health();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkHealthStatus(); // <--- Fetch health status on load
+  }
 
   @override
   void didChangeDependencies() {
@@ -42,6 +53,48 @@ class _UserScreenState extends State<UserScreen> {
   }
 
   // --- LOGIC METHODS ---
+
+  Future<void> _checkHealthStatus() async {
+    final types = [
+      HealthDataType.SLEEP_ASLEEP,
+      HealthDataType.SLEEP_AWAKE,
+      HealthDataType.SLEEP_SESSION,
+    ];
+    try {
+      bool? hasPermissions = await _health.hasPermissions(types);
+      if (mounted) {
+        setState(() {
+          _isHealthConnected = hasPermissions ?? false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isHealthConnected = false);
+    }
+  }
+
+  Future<void> _requestHealthAccess() async {
+    final types = [
+      HealthDataType.SLEEP_ASLEEP,
+      HealthDataType.SLEEP_AWAKE,
+      HealthDataType.SLEEP_SESSION,
+    ];
+    try {
+      bool authorized = await _health.requestAuthorization(types);
+      if (mounted) {
+        setState(() {
+          _isHealthConnected = authorized;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authorized ? "Health Connect Linked!" : "Permission Denied"),
+            backgroundColor: authorized ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Health Auth Error: $e");
+    }
+  }
 
   void _toggleEditMode() {
     if (_isEditing) {
@@ -182,6 +235,11 @@ class _UserScreenState extends State<UserScreen> {
 
                   _divider(text),
 
+                  // --- NEW: HEALTH CONNECT STATUS TILE ---
+                  _buildHealthConnectTile(text, accent),
+
+                  _divider(text),
+
                   // --- EDITABLE FIELDS ---
 
                   // Height
@@ -268,6 +326,67 @@ class _UserScreenState extends State<UserScreen> {
   }
 
   // --- WIDGET HELPERS ---
+
+  // New Widget specifically for Health Connect connection
+  Widget _buildHealthConnectTile(Color text, Color accent) {
+    String statusText = _isHealthConnected == null
+        ? "Checking..."
+        : (_isHealthConnected! ? "Connected" : "Not Connected");
+
+    Color statusColor = _isHealthConnected == null
+        ? text.withOpacity(0.5)
+        : (_isHealthConnected! ? Colors.green : Colors.redAccent);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.monitor_heart, color: accent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                "Health Connect",
+                style: TextStyle(
+                  color: text.withOpacity(0.6),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Text(
+                statusText,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              // Show a sync button if it's NOT connected so the user can quickly grant access
+              if (_isHealthConnected == false && !_isEditing) ...[
+                const SizedBox(width: 12),
+                InkWell(
+                  onTap: _requestHealthAccess,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.sync, size: 16, color: accent),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   // 1. The Magic Row: Switches between Text and Slider based on _isEditing
   Widget _buildEditableRow({

@@ -81,16 +81,16 @@ class ScheduleControls extends StatelessWidget {
         _buildFeatureCard(
             "Smart Alarm", "Dynamic tones to prevent habituation.", Icons.music_note,
             isSmartAlarm, onToggleSmartAlarm,
-            alwaysActive: false // Disabled unless editing
+            alwaysActive: false
         ),
 
         const SizedBox(height: 12),
 
-        // Smart Notification: Always active (Nightly toggle)
+        // Smart Notification: Now only editable in "Edit Mode"
         _buildFeatureCard(
             "Smart Notification", "Get intelligent sleep reminders.", Icons.notifications_active,
             isSmartNotification, onToggleNotification,
-            alwaysActive: true
+            alwaysActive: false
         ),
       ],
     );

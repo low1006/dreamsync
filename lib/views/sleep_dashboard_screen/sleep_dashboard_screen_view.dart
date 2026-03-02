@@ -15,35 +15,21 @@ class SleepDashboardScreen extends StatefulWidget {
 }
 
 class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
-  // State variable to hold the formatted screen time string for display
   String _screenTime = "Fetching...";
+
+  // NEW: Flag to ensure we only fetch data once after the user loads
+  bool _hasFetchedData = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final user = context.read<UserViewModel>().userProfile;
-      if (user != null) {
-        context.read<SleepViewModel>().loadSleepData(context, user.userId);
-        context.read<DailyActivityViewModel>().loadTodayData(user.userId);
-      }
-
-      // FIX: fetchScreenTime now also saves to the database
-      fetchScreenTime();
-    });
+    // Fetch logic removed from here because user profile might be null on init
   }
 
-  // --- Screen Time Fetching Logic ---
-  // FIX: Delegates to DailyActivityViewModel.fetchAndSaveScreenTime()
-  // so the value is both displayed in the UI AND persisted to Supabase.
-  // Previously, screen time was only written to _screenTime (local state)
-  // and was never passed to addActivity(), so nothing was ever saved.
   Future<void> fetchScreenTime() async {
     final user = context.read<UserViewModel>().userProfile;
     if (user == null) return;
 
-    // The viewmodel handles fetching from the OS, saving to DB, and returns
-    // a display string — single source of truth.
     final String result = await context
         .read<DailyActivityViewModel>()
         .fetchAndSaveScreenTime(user.userId);
@@ -57,7 +43,20 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 1. WATCH the user profile so the UI knows when it finishes loading
+    final user = context.watch<UserViewModel>().userProfile;
     final dailyVM = context.watch<DailyActivityViewModel>();
+
+    // 2. TRIGGER the fetches once the user is NOT null, but only do it ONCE.
+    if (user != null && !_hasFetchedData) {
+      _hasFetchedData = true; // Lock it so it doesn't run on every rebuild
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        context.read<SleepViewModel>().loadSleepData(context, user.userId);
+        context.read<DailyActivityViewModel>().loadTodayData(user.userId);
+        fetchScreenTime();
+      });
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -74,7 +73,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
       ),
       body: Consumer<SleepViewModel>(
         builder: (context, viewModel, child) {
-
           if (viewModel.isLoading) {
             return const Center(
               child: Column(
@@ -118,6 +116,8 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
             );
           }
 
+          final bool noData = viewModel.totalSleepDuration == "0h 0m";
+
           return RefreshIndicator(
             onRefresh: () async {
               final user = context.read<UserViewModel>().userProfile;
@@ -125,7 +125,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
                 await viewModel.refreshData(context, user.userId);
                 await context.read<DailyActivityViewModel>().loadTodayData(user.userId);
               }
-              await fetchScreenTime(); // Also re-fetches and re-saves screen time
+              await fetchScreenTime();
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -139,130 +139,180 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Main Sleep Score & Duration Card
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(28.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        CustomPaint(
-                          size: const Size(120, 120),
-                          painter: SleepScoreGaugePainter(
-                            score: viewModel.sleepScore,
-                            themeColor: Colors.indigoAccent,
-                          ),
-                        ),
-                        Container(width: 1, height: 70, color: Colors.grey.shade200),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              viewModel.totalSleepDuration,
-                              style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              "Time Asleep",
-                              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-                  const Text(
-                    "Sleep Cycle (Hypnogram)",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // The Hypnogram Chart Container
-                  if (viewModel.hypnogramData.isNotEmpty)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            height: 160,
-                            child: CustomPaint(
-                              size: Size.infinite,
-                              painter: HypnogramPainter(
-                                data: viewModel.hypnogramData,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          // Legend row
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  // STACK FOR DIMMING EFFECT & NO DATA OVERLAY
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Bottom Layer: The Sleep Cards (Dimmed to 0.4 opacity if no data)
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 300),
+                        opacity: noData ? 0.4 : 1.0,
+                        child: IgnorePointer(
+                          ignoring: noData,
+                          child: Column(
                             children: [
-                              _buildLegendItem("Awake",  const Color(0xFFFF7043)),
-                              _buildLegendItem("REM",    const Color(0xFF9C64FF)),
-                              _buildLegendItem("Light",  const Color(0xFF42A5F5)),
-                              _buildLegendItem("Deep",   const Color(0xFF1A237E)),
+                              // 1. Main Sleep Score & Duration Card
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                padding: const EdgeInsets.all(28.0),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  children: [
+                                    CustomPaint(
+                                      size: const Size(120, 120),
+                                      painter: SleepScoreGaugePainter(
+                                        score: viewModel.sleepScore,
+                                        themeColor: Colors.indigoAccent,
+                                      ),
+                                    ),
+                                    Container(width: 1, height: 70, color: Colors.grey.shade200),
+                                    Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          viewModel.totalSleepDuration,
+                                          style: const TextStyle(
+                                            fontSize: 32,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        const Text(
+                                          "Time Asleep",
+                                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 32),
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  "Sleep Cycle (Hypnogram)",
+                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // 2. The Hypnogram Chart Container
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      height: 160,
+                                      child: CustomPaint(
+                                        size: Size.infinite,
+                                        painter: HypnogramPainter(
+                                          data: viewModel.hypnogramData,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        _buildLegendItem("Awake", const Color(0xFFFF7043)),
+                                        _buildLegendItem("REM", const Color(0xFF9C64FF)),
+                                        _buildLegendItem("Light", const Color(0xFF42A5F5)),
+                                        _buildLegendItem("Deep", const Color(0xFF1A237E)),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              // 3. Sleep Stages Breakdown
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                padding: const EdgeInsets.all(20.0),
+                                child: Column(
+                                  children: [
+                                    _buildSleepStageRow("Deep Sleep", viewModel.deepSleep, Colors.indigo),
+                                    const Divider(height: 24),
+                                    _buildSleepStageRow("Light Sleep", viewModel.lightSleep, Colors.lightBlue),
+                                    const Divider(height: 24),
+                                    _buildSleepStageRow("REM Sleep", viewModel.remSleep, Colors.purpleAccent),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-
-                  const SizedBox(height: 16),
-
-                  // Sleep Stages Breakdown
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
                         ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      children: [
-                        _buildSleepStageRow("Deep Sleep", viewModel.deepSleep, Colors.indigo),
-                        const Divider(height: 24),
-                        _buildSleepStageRow("Light Sleep", viewModel.lightSleep, Colors.lightBlue),
-                        const Divider(height: 24),
-                        _buildSleepStageRow("REM Sleep", viewModel.remSleep, Colors.purpleAccent),
-                      ],
-                    ),
+                      ),
+
+                      // Top Layer: The "No Data" Overlay Message
+                      if (noData)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.95),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
+                            ],
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.bedtime_off, size: 56, color: Colors.indigoAccent),
+                              SizedBox(height: 16),
+                              Text(
+                                "No sleep data found",
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                "Ensure your smartwatch is synced\nwith Health Connect.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey, fontSize: 14),
+                              )
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
 
                   // --- BEHAVIOURAL DATA SUMMARY ---
+                  // Notice how this is outside the Stack, meaning it's always interactable!
                   const SizedBox(height: 32),
                   const Text(
                     "Behavioural Data",
@@ -270,7 +320,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Screen Time Card — value now reflects what was saved to DB
                   BehaviouralCard(
                     title: "Screen Time",
                     value: _screenTime,
@@ -282,7 +331,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
 
                   Row(
                     children: [
-                      // Exercise Card
                       Expanded(
                         child: BehaviouralCard(
                           title: "Exercise",
@@ -294,8 +342,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-
-                      // Food Intake Card
                       Expanded(
                         child: BehaviouralCard(
                           title: "Food Intake",
@@ -319,7 +365,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
     );
   }
 
-  // Helper widget for hypnogram legend
   Widget _buildLegendItem(String label, Color color) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -335,7 +380,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
     );
   }
 
-  // Helper widget for Sleep Stages
   Widget _buildSleepStageRow(String title, String duration, Color color) {
     return Row(
       children: [
@@ -370,7 +414,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
   }
 }
 
-// CustomPainter for the Semi-Circular Sleep Score Gauge
 class SleepScoreGaugePainter extends CustomPainter {
   final int score;
   final Color themeColor;
@@ -470,62 +513,41 @@ class SleepScoreGaugePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-// ---------------------------------------------------------------------------
-// HypnogramPainter — draws a Fitbit/Apple Health style sleep stage chart.
-//
-// Stage encoding (matches SleepChartPoint.stage):
-//   3 = Awake   (top)
-//   2 = REM
-//   1 = Light
-//   0 = Deep    (bottom)
-//
-// Each segment is a filled, coloured rectangle that spans from one data point
-// to the next — creating the characteristic staircase / block look.
-// ---------------------------------------------------------------------------
 class HypnogramPainter extends CustomPainter {
   final List<SleepChartPoint> data;
 
-  // Stage colours matching common sleep tracker palettes
   static const _stageColors = {
-    3: Color(0xFFFF7043), // Awake  — orange-red
-    2: Color(0xFF9C64FF), // REM    — purple
-    1: Color(0xFF42A5F5), // Light  — blue
-    0: Color(0xFF1A237E), // Deep   — dark indigo
+    3: Color(0xFFFF7043), // Awake
+    2: Color(0xFF9C64FF), // REM
+    1: Color(0xFF42A5F5), // Light
+    0: Color(0xFF1A237E), // Deep
   };
 
   static const _stageLabels = {3: "Awake", 2: "REM", 1: "Light", 0: "Deep"};
 
-  // Layout constants
   static const double _labelWidth  = 38.0;
   static const double _timeHeight  = 18.0;
   static const double _topPad      = 4.0;
-  static const int    _stageCount  = 4; // 0–3
+  static const int    _stageCount  = 4;
 
   HypnogramPainter({required this.data});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-
-    // Usable drawing area (right of labels, above time axis)
     final double chartLeft   = _labelWidth;
     final double chartRight  = size.width;
     final double chartTop    = _topPad;
     final double chartBottom = size.height - _timeHeight;
     final double chartH      = chartBottom - chartTop;
     final double chartW      = chartRight - chartLeft;
-
     final double stageH = chartH / _stageCount;
 
-    final double minHour = data.first.hour;
-    final double maxHour = data.last.hour;
+    // Provide default 8-hour span if no data is available
+    final double minHour = data.isEmpty ? 0.0 : data.first.hour;
+    final double maxHour = data.isEmpty ? 8.0 : data.last.hour;
     final double hourSpan = (maxHour - minHour) == 0 ? 1 : (maxHour - minHour);
 
-    // Helper: map hour → x pixel
-    double toX(double hour) =>
-        chartLeft + (hour - minHour) / hourSpan * chartW;
-
-    // Helper: map stage → y pixel (stage 3 = top, stage 0 = bottom)
+    double toX(double hour) => chartLeft + (hour - minHour) / hourSpan * chartW;
     double toY(int stage) => chartTop + (3 - stage) * stageH;
 
     // --- Draw subtle horizontal stage dividers ---
@@ -535,30 +557,6 @@ class HypnogramPainter extends CustomPainter {
     for (int s = 0; s <= _stageCount; s++) {
       final double y = chartTop + s * stageH;
       canvas.drawLine(Offset(chartLeft, y), Offset(chartRight, y), dividerPaint);
-    }
-
-    // --- Draw filled stage blocks ---
-    for (int i = 0; i < data.length - 1; i++) {
-      final SleepChartPoint cur  = data[i];
-      final SleepChartPoint next = data[i + 1];
-
-      final int stage = cur.stage.round().clamp(0, 3);
-      final Color color = _stageColors[stage] ?? Colors.grey;
-
-      final double x1 = toX(cur.hour);
-      final double x2 = toX(next.hour);
-      final double y1 = toY(stage);
-      final double y2 = y1 + stageH;
-
-      // Filled block
-      final blockPaint = Paint()..color = color.withOpacity(0.85);
-      canvas.drawRect(Rect.fromLTRB(x1, y1, x2, y2), blockPaint);
-
-      // Thin top highlight line for depth
-      final linePaint = Paint()
-        ..color = color
-        ..strokeWidth = 2.5;
-      canvas.drawLine(Offset(x1, y1), Offset(x2, y1), linePaint);
     }
 
     // --- Draw Y-axis stage labels ---
@@ -580,8 +578,7 @@ class HypnogramPainter extends CustomPainter {
 
     // --- Draw X-axis time labels ---
     final timeLabelStyle = const TextStyle(fontSize: 10, color: Colors.grey);
-    // Show ~5 evenly spaced labels
-    final int labelCount = 5;
+    const int labelCount = 5;
     for (int i = 0; i <= labelCount; i++) {
       final double hour = minHour + (hourSpan / labelCount) * i;
       final double x = toX(hour);
@@ -591,6 +588,31 @@ class HypnogramPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, Offset(x - tp.width / 2, chartBottom + 4));
+    }
+
+    // --- STOP HERE if no data. Do not attempt to draw the blocks. ---
+    if (data.isEmpty) return;
+
+    // --- Draw filled stage blocks ---
+    for (int i = 0; i < data.length - 1; i++) {
+      final SleepChartPoint cur  = data[i];
+      final SleepChartPoint next = data[i + 1];
+
+      final int stage = cur.stage.round().clamp(0, 3);
+      final Color color = _stageColors[stage] ?? Colors.grey;
+
+      final double x1 = toX(cur.hour);
+      final double x2 = toX(next.hour);
+      final double y1 = toY(stage);
+      final double y2 = y1 + stageH;
+
+      final blockPaint = Paint()..color = color.withOpacity(0.85);
+      canvas.drawRect(Rect.fromLTRB(x1, y1, x2, y2), blockPaint);
+
+      final linePaint = Paint()
+        ..color = color
+        ..strokeWidth = 2.5;
+      canvas.drawLine(Offset(x1, y1), Offset(x2, y1), linePaint);
     }
   }
 

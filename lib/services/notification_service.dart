@@ -59,7 +59,6 @@ void fireAlarmCallback(int id, Map<String, dynamic> params) async {
   }
 }
 
-// ... _rescheduleNextWeek, fireBedtimeCallback, etc. (UNCHANGED) ...
 void _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
   int hour = params['hour'];
   int minute = params['minute'];
@@ -109,7 +108,6 @@ class NotificationService {
   Stream<String> get onAlarmFired => _alarmStreamController.stream;
 
   Future<void> init() async {
-    // ... (UNCHANGED) ...
     tz.initializeTimeZones();
     try {
       final String timeZoneName = await FlutterTimezone.getLocalTimezone();
@@ -135,18 +133,20 @@ class NotificationService {
         }
       },
     );
-    await requestPermissions();
+    // ✅ REMOVED requestPermissions() from here so it doesn't fire too early
   }
 
+  // ✅ UPDATED PERMISSION LOGIC
   Future<void> requestPermissions() async {
-    // ... (UNCHANGED) ...
     if (Platform.isAndroid) {
       final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
       flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
-      if (androidImplementation != null) await androidImplementation.requestNotificationsPermission();
-      if (await Permission.scheduleExactAlarm.isDenied) await Permission.scheduleExactAlarm.request();
-      if (await Permission.systemAlertWindow.isDenied) await Permission.systemAlertWindow.request();
+      // This triggers the native Android 13+ pop-up for notifications ONLY
+      if (androidImplementation != null) {
+        await androidImplementation.requestNotificationsPermission();
+      }
+
     }
   }
 
@@ -205,19 +205,14 @@ class NotificationService {
     }
   }
 
-  // --- UPDATED SHOW ALARM: Dynamic Channel ID ---
   Future<void> showAlarmNotification({required int id, required String title, required String body, String? payload, String? soundFile}) async {
     String cleanSoundName = (soundFile ?? 'buzzer').split('.').first;
 
-    // !!! IMPORTANT CHANGE !!!
-    // Generate a unique channel ID based on the sound name.
-    // 'alarm_channel_classic' OR 'alarm_channel_buzzer'
-    // This forces Android to treat them as different channels with different sounds.
     String channelId = 'alarm_channel_$cleanSoundName';
     String channelName = 'Alarm ($cleanSoundName)';
 
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      channelId, // <--- Dynamic Channel ID
+      channelId,
       channelName,
       channelDescription: 'Loud alarm notifications',
       importance: Importance.max, priority: Priority.max, fullScreenIntent: true,
@@ -283,7 +278,6 @@ class NotificationService {
     }
   }
 
-  // ... (REST OF THE FILE UNCHANGED) ...
   Future<void> stopNotification(int id) async {
     await flutterLocalNotificationsPlugin.cancel(id);
   }

@@ -25,7 +25,6 @@ class SleepViewModel extends ChangeNotifier {
   String remSleep = "0h 0m";
 
   List<SleepChartPoint> hypnogramData = [];
-  bool useDummyData = true;
 
   final List<HealthDataType> _sleepDataTypes = [
     HealthDataType.SLEEP_ASLEEP,
@@ -39,14 +38,6 @@ class SleepViewModel extends ChangeNotifier {
     isLoading = true;
     errorMessage = "";
     notifyListeners();
-
-    if (useDummyData) {
-      _loadDummyData();
-      await syncSleepDataToSupabase(userId);
-      isLoading = false;
-      notifyListeners();
-      return;
-    }
 
     try {
       health.configure();
@@ -62,34 +53,43 @@ class SleepViewModel extends ChangeNotifier {
         return;
       }
 
-      final permissions = _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
+      final permissions =
+      _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
+
       bool authorized = await health.requestAuthorization(
         _sleepDataTypes,
         permissions: permissions,
       );
 
       if (!authorized) {
-        errorMessage = "Permission to access Health Connect was denied.";
+        errorMessage =
+        "Permission to access Health Connect was denied.";
+        isLoading = false;
+        notifyListeners();
         return;
       }
 
       final now = DateTime.now();
       final startTime = now.subtract(const Duration(days: 2));
 
-      List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
+      List<HealthDataPoint> healthData =
+      await health.getHealthDataFromTypes(
         startTime: startTime,
         endTime: now,
         types: _sleepDataTypes,
       );
 
+      debugPrint(
+          "🛌 Fetch complete! Found ${healthData.length} sleep data points in Health Connect.");
+
       _processSleepData(healthData);
 
-      // Save real data to Supabase
       await syncSleepDataToSupabase(userId);
 
     } catch (e) {
       debugPrint("Error fetching from Health Connect: $e");
-      errorMessage = "Failed to sync with Health Connect. Ensure the app is installed and has data.";
+      errorMessage =
+      "Failed to sync with Health Connect. Ensure the app is installed and has data.";
     } finally {
       isLoading = false;
       notifyListeners();
@@ -98,13 +98,14 @@ class SleepViewModel extends ChangeNotifier {
 
   Future<void> syncSleepDataToSupabase(String userId) async {
     try {
-      final yesterday = DateTime.now().subtract(const Duration(days: 1));
-      final dateString = "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
+      final yesterday =
+      DateTime.now().subtract(const Duration(days: 1));
+      final dateString =
+          "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
 
       int totalMinutes = _parseDurationToMinutes(totalSleepDuration);
       if (totalMinutes == 0) return;
 
-      // Creates the model with NO 'id'
       final newRecord = SleepRecordModel(
         userId: userId,
         date: dateString,
@@ -112,33 +113,11 @@ class SleepViewModel extends ChangeNotifier {
         sleepScore: sleepScore,
       );
 
-      // Hands the model directly to the updated repository
       await _repository.saveDailySummary(newRecord);
 
     } catch (e) {
       debugPrint("❌ Error syncing sleep data: $e");
     }
-  }
-
-  void _loadDummyData() {
-    totalSleepDuration = "7h 45m";
-    sleepScore = 85;
-    deepSleep = "2h 15m";
-    lightSleep = "4h 0m";
-    remSleep = "1h 30m";
-
-    hypnogramData = [
-      SleepChartPoint(0.0, 3),
-      SleepChartPoint(0.5, 1),
-      SleepChartPoint(1.0, 0),
-      SleepChartPoint(2.5, 1),
-      SleepChartPoint(3.0, 2),
-      SleepChartPoint(4.0, 1),
-      SleepChartPoint(5.5, 0),
-      SleepChartPoint(6.5, 2),
-      SleepChartPoint(7.5, 1),
-      SleepChartPoint(8.0, 3),
-    ];
   }
 
   void _processSleepData(List<HealthDataPoint> dataPoints) {
@@ -158,24 +137,29 @@ class SleepViewModel extends ChangeNotifier {
     int remSleepMinutes = 0;
 
     for (var point in dataPoints) {
-      final duration = point.dateTo.difference(point.dateFrom).inMinutes;
+      final duration =
+          point.dateTo.difference(point.dateFrom).inMinutes;
 
       switch (point.type) {
-        case HealthDataType.SLEEP_ASLEEP:
-          totalAsleepMinutes += duration;
-          break;
         case HealthDataType.SLEEP_DEEP:
           deepSleepMinutes += duration;
           totalAsleepMinutes += duration;
           break;
+
         case HealthDataType.SLEEP_LIGHT:
           lightSleepMinutes += duration;
           totalAsleepMinutes += duration;
           break;
+
         case HealthDataType.SLEEP_REM:
           remSleepMinutes += duration;
           totalAsleepMinutes += duration;
           break;
+
+        case HealthDataType.SLEEP_ASLEEP:
+          totalAsleepMinutes += duration;
+          break;
+
         default:
           break;
       }
@@ -187,10 +171,13 @@ class SleepViewModel extends ChangeNotifier {
     remSleep = _formatMinutes(remSleepMinutes);
 
     if (totalAsleepMinutes > 0) {
-      sleepScore = ((totalAsleepMinutes / 480) * 100).clamp(0, 100).toInt();
+      sleepScore =
+          ((totalAsleepMinutes / 480) * 100).clamp(0, 100).toInt();
     } else {
       sleepScore = 0;
     }
+
+    hypnogramData = []; // ready for real implementation later
   }
 
   String _formatMinutes(int totalMinutes) {
@@ -202,17 +189,22 @@ class SleepViewModel extends ChangeNotifier {
 
   int _parseDurationToMinutes(String durationStr) {
     try {
-      if (durationStr == "0h 0m" || durationStr.isEmpty) return 0;
+      if (durationStr == "0h 0m" || durationStr.isEmpty)
+        return 0;
+
       final parts = durationStr.split(' ');
-      int hours = int.parse(parts[0].replaceAll('h', ''));
-      int minutes = int.parse(parts[1].replaceAll('m', ''));
+      int hours =
+      int.parse(parts[0].replaceAll('h', ''));
+      int minutes =
+      int.parse(parts[1].replaceAll('m', ''));
       return (hours * 60) + minutes;
     } catch (e) {
       return 0;
     }
   }
 
-  Future<void> refreshData(BuildContext context, String userId) async {
+  Future<void> refreshData(
+      BuildContext context, String userId) async {
     await loadSleepData(context, userId);
   }
 
@@ -220,12 +212,15 @@ class SleepViewModel extends ChangeNotifier {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
-            Icon(Icons.health_and_safety, color: Colors.blueAccent),
+            Icon(Icons.health_and_safety,
+                color: Colors.blueAccent),
             SizedBox(width: 10),
-            Text("Health Connect Required", style: TextStyle(fontSize: 18)),
+            Text("Health Connect Required",
+                style: TextStyle(fontSize: 18)),
           ],
         ),
         content: const Text(
@@ -235,7 +230,8 @@ class SleepViewModel extends ChangeNotifier {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Later", style: TextStyle(color: Colors.grey)),
+            child: const Text("Later",
+                style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -245,10 +241,12 @@ class SleepViewModel extends ChangeNotifier {
             onPressed: () async {
               Navigator.pop(context);
               final Uri playStoreUri = Uri.parse(
-                  "https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata"
-              );
+                  "https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata");
               if (await canLaunchUrl(playStoreUri)) {
-                await launchUrl(playStoreUri, mode: LaunchMode.externalApplication);
+                await launchUrl(
+                  playStoreUri,
+                  mode: LaunchMode.externalApplication,
+                );
               }
             },
             child: const Text("Install"),
