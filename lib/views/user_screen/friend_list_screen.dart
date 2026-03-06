@@ -25,11 +25,105 @@ class _FriendListScreenState extends State<FriendListScreen>
     });
   }
 
+  // --- BOTTOM SHEET METHOD ---
+  void _showFriendDetailSheet(BuildContext context, Map<String, dynamic> friend, Color surface, Color text, Color accent) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag Handle
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 24),
+                decoration: BoxDecoration(
+                  color: text.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Profile Header
+              CircleAvatar(
+                radius: 36,
+                backgroundColor: accent.withOpacity(0.1),
+                child: Text(
+                  friend['username'][0].toUpperCase(),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: accent, fontSize: 28),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                friend['username'],
+                style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 22),
+              ),
+              Text(
+                "UID: ${friend['uid_text'] ?? 'Unknown'}",
+                style: TextStyle(color: text.withOpacity(0.5), fontSize: 14),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Stats Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildStatItem(
+                      Icons.bedtime,
+                      "${friend['sleep_goal_hours'] ?? '8'}h",
+                      "Sleep Goal",
+                      text,
+                      accent
+                  ),
+                  Container(width: 1, height: 40, color: text.withOpacity(0.1)), // Divider
+                  _buildStatItem(
+                      Icons.local_fire_department,
+                      "${friend['streak'] ?? '0'}",
+                      "Day Streak",
+                      text,
+                      Colors.orange
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 32),
+
+              // Close Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent.withOpacity(0.1),
+                    foregroundColor: accent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final viewModel = Provider.of<FriendViewModel>(context);
 
-    // --- THEME COLORS (Matching Schedule Screen) ---
+    // --- THEME COLORS ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
@@ -68,13 +162,18 @@ class _FriendListScreenState extends State<FriendListScreen>
           // --- TAB 1: FRIENDS LIST ---
           viewModel.friends.isEmpty
               ? _buildEmptyState("No friends yet. Add someone!", text)
-              : ListView.separated(
+              : ListView.separated( // Removed the wrapping Column
             padding: const EdgeInsets.all(20),
             itemCount: viewModel.friends.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final friend = viewModel.friends[index];
-              return _buildFriendCard(friend, surface, text, accent);
+              return GestureDetector(
+                onTap: () {
+                  _showFriendDetailSheet(context, friend, surface, text, accent);
+                },
+                child: _buildFriendCard(friend, surface, text, accent),
+              );
             },
           ),
 
@@ -104,13 +203,30 @@ class _FriendListScreenState extends State<FriendListScreen>
 
   // --- WIDGETS ---
 
+  Widget _buildStatItem(IconData icon, String value, String label, Color text, Color iconColor) {
+    return Column(
+      children: [
+        Icon(icon, color: iconColor, size: 28),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+        Text(
+          label,
+          style: TextStyle(color: text.withOpacity(0.5), fontSize: 12),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFriendCard(Map<String, dynamic> friend, Color surface, Color text, Color accent) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: text.withOpacity(0.05)),
+        border: Border.all(color: text.withOpacity(0.05)), // Cleaned up border color logic
       ),
       child: Row(
         children: [
@@ -145,7 +261,7 @@ class _FriendListScreenState extends State<FriendListScreen>
               ],
             ),
           ),
-          Icon(Icons.chat_bubble_outline, color: text.withOpacity(0.3)),
+          Icon(Icons.chevron_right, color: text.withOpacity(0.3)), // Suggests it can be tapped
         ],
       ),
     );
@@ -157,7 +273,7 @@ class _FriendListScreenState extends State<FriendListScreen>
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)), // Slight orange tint for requests
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
       ),
       child: Row(
         children: [

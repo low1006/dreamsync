@@ -9,7 +9,7 @@ class UserModel {
   final String uidText;
   final int currentPoints;
   final double sleepGoalHours;
-  final int streak; // <--- ADDED THIS FIELD
+  final int streak;
 
   UserModel({
     required this.userId,

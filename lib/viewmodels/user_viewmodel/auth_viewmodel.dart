@@ -22,7 +22,6 @@ class AuthViewModel extends ChangeNotifier {
   double height = 175.0;
   double sleepGoal = 8.0;
 
-
   @override
   void dispose() {
     _isDisposed = true;
@@ -32,7 +31,6 @@ class AuthViewModel extends ChangeNotifier {
   // Set loading state
   void _setLoading(bool loading) {
     if (_isDisposed) return;
-
     isLoading = loading;
     if (loading) errorMessage = null;
     notifyListeners();
@@ -40,6 +38,7 @@ class AuthViewModel extends ChangeNotifier {
 
   // Set error message
   void _setError(String? message) {
+    if (_isDisposed) return;
     errorMessage = message;
     notifyListeners();
   }
@@ -77,7 +76,7 @@ class AuthViewModel extends ChangeNotifier {
     _setLoading(true);
     try {
       await _client.auth.signInWithPassword(
-        email: email,
+        email: email.trim(),
         password: password,
       );
 
@@ -97,59 +96,49 @@ class AuthViewModel extends ChangeNotifier {
         _setError("Invalid email or password.");
       }
     } catch (e) {
-      _setError('An unexpected error occurred.');
+      _setError(e.toString());
     }
     _setLoading(false);
   }
 
   // =================================================
-  // REGISTRATION STEP 1: SEND OTP
+  // REGISTRATION STEP 1: SEND OTP ONLY
+  // No signup yet — just sends OTP email to verify
+  // the email exists before creating the account.
   // =================================================
-  Future<bool> startRegistration({
-    required String email,
-    required String password,
-  }) async {
+  Future<bool> sendVerificationOtp(String email) async {
     _setLoading(true);
     try {
-      // Supabase sends the OTP automatically upon sign-up if Email Confirm is on
-      final response = await _client.auth.signUp(
-        email: email,
-        password: password,
+      await _client.auth.signInWithOtp(
+        email: email.trim(),
+        shouldCreateUser: true,
       );
-
-      // If session is null, it means OTP is required (Success)
-      if (response.session == null && response.user != null) {
-        _setLoading(false);
-        return true;
-      }
-      // If session exists, they are just logged in (e.g. email confirm disabled)
-      else if (response.session != null) {
-        _setLoading(false);
-        return true;
-      }
-
-      return false;
+      _setLoading(false);
+      return true;
     } on AuthException catch (e) {
-      if (e.message.toLowerCase().contains("already registered")) {
-        _setError("Account already exists. Please login.");
-      } else {
-        _setError("Invalid Email Format"); // [A1: Invalid Email Format]
-      }
+      _setError(e.message);
       _setLoading(false);
       return false;
     } catch (e) {
-      _setError('An unexpected error occurred.');
+      _setError('Failed to send OTP.');
       _setLoading(false);
       return false;
     }
   }
 
   // =================================================
-  // REGISTRATION STEP 2: VERIFY OTP & SAVE DATA
+  // REGISTRATION STEP 2: VERIFY OTP → SET PASSWORD
+  // → UPSERT FULL PROFILE
+  //
+  // Flow:
+  // 1. verifyOTP  → user is now logged in via magic link
+  // 2. updateUser → sets the real password on the account
+  // 3. upsert     → writes full profile data to public.profile
   // =================================================
-  Future<bool> verifyOtpAndCompleteRegistration({
+  Future<bool> verifyOtpAndRegister({
     required String email,
     required String token,
+    required String password,
     required String username,
     required String gender,
     required String dateBirth,
@@ -159,42 +148,51 @@ class AuthViewModel extends ChangeNotifier {
   }) async {
     _setLoading(true);
     try {
-      // 1. Verify OTP
-      final response = await _client.auth.verifyOTP(
-        token: token,
-        type: OtpType.signup,
-        email: email,
+      // 1. Verify OTP — session is created after this
+      final verifyResponse = await _client.auth.verifyOTP(
+        token: token.trim(),
+        type: OtpType.email,
+        email: email.trim(),
       );
 
-      if (response.session != null) {
-        // 2. Create User Record in Database
-        final newUser = UserModel(
-          userId: response.user!.id,
-          username: username,
-          email: email,
-          gender: gender,
-          dateBirth: dateBirth,
-          weight: weight,
-          height: height,
-          uidText: response.user!.id.substring(0, 8),
-          currentPoints: 0,
-          sleepGoalHours: sleepGoal,
-        );
-
-        await _repository.create(newUser.toJson());
-        _setLoading(false);
-        return true;
-      } else {
-        _setError("Invalid OTP code."); // [A4: Invalid OTP code]
+      if (verifyResponse.session == null) {
+        _setError("Invalid OTP code. Please try again.");
         _setLoading(false);
         return false;
       }
+
+      final userId = verifyResponse.user!.id;
+
+      // 2. Set the real password on the account
+      await _client.auth.updateUser(
+        UserAttributes(password: password),
+      );
+
+      // 3. Upsert full profile — overwrites the trigger's placeholder row
+      await _client.from('profile').upsert({
+        'user_id': userId,
+        'username': username,
+        'email': email.trim(),
+        'gender': gender,
+        'date_birth': dateBirth,
+        'weight': weight,
+        'height': height,
+        'sleep_goal_hours': sleepGoal,
+        'streak': 0,
+        'current_points': 0,
+        'uid_text': userId.substring(0, 8),
+      });
+
+      _setLoading(false);
+      return true;
+
     } on AuthException catch (e) {
-      _setError("Invalid OTP code.");
+      _setError('Auth: ${e.message} (${e.statusCode})');
       _setLoading(false);
       return false;
     } catch (e) {
-      _setError('Failed to verify OTP.');
+      _setError('Registration failed. Please try again.');
+      _setError(e.toString());
       _setLoading(false);
       return false;
     }
@@ -205,16 +203,18 @@ class AuthViewModel extends ChangeNotifier {
   // =================================================
   Future<void> resendOtp(String email) async {
     try {
-      await _client.auth.resend(
-        type: OtpType.signup,
-        email: email,
+      await _client.auth.signInWithOtp(
+        email: email.trim(),
+        shouldCreateUser: true,
       );
     } catch (e) {
       _setError("Failed to resend OTP.");
     }
   }
 
-  // --- Validation Helpers ---
+  // =================================================
+  // VALIDATION HELPERS
+  // =================================================
   String? validateUsername(String? value) {
     if (value == null || value.isEmpty) return 'Please enter a username';
     if (value.length < 3) return 'Username is too short';
@@ -223,7 +223,11 @@ class AuthViewModel extends ChangeNotifier {
 
   String? validateEmail(String? value) {
     if (value == null || value.isEmpty) return 'Please enter your email';
-    if (!value.contains('@')) return 'Please enter a valid email';
+    final emailRegex = RegExp(
+        r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+");
+    if (!emailRegex.hasMatch(value.trim())) {
+      return 'Please enter a valid email address';
+    }
     return null;
   }
 
@@ -233,7 +237,9 @@ class AuthViewModel extends ChangeNotifier {
     if (!value.contains(RegExp(r'[A-Z]'))) return 'Must contain an uppercase letter';
     if (!value.contains(RegExp(r'[a-z]'))) return 'Must contain a lowercase letter';
     if (!value.contains(RegExp(r'[0-9]'))) return 'Must contain a number';
-    if (!value.contains(RegExp(r'[!@#\$&*~^%(),.?":{}|<>]'))) return 'Must contain a symbol';
+    if (!value.contains(RegExp(r'[!@#\$&*~^%(),.?":{}|<>]'))) {
+      return 'Must contain a symbol';
+    }
     return null;
   }
 
@@ -253,10 +259,13 @@ class AuthViewModel extends ChangeNotifier {
     try {
       final birthDate = DateTime.parse(value);
       final today = DateTime.now();
-      if(birthDate.isAfter(today)) return 'Date cannot be in the future';
-      final twelveYearsAgo = DateTime(today.year - 12, today.month, today.day);
-      if(birthDate.isAfter(twelveYearsAgo)) return 'You must be at least 12 years old';
-    } catch(e) {
+      if (birthDate.isAfter(today)) return 'Date cannot be in the future';
+      final twelveYearsAgo =
+      DateTime(today.year - 12, today.month, today.day);
+      if (birthDate.isAfter(twelveYearsAgo)) {
+        return 'You must be at least 12 years old';
+      }
+    } catch (e) {
       return 'Invalid date format';
     }
     return null;

@@ -8,13 +8,24 @@ class UserViewModel extends ChangeNotifier {
   late final UserRepository _repository = UserRepository(_client);
   UserModel? userProfile;
   bool isLoading = false;
+  bool _isDisposed = false;
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
+  }
+
+  void _safeNotify() {
+    if (!_isDisposed) notifyListeners();
+  }
 
   Future<void> fetchProfile(String userId) async {
     isLoading = true;
-    notifyListeners();
+    _safeNotify();
     userProfile = await _repository.getById(userId);
     isLoading = false;
-    notifyListeners();
+    _safeNotify();
   }
 
   Future<void> updateUserProfile({
@@ -25,40 +36,40 @@ class UserViewModel extends ChangeNotifier {
     if (userProfile == null) return;
 
     isLoading = true;
-    notifyListeners();
+    _safeNotify();
     try {
-      // Use the repository method we created in Step 3
       await _repository.updateProfileData(
         userId: userProfile!.userId,
         weight: weight,
         height: height,
         sleepGoalHours: sleepGoal,
       );
-
-      // Refresh data locally
       await fetchProfile(userProfile!.userId);
     } catch (e) {
       debugPrint("Error updating profile: $e");
     } finally {
       isLoading = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
-
-  // logic for account actions
   Future<void> signOut() async {
     await _repository.signOut();
   }
 
   Future<void> deleteUserAccount() async {
     isLoading = true;
-    notifyListeners();
+    _safeNotify();
     try {
+      // This calls delete_user_account() SQL function
+      // which deletes auth.users row → CASCADE deletes profile
       await _repository.deleteAccount();
-    } finally {
-      isLoading = false;
-      notifyListeners();
+    } catch (e) {
+      debugPrint("Error deleting account: $e");
     }
+    // ← No finally notifyListeners here — ViewModel is
+    //   already disposed after signOut, so we use _safeNotify
+    isLoading = false;
+    _safeNotify();
   }
 }

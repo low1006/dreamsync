@@ -43,7 +43,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _bedTime = const TimeOfDay(hour: 22, minute: 30);
     _wakeTime = const TimeOfDay(hour: 7, minute: 0);
     _selectedDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-    _isSmartAlarm = true; // Default to true
+    _isSmartAlarm = true;
     _isSmartNotification = true;
     _isAlarmOn = true;
     _isSnoozeOn = true;
@@ -82,8 +82,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   // --- LOGIC ---
 
-  // 0. STABLE ID GENERATOR
-  // Generates a consistent, stable integer ID from a String UUID
   int _getStableId(String uuid) {
     int hash = 0;
     for (int i = 0; i < uuid.length; i++) {
@@ -92,12 +90,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return hash;
   }
 
-  // 1. ALARM TOGGLE
   Future<void> _quickUpdate(bool isAlarmActive) async {
     if (_existingId == null) return;
     await context.read<ScheduleViewModel>().toggleSchedule(_existingId!, isAlarmActive);
 
-    // Use stable ID instead of .hashCode
     int notificationId = _getStableId(_existingId!);
 
     if (isAlarmActive || _isSmartNotification) {
@@ -129,7 +125,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  // 2. DND TOGGLE
   Future<void> _quickUpdateNotification(bool isSmartNotif) async {
     if (_existingId == null) return;
     await context.read<ScheduleViewModel>().toggleSmartNotification(_existingId!, isSmartNotif);
@@ -143,7 +138,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       }
     }
 
-    // Use stable ID instead of .hashCode
     int notificationId = _getStableId(_existingId!);
 
     if (_isAlarmOn || isSmartNotif) {
@@ -175,13 +169,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  // 3. SNOOZE TOGGLE
   Future<void> _quickUpdateSnooze(bool isSnooze) async {
     if (_existingId == null) return;
 
     await context.read<ScheduleViewModel>().toggleSnooze(_existingId!, isSnooze);
 
-    // Use stable ID instead of .hashCode
     int notificationId = _getStableId(_existingId!);
 
     if (_isAlarmOn || _isSmartNotification) {
@@ -324,7 +316,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     await scheduleVM.saveSchedule(scheduleToSave);
 
-    // Use stable ID instead of .hashCode
     int notificationId = _getStableId(scheduleToSave.id);
 
     if (_isAlarmOn || _isSmartNotification) {
@@ -383,22 +374,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final accent = const Color(0xFF3B82F6);
     final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
-    if (_isInit) {
-      return Scaffold(
-        backgroundColor: bg,
-        appBar: AppBar(title: Text("Sleep Schedule", style: TextStyle(color: text)), backgroundColor: bg, elevation: 0),
-        body: Center(child: CircularProgressIndicator(color: accent)),
-      );
-    }
-
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
-        title: Text("Sleep Schedule", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
+        title: Text("Sleep Schedule",
+            style: TextStyle(color: text, fontWeight: FontWeight.bold)
+        ),
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
-        actions: [
+        actions: _isInit ? [] : [
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: IconButton(
@@ -409,7 +394,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: _isInit
+          ? Center(child: CircularProgressIndicator(color: accent))
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,7 +468,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 if (!_isEditing) _quickUpdateSnooze(val);
               },
 
-              // Only update state here. Saved on "Check" button.
               onToggleSmartAlarm: (val) => setState(() => _isSmartAlarm = val),
 
               onToggleNotification: (val) {

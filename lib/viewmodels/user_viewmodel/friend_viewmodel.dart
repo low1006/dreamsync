@@ -19,7 +19,7 @@ class FriendViewModel extends ChangeNotifier {
   List<UserModel> leaderboardUsers = [];
 
   // =========================================================
-  // 1. ORIGINAL FUNCTION: LOAD FRIENDS (Keep this exactly as is)
+  // 1. ORIGINAL FUNCTION: LOAD FRIENDS
   // =========================================================
   Future<void> loadFriendListData() async {
     isLoading = true;
@@ -29,11 +29,12 @@ class FriendViewModel extends ChangeNotifier {
 
     try {
       // Fetch all Friends
+      // MODIFIED: Added sleep_goal_hours and streak to the nested join query
       final response = await _client.from('friendships')
           .select('''
             *,
-            sender:profile!sender_id(username, email, uid_text),
-            receiver:profile!receiver_id(username, email, uid_text)
+            sender:profile!sender_id(username, email, uid_text, sleep_goal_hours, streak),
+            receiver:profile!receiver_id(username, email, uid_text, sleep_goal_hours, streak)
           ''')
           .or('sender_id.eq.$myId,receiver_id.eq.$myId');
 
@@ -124,7 +125,7 @@ class FriendViewModel extends ChangeNotifier {
   }
 
   // =========================================================
-  // 3. ORIGINAL SEARCH & REQUEST FUNCTIONS (Keep as is)
+  // 3. ORIGINAL SEARCH & REQUEST FUNCTIONS
   // =========================================================
 
   // Search User

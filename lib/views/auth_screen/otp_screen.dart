@@ -7,6 +7,7 @@ import 'package:dreamsync/widget/custom/custom_text_field.dart';
 class OtpScreen extends StatefulWidget {
   final String email;
   final String username;
+  final String password;
   final String gender;
   final String dateBirth;
   final double weight;
@@ -17,6 +18,7 @@ class OtpScreen extends StatefulWidget {
     super.key,
     required this.email,
     required this.username,
+    required this.password,
     required this.gender,
     required this.dateBirth,
     required this.weight,
@@ -31,6 +33,35 @@ class OtpScreen extends StatefulWidget {
 class _OtpScreenState extends State<OtpScreen> {
   final _otpController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+
+  // Resend cooldown timer
+  bool _canResend = true;
+  int _resendCooldown = 0;
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  // Start a 60 second cooldown after resend
+  void _startResendCooldown() {
+    setState(() {
+      _canResend = false;
+      _resendCooldown = 60;
+    });
+
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return false;
+      setState(() => _resendCooldown--);
+      if (_resendCooldown <= 0) {
+        setState(() => _canResend = true);
+        return false;
+      }
+      return true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,43 +78,70 @@ class _OtpScreenState extends State<OtpScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
-              const Icon(Icons.mark_email_read, size: 80, color: Colors.blueAccent),
+
+              // Icon
+              const Icon(
+                Icons.mark_email_read,
+                size: 80,
+                color: Colors.blueAccent,
+              ),
               const SizedBox(height: 24),
+
+              // Title
               Text(
                 "Enter OTP",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
               ),
               const SizedBox(height: 8),
+
+              // Subtitle
               Text(
-                "We have sent a 6-digit code to\n${widget.email}",
+                "We have sent a 8-digit code to\n${widget.email}",
                 textAlign: TextAlign.center,
-                style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                ),
               ),
               const SizedBox(height: 32),
 
+              // OTP Input
               CustomTextField(
                 controller: _otpController,
-                label: "6-Digit Code",
+                label: "8-Digit Code",
                 keyboardType: TextInputType.number,
-                validator: (val) => (val == null || val.length < 6) ? "Enter valid 6-digit code" : null,
+                validator: (val) =>
+                (val == null || val.trim().length < 8)
+                    ? "Enter a valid 8-character code"
+                    : null,
               ),
-
               const SizedBox(height: 16),
-              if (viewModel.errorMessage != null)
-                Text(
-                  viewModel.errorMessage!,
-                  style: const TextStyle(color: Colors.red),
-                ),
-              const SizedBox(height: 24),
 
+              // Error Message
+              if (viewModel.errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Text(
+                    viewModel.errorMessage!,
+                    style: const TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              const SizedBox(height: 8),
+
+              // Verify Button
               CustomButton(
                 text: "Verify & Register",
                 isLoading: viewModel.isLoading,
                 onPressed: () async {
                   if (_formKey.currentState!.validate()) {
-                    final success = await viewModel.verifyOtpAndCompleteRegistration(
+                    final success = await viewModel.verifyOtpAndRegister(
                       email: widget.email,
                       token: _otpController.text.trim(),
+                      password: widget.password,
                       username: widget.username,
                       gender: widget.gender,
                       dateBirth: widget.dateBirth,
@@ -92,22 +150,39 @@ class _OtpScreenState extends State<OtpScreen> {
                       sleepGoal: widget.sleepGoal,
                     );
 
-                    // A4.2 (Success) -> Logged in
                     if (success && mounted) {
-                      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                      // Navigate to home and clear all previous routes
+                      Navigator.of(context)
+                          .pushNamedAndRemoveUntil('/', (route) => false);
                     }
                   }
                 },
               ),
               const SizedBox(height: 16),
+
+              // Resend OTP Button with cooldown
               TextButton(
-                onPressed: () {
-                  viewModel.resendOtp(widget.email);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("OTP Resent!")),
-                  );
-                },
-                child: const Text("Resend OTP"),
+                onPressed: _canResend
+                    ? () async {
+                  await viewModel.resendOtp(widget.email);
+                  _startResendCooldown();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("OTP resent! Check your email."),
+                      ),
+                    );
+                  }
+                }
+                    : null,
+                child: Text(
+                  _canResend
+                      ? "Resend OTP"
+                      : "Resend OTP in ${_resendCooldown}s",
+                  style: TextStyle(
+                    color: _canResend ? Colors.blueAccent : Colors.grey,
+                  ),
+                ),
               ),
             ],
           ),

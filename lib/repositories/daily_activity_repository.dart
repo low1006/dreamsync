@@ -57,4 +57,23 @@ class DailyActivityRepository {
       return null;
     }
   }
+
+  // 🔥 NEW: Fetch activity records within a specific date range for the Weekly Charts
+  Future<List<DailyActivityModel>> getActivityByDateRange(
+      String userId, String startDate, String endDate) async {
+    try {
+      final response = await _client
+          .from('daily_activities')
+          .select()
+          .eq('user_id', userId)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', ascending: true);
+
+      return response.map((json) => DailyActivityModel.fromJson(json)).toList();
+    } catch (e) {
+      print("❌ Error fetching activity date range: $e");
+      return [];
+    }
+  }
 }

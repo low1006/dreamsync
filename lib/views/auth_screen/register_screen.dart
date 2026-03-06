@@ -5,7 +5,7 @@ import 'package:dreamsync/widget/custom/custom_text_field.dart';
 import 'package:dreamsync/widget/custom/custom_button.dart';
 import 'package:dreamsync/widget/custom/custom_dropdown.dart';
 import 'package:dreamsync/widget/custom/custom_slider.dart';
-import 'package:dreamsync/views/auth_screen/otp_screen.dart'; // Import OTP Screen
+import 'package:dreamsync/views/auth_screen/otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -75,7 +75,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ],
       ),
-    ) ?? false;
+    ) ??
+        false;
   }
 
   @override
@@ -116,7 +117,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     controller: _confirmPasswordController,
                     label: 'Confirm Password',
                     isObscure: true,
-                    validator: (val) => viewModel.validateConfirmPassword(val, _passwordController.text),
+                    validator: (val) => viewModel.validateConfirmPassword(
+                        val, _passwordController.text),
                   ),
                   const SizedBox(height: 16),
 
@@ -128,7 +130,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           label: "Gender",
                           value: _gender,
                           items: const ["Male", "Female"],
-                          onChanged: (val) => setState(() => _gender = val),
+                          onChanged: (val) =>
+                              setState(() => _gender = val),
                           validator: viewModel.validateGender,
                         ),
                       ),
@@ -153,30 +156,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   CustomSlider(
                     label: "Weight",
                     value: viewModel.weight,
-                    min: 30, max: 150,
+                    min: 30,
+                    max: 150,
                     unit: "kg",
-                    onChanged: (val) => viewModel.updateAttribute('weight', val),
+                    onChanged: (val) =>
+                        viewModel.updateAttribute('weight', val),
                   ),
                   CustomSlider(
                     label: "Height",
                     value: viewModel.height,
-                    min: 100, max: 250,
+                    min: 100,
+                    max: 250,
                     unit: "cm",
-                    onChanged: (val) => viewModel.updateAttribute('height', val),
+                    onChanged: (val) =>
+                        viewModel.updateAttribute('height', val),
                   ),
                   CustomSlider(
                     label: "Sleep Goal",
                     value: viewModel.sleepGoal,
-                    min: 4, max: 12,
+                    min: 4,
+                    max: 12,
                     unit: "hours",
-                    onChanged: (val) => viewModel.updateAttribute('sleepGoal', val),
+                    onChanged: (val) =>
+                        viewModel.updateAttribute('sleepGoal', val),
                   ),
                   const SizedBox(height: 24),
 
+                  // Error Message
                   if (viewModel.errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16.0),
-                      child: Text(viewModel.errorMessage!, style: const TextStyle(color: Colors.red)),
+                      child: Text(
+                        viewModel.errorMessage!,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
 
                   CustomButton(
@@ -184,23 +198,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     isLoading: viewModel.isLoading,
                     onPressed: () async {
                       if (_formKey.currentState!.validate()) {
-
-                        // 1. Show Huawei Dialog [Step 6]
+                        // 1. Show Huawei Dialog
                         await _showHuaweiAuthDialog();
 
-                        // 2. Start Registration (Send OTP) [Step 8]
-                        final otpSent = await viewModel.startRegistration(
-                          email: _emailController.text.trim(),
-                          password: _passwordController.text.trim(),
+                        // 2. Send OTP only — no signup yet
+                        final otpSent =
+                        await viewModel.sendVerificationOtp(
+                          _emailController.text.trim(),
                         );
 
-                        // 3. Navigate to OTP Screen [Step 9]
+                        // 3. Navigate to OTP Screen with ALL data
                         if (otpSent && context.mounted) {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => OtpScreen(
                                 email: _emailController.text.trim(),
+                                password: _passwordController.text.trim(),
                                 username: _usernameController.text.trim(),
                                 gender: _gender!,
                                 dateBirth: _dateBirthController.text,

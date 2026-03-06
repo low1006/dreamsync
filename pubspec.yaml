@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  health: ^11.0.0
+  health: ^12.0.1
   url_launcher: ^6.2.5
   http: ^1.2.0
   permission_handler: ^11.3.0

@@ -9,8 +9,9 @@ import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_vi
 // Custom Widgets & Painters
 import 'package:dreamsync/widget/sleep_dashboard/behavioural_card.dart';
 import 'package:dreamsync/widget/sleep_dashboard/behavioural_dialogs.dart';
-import 'package:dreamsync/widget/sleep_dashboard/sleep_score_gauge_painter.dart'; // NEW
-import 'package:dreamsync/widget/sleep_dashboard/hypnogram_painter.dart';        // NEW
+import 'package:dreamsync/widget/sleep_dashboard/sleep_score_gauge_painter.dart';
+import 'package:dreamsync/widget/sleep_dashboard/hypnogram_painter.dart';
+import 'package:dreamsync/widget/sleep_dashboard/weekly_bar_chart.dart';
 
 class SleepDashboardScreen extends StatefulWidget {
   const SleepDashboardScreen({super.key});
@@ -19,15 +20,38 @@ class SleepDashboardScreen extends StatefulWidget {
   State<SleepDashboardScreen> createState() => _SleepDashboardScreenState();
 }
 
-class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
-  String _screenTime = "Fetching...";
+// ✅ ADDED: SingleTickerProviderStateMixin for TabController
+class _SleepDashboardScreenState extends State<SleepDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  // ✅ ADDED: TabController
+  late TabController _tabController;
 
-  // Flag to ensure we only fetch data once after the user loads
+  String _screenTime = "Fetching...";
   bool _hasFetchedData = false;
 
   @override
   void initState() {
     super.initState();
+    // ✅ ADDED: Initialize TabController with 2 tabs (Daily, Weekly)
+    _tabController = TabController(length: 2, vsync: this);
+
+    // ✅ ADDED: Sync tab selection → SleepViewModel filter
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) return;
+      final vm = context.read<SleepViewModel>();
+      if (_tabController.index == 0) {
+        vm.changeFilter(SleepFilter.daily);
+      } else {
+        vm.changeFilter(SleepFilter.weekly);
+      }
+    });
+  }
+
+  // ✅ ADDED: Dispose TabController to avoid memory leaks
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> fetchScreenTime() async {
@@ -45,45 +69,100 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
     }
   }
 
+  double _parseScreenTimeToHours(String screenTimeStr) {
+    if (screenTimeStr == "Fetching..." || screenTimeStr.isEmpty) return 0.0;
+    double hours = 0.0;
+
+    final RegExp hourRegExp = RegExp(r'(\d+)\s*h');
+    final RegExp minRegExp = RegExp(r'(\d+)\s*m');
+
+    final hMatch = hourRegExp.firstMatch(screenTimeStr);
+    if (hMatch != null) hours += double.parse(hMatch.group(1)!);
+
+    final mMatch = minRegExp.firstMatch(screenTimeStr);
+    if (mMatch != null) hours += double.parse(mMatch.group(1)!) / 60.0;
+
+    return hours;
+  }
+
+  List<String> _getLast7DaysLabels() {
+    final now = DateTime.now();
+    return List.generate(7, (index) {
+      final date = now.subtract(Duration(days: 6 - index));
+      switch (date.weekday) {
+        case 1: return "Mon";
+        case 2: return "Tue";
+        case 3: return "Wed";
+        case 4: return "Thu";
+        case 5: return "Fri";
+        case 6: return "Sat";
+        case 7: return "Sun";
+        default: return "";
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 1. WATCH the user profile so the UI knows when it finishes loading
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF0F172A) : const Color(0xFFF5F7FA);
+    final text = isDark ? Colors.white : const Color(0xFF1E293B);
+    final accent = const Color(0xFF3B82F6);
+
     final user = context.watch<UserViewModel>().userProfile;
     final dailyVM = context.watch<DailyActivityViewModel>();
 
-    // 2. TRIGGER the fetches once the user is NOT null, but only do it ONCE.
     if (user != null && !_hasFetchedData) {
       _hasFetchedData = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        context.read<SleepViewModel>().loadSleepData(context, user.userId);
-        context.read<DailyActivityViewModel>().loadTodayData(user.userId);
-        fetchScreenTime();
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await context.read<SleepViewModel>().loadSleepData(context, user.userId);
+        await context.read<DailyActivityViewModel>().loadTodayData(user.userId);
+
+        if (mounted) {
+          await fetchScreenTime();
+          await context.read<DailyActivityViewModel>().loadWeeklyData(user.userId);
+        }
       });
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: bg,
       appBar: AppBar(
-        title: const Text(
-          'Sleep Dashboard',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
+        // ✅ UPDATED: Match AchievementScreen AppBar style
+        backgroundColor: bg,
         elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.black87,
+        centerTitle: true,
+        title: Text(
+          'Sleep Dashboard',
+          style: TextStyle(fontWeight: FontWeight.bold, color: text),
+        ),
         automaticallyImplyLeading: false,
+        iconTheme: IconThemeData(color: text),
+        // ✅ ADDED: TabBar in AppBar bottom — mirrors AchievementScreen exactly
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: accent,
+          labelColor: accent,
+          unselectedLabelColor: text.withOpacity(0.5),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          dividerColor: text.withOpacity(0.1),
+          tabs: const [
+            Tab(text: "Daily"),
+            Tab(text: "Weekly"),
+          ],
+        ),
       ),
+      // ✅ UPDATED: Body is now a TabBarView with two tabs
       body: Consumer<SleepViewModel>(
         builder: (context, viewModel, child) {
           if (viewModel.isLoading) {
-            return const Center(
+            return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text("Syncing data..."),
+                  CircularProgressIndicator(color: accent),
+                  const SizedBox(height: 16),
+                  Text("Syncing data...", style: TextStyle(color: text)),
                 ],
               ),
             );
@@ -106,266 +185,443 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
                     const SizedBox(height: 24),
                     ElevatedButton(
                       onPressed: () {
-                        final user = context.read<UserViewModel>().userProfile;
-                        if (user != null) {
-                          viewModel.loadSleepData(context, user.userId);
-                        }
+                        final u = context.read<UserViewModel>().userProfile;
+                        if (u != null) viewModel.loadSleepData(context, u.userId);
                       },
                       child: const Text("Try Again"),
-                    )
+                    ),
                   ],
                 ),
               ),
             );
           }
 
-          final bool noData = viewModel.totalSleepDuration == "0h 0m";
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              final user = context.read<UserViewModel>().userProfile;
-              if (user != null) {
-                await viewModel.refreshData(context, user.userId);
-                await context.read<DailyActivityViewModel>().loadTodayData(user.userId);
-              }
-              await fetchScreenTime();
-            },
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Last Night's Sleep",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // STACK FOR DIMMING EFFECT & NO DATA OVERLAY
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      AnimatedOpacity(
-                        duration: const Duration(milliseconds: 300),
-                        opacity: noData ? 0.4 : 1.0,
-                        child: IgnorePointer(
-                          ignoring: noData,
-                          child: Column(
-                            children: [
-                              // 1. Main Sleep Score & Duration Card
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                padding: const EdgeInsets.all(20.0),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                  children: [
-                                    CustomPaint(
-                                      size: const Size(100, 100),
-                                      painter: SleepScoreGaugePainter(
-                                        score: viewModel.sleepScore,
-                                        themeColor: Colors.indigoAccent,
-                                      ),
-                                    ),
-                                    Container(width: 1, height: 60, color: Colors.grey.shade200),
-                                    Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          viewModel.totalSleepDuration,
-                                          style: const TextStyle(
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        const Text(
-                                          "Time Asleep",
-                                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500, fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 20),
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  "Sleep Cycle (Hypnogram)",
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-
-                              // 2. The Hypnogram Chart Container
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SizedBox(
-                                      height: 120,
-                                      child: CustomPaint(
-                                        size: Size.infinite,
-                                        painter: HypnogramPainter(
-                                          data: viewModel.hypnogramData,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                      children: [
-                                        _buildLegendItem("Awake", const Color(0xFFFF7043)),
-                                        _buildLegendItem("REM", const Color(0xFF9C64FF)),
-                                        _buildLegendItem("Light", const Color(0xFF42A5F5)),
-                                        _buildLegendItem("Deep", const Color(0xFF1A237E)),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 16),
-
-                              // 3. Sleep Stages Breakdown
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  children: [
-                                    _buildSleepStageRow("Deep Sleep", viewModel.deepSleep, Colors.indigo),
-                                    const Divider(height: 16),
-                                    _buildSleepStageRow("Light Sleep", viewModel.lightSleep, Colors.lightBlue),
-                                    const Divider(height: 16),
-                                    _buildSleepStageRow("REM Sleep", viewModel.remSleep, Colors.purpleAccent),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Top Layer: The "No Data" Overlay Message
-                      if (noData)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
-                            ],
-                          ),
-                          child: const Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.bedtime_off, size: 56, color: Colors.indigoAccent),
-                              SizedBox(height: 16),
-                              Text(
-                                "No sleep data found",
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                "Ensure your smartwatch is synced\nwith Health Connect.",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey, fontSize: 14),
-                              )
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-
-                  // --- BEHAVIOURAL DATA SUMMARY ---
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Behavioural Data",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-
-                  BehaviouralCard(
-                    title: "Screen Time",
-                    value: _screenTime,
-                    subtitle: "Fetched from OS",
-                    icon: Icons.phone_android,
-                    iconColor: Colors.blueGrey,
-                  ),
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: BehaviouralCard(
-                          title: "Exercise",
-                          value: "${dailyVM.exerciseMinutes} mins",
-                          subtitle: "Tap to add",
-                          icon: Icons.fitness_center,
-                          iconColor: Colors.orange,
-                          onTap: () => BehaviouralDialogs.showAddExerciseDialog(context),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: BehaviouralCard(
-                          title: "Food Intake",
-                          value: "${dailyVM.foodCalories} kcal",
-                          subtitle: "Tap to add",
-                          icon: Icons.restaurant,
-                          iconColor: Colors.green,
-                          onTap: () => BehaviouralDialogs.showAddFoodDialog(context),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 30),
-                ],
-              ),
-            ),
+          return TabBarView(
+            controller: _tabController,
+            children: [
+              // ── TAB 0: DAILY ──
+              _buildDailyTab(context, viewModel, dailyVM, text, accent),
+              // ── TAB 1: WEEKLY ──
+              _buildWeeklyTab(context, viewModel, dailyVM, text, accent),
+            ],
           );
         },
       ),
     );
   }
 
+  // ─────────────────────────────────────────────
+  // TAB 0 — DAILY
+  // ─────────────────────────────────────────────
+  Widget _buildDailyTab(
+      BuildContext context,
+      SleepViewModel viewModel,
+      DailyActivityViewModel dailyVM,
+      Color text,
+      Color accent,
+      ) {
+    final bool noData = viewModel.totalSleepDuration == "0h 0m";
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        final user = context.read<UserViewModel>().userProfile;
+        if (user != null) {
+          await viewModel.refreshData(context, user.userId);
+          await context.read<DailyActivityViewModel>().loadTodayData(user.userId);
+          await context.read<DailyActivityViewModel>().loadWeeklyData(user.userId);
+        }
+        await fetchScreenTime();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            if (viewModel.isDataPendingSync && !noData)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        "Today's sleep hasn't synced yet. Please open your fitness app to sync your latest data.",
+                        style: TextStyle(fontSize: 13, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            Text(
+              viewModel.isDataPendingSync ? "Last Recorded Sleep" : "Yesterday's Sleep",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: text),
+            ),
+            const SizedBox(height: 12),
+
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 300),
+                  opacity: noData ? 0.4 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: noData,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Score + Duration card
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.all(20.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              CustomPaint(
+                                size: const Size(100, 100),
+                                painter: SleepScoreGaugePainter(
+                                  score: viewModel.sleepScore,
+                                  themeColor: Colors.indigoAccent,
+                                ),
+                              ),
+                              Container(width: 1, height: 60, color: Colors.grey.shade200),
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    viewModel.totalSleepDuration,
+                                    style: const TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    "Time Asleep",
+                                    style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Hypnogram
+                        const SizedBox(height: 20),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "Sleep Cycle (Hypnogram)",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: 120,
+                                child: CustomPaint(
+                                  size: Size.infinite,
+                                  painter: HypnogramPainter(data: viewModel.hypnogramData),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _buildLegendItem("Awake", const Color(0xFFFF7043)),
+                                  _buildLegendItem("REM", const Color(0xFF9C64FF)),
+                                  _buildLegendItem("Light", const Color(0xFF42A5F5)),
+                                  _buildLegendItem("Deep", const Color(0xFF1A237E)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Sleep stages breakdown
+                        const SizedBox(height: 16),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            children: [
+                              _buildSleepStageRow("Deep Sleep", viewModel.deepSleep, Colors.indigo),
+                              const Divider(height: 16),
+                              _buildSleepStageRow("Light Sleep", viewModel.lightSleep, Colors.lightBlue),
+                              const Divider(height: 16),
+                              _buildSleepStageRow("REM Sleep", viewModel.remSleep, Colors.purpleAccent),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // No data overlay
+                if (noData)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+                      ],
+                    ),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.bedtime_off, size: 56, color: Colors.indigoAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          "No sleep data found",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          "Ensure your smartwatch is synced\nwith Health Connect.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            Text("Behavioural Data", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 12),
+
+            BehaviouralCard(
+              title: "Screen Time",
+              value: _screenTime,
+              subtitle: "Fetched from OS",
+              icon: Icons.phone_android,
+              iconColor: Colors.blueGrey,
+            ),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: BehaviouralCard(
+                    title: "Exercise",
+                    value: "${dailyVM.exerciseMinutes} mins",
+                    subtitle: "Tap to add",
+                    icon: Icons.fitness_center,
+                    iconColor: Colors.orange,
+                    onTap: () => BehaviouralDialogs.showAddExerciseDialog(context),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: BehaviouralCard(
+                    title: "Food Intake",
+                    value: "${dailyVM.foodCalories} kcal",
+                    subtitle: "Tap to add",
+                    icon: Icons.restaurant,
+                    iconColor: Colors.green,
+                    onTap: () => BehaviouralDialogs.showAddFoodDialog(context),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // TAB 1 — WEEKLY
+  // ─────────────────────────────────────────────
+  Widget _buildWeeklyTab(
+      BuildContext context,
+      SleepViewModel viewModel,
+      DailyActivityViewModel dailyVM,
+      Color text,
+      Color accent,
+      ) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        final user = context.read<UserViewModel>().userProfile;
+        if (user != null) {
+          await viewModel.refreshData(context, user.userId);
+          await context.read<DailyActivityViewModel>().loadWeeklyData(user.userId);
+        }
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            Text("7-Day Average", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 12),
+
+            // Score + Average duration card
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.all(20.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  CustomPaint(
+                    size: const Size(100, 100),
+                    painter: SleepScoreGaugePainter(
+                      score: viewModel.sleepScore,
+                      themeColor: Colors.indigoAccent,
+                    ),
+                  ),
+                  Container(width: 1, height: 60, color: Colors.grey.shade200),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        viewModel.totalSleepDuration,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        "Average Time",
+                        style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 7-Day Sleep Trend
+            if (viewModel.weeklyData.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Text("7-Day Trend", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: text)),
+              const SizedBox(height: 12),
+              WeeklyBarChart(
+                values: viewModel.weeklyData.map((e) => e.totalMinutes / 60.0).toList(),
+                labels: viewModel.weeklyData.map((e) => e.shortDayName).toList(),
+                color: Colors.indigoAccent,
+                unit: "h",
+                maxY: 8.0,
+                isDecimal: true,
+              ),
+            ],
+
+            const SizedBox(height: 24),
+            Text("Behavioural Data", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 12),
+
+            Text("Screen Time Trend", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 8),
+            WeeklyBarChart(
+              values: dailyVM.weeklyData.isEmpty
+                  ? [0, 0, 0, 0, 0, 0, 0]
+                  : dailyVM.weeklyData.map((e) => e.screenTimeMinutes / 60.0).toList(),
+              labels: _getLast7DaysLabels(),
+              color: Colors.blueGrey,
+              unit: "h",
+              maxY: 8.0,
+              isDecimal: true,
+            ),
+
+            const SizedBox(height: 24),
+            Text("Exercise Trend", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 8),
+            WeeklyBarChart(
+              values: dailyVM.weeklyData.isEmpty
+                  ? [0, 0, 0, 0, 0, 0, 0]
+                  : dailyVM.weeklyData.map((e) => e.exerciseMinutes.toDouble()).toList(),
+              labels: _getLast7DaysLabels(),
+              color: Colors.orange,
+              unit: "m",
+            ),
+
+            const SizedBox(height: 24),
+            Text("Food Intake Trend", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: text)),
+            const SizedBox(height: 8),
+            WeeklyBarChart(
+              values: dailyVM.weeklyData.isEmpty
+                  ? [0, 0, 0, 0, 0, 0, 0]
+                  : dailyVM.weeklyData.map((e) => e.foodCalories.toDouble()).toList(),
+              labels: _getLast7DaysLabels(),
+              color: Colors.green,
+              unit: "k",
+            ),
+
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // HELPERS (unchanged)
+  // ─────────────────────────────────────────────
   Widget _buildLegendItem(String label, Color color) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -387,28 +643,17 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen> {
         Container(
           width: 14,
           height: 14,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
-          ),
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
         ),
         const SizedBox(width: 16),
         Text(
           title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.black87),
         ),
         const Spacer(),
         Text(
           duration,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
         ),
       ],
     );

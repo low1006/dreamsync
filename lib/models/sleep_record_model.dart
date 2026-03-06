@@ -32,4 +32,20 @@ class SleepRecordModel {
       'sleep_score': sleepScore,
     };
   }
+
+  // 🔥 NEW: UI Helpers so the chart knows how to draw this record
+  DateTime get parsedDate => DateTime.parse(date);
+
+  String get shortDayName {
+    switch (parsedDate.weekday) {
+      case 1: return "Mon";
+      case 2: return "Tue";
+      case 3: return "Wed";
+      case 4: return "Thu";
+      case 5: return "Fri";
+      case 6: return "Sat";
+      case 7: return "Sun";
+      default: return "";
+    }
+  }
 }
