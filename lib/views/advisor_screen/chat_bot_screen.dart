@@ -1,28 +1,119 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dreamsync/viewmodels/chat_viewmodel.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
-class ChatScreen extends StatelessWidget {
+class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
 
   @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  bool _isOffline = false;
+  late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkInternet();
+
+    // Listen for network changes while the screen is open
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      if (mounted) {
+        setState(() {
+          _isOffline = result == ConnectivityResult.none;
+        });
+      }
+    });
+  }
+
+  Future<void> _checkInternet() async {
+    try {
+      final result = await Connectivity().checkConnectivity().timeout(const Duration(seconds: 2));
+      if (mounted) {
+        setState(() {
+          _isOffline = result == ConnectivityResult.none;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isOffline = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 1. Theme Logic (Matches your CustomTextField)
+    // 1. Theme Logic
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Backgrounds
-    final scaffoldBg = isDark ? const Color(0xFF0F172A) : Colors.white; // Main BG
-    final surfaceColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9); // Card/Drawer BG
+    final scaffoldBg = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final surfaceColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9);
 
     // Text Colors
     final primaryText = Theme.of(context).colorScheme.onSurface;
     final secondaryText = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 
     // Brand Colors
-    const primaryBrand = Color(0xFF1E3A8A); // Deep Blue
-    const accentBrand = Color(0xFF3B82F6);  // Bright Blue
+    const primaryBrand = Color(0xFF1E3A8A);
+    const accentBrand = Color(0xFF3B82F6);
 
+    // 🔥 OFFLINE UI OVERRIDE
+    if (_isOffline) {
+      return Scaffold(
+        backgroundColor: scaffoldBg,
+        appBar: AppBar(
+          title: Text("DreamSync AI", style: TextStyle(color: primaryText, fontWeight: FontWeight.bold)),
+          backgroundColor: scaffoldBg,
+          elevation: 0,
+          iconTheme: IconThemeData(color: primaryText),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cloud_off, size: 80, color: secondaryText.withOpacity(0.5)),
+                const SizedBox(height: 20),
+                Text(
+                  "The AI Advisor is Resting",
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: primaryText),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "DreamSync requires an active internet connection to chat with the AI. Please connect to Wi-Fi or Mobile Data to continue.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: secondaryText, fontSize: 16),
+                ),
+                const SizedBox(height: 30),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryBrand,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  onPressed: _checkInternet,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Retry Connection"),
+                )
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // 🌐 ONLINE UI (Your normal chat screen)
     return ChangeNotifierProvider(
       create: (_) => ChatViewModel()..loadChatSessions(),
       child: Scaffold(
@@ -32,43 +123,30 @@ class ChatScreen extends StatelessWidget {
             "DreamSync AI",
             style: TextStyle(color: primaryText, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: scaffoldBg, // Seamless header
+          backgroundColor: scaffoldBg,
           elevation: 0,
           iconTheme: IconThemeData(color: primaryText),
         ),
-
-        // --- SIDEBAR DRAWER (Themed) ---
         drawer: Consumer<ChatViewModel>(
           builder: (context, viewModel, child) {
             return Drawer(
-              backgroundColor: surfaceColor, // Matches CustomTextField background
+              backgroundColor: surfaceColor,
               child: Column(
                 children: [
                   DrawerHeader(
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.black26 : Colors.white54,
-                    ),
+                    decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.white54),
                     child: Center(
                       child: Text(
                         "Chat History",
-                        style: TextStyle(
-                          color: primaryText,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(color: primaryText, fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
-
-                  // "New Chat" Button
                   ListTile(
-                    leading: Icon(Icons.add_circle_outline, color: accentBrand),
-                    title: Text(
+                    leading: const Icon(Icons.add_circle_outline, color: accentBrand),
+                    title: const Text(
                       "New Chat",
-                      style: TextStyle(
-                        color: accentBrand,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(color: accentBrand, fontWeight: FontWeight.bold),
                     ),
                     onTap: () {
                       viewModel.startNewSession();
@@ -76,8 +154,6 @@ class ChatScreen extends StatelessWidget {
                     },
                   ),
                   Divider(color: secondaryText.withOpacity(0.3)),
-
-                  // Session List
                   Expanded(
                     child: ListView.builder(
                       itemCount: viewModel.sessions.length,
@@ -106,14 +182,8 @@ class ChatScreen extends StatelessWidget {
                               viewModel.openSession(session['id']);
                               Navigator.pop(context);
                             },
-
-                            // Delete Button (Themed)
                             trailing: IconButton(
-                              icon: Icon(
-                                Icons.delete_outline,
-                                color: secondaryText, // Muted Grey
-                                size: 20,
-                              ),
+                              icon: Icon(Icons.delete_outline, color: secondaryText, size: 20),
                               onPressed: () {
                                 _showDeleteDialog(context, viewModel, session['id'], isDark, surfaceColor, primaryText);
                               },
@@ -128,12 +198,10 @@ class ChatScreen extends StatelessWidget {
             );
           },
         ),
-
         body: Consumer<ChatViewModel>(
           builder: (context, viewModel, child) {
             return Column(
               children: [
-                // --- CHAT MESSAGES ---
                 Expanded(
                   child: ListView.builder(
                     controller: viewModel.scrollController,
@@ -141,20 +209,15 @@ class ChatScreen extends StatelessWidget {
                     itemCount: viewModel.messages.length,
                     itemBuilder: (context, index) {
                       final msg = viewModel.messages[index];
-                      // Pass theme colors to bubbles
                       return _buildMessageBubble(msg, isDark, primaryBrand, surfaceColor, primaryText);
                     },
                   ),
                 ),
-
-                // --- LOADING ---
                 if (viewModel.isLoading)
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
+                  const Padding(
+                    padding: EdgeInsets.all(8.0),
                     child: CircularProgressIndicator(color: accentBrand),
                   ),
-
-                // --- INPUT AREA ---
                 _buildInputArea(context, viewModel, isDark, surfaceColor, primaryText, secondaryText, accentBrand),
               ],
             );
@@ -164,12 +227,11 @@ class ChatScreen extends StatelessWidget {
     );
   }
 
-  // --- THEMED DIALOG ---
   void _showDeleteDialog(BuildContext context, ChatViewModel vm, String id, bool isDark, Color bg, Color text) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: bg, // Matches CustomTextField
+        backgroundColor: bg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text("Delete Chat?", style: TextStyle(color: text)),
         content: Text(
@@ -186,21 +248,16 @@ class ChatScreen extends StatelessWidget {
               Navigator.pop(ctx);
               vm.deleteSession(id);
             },
-            child: const Text("Delete", style: TextStyle(color: Color(0xFFEF4444))), // Red error color
+            child: const Text("Delete", style: TextStyle(color: Color(0xFFEF4444))),
           ),
         ],
       ),
     );
   }
 
-  // --- THEMED BUBBLES ---
   Widget _buildMessageBubble(msg, bool isDark, Color brandColor, Color surfaceColor, Color textColor) {
     final isUser = msg.isUser;
-
-    // User: Deep Blue (Brand) | AI: Surface Color (Slate/White)
     final bubbleColor = isUser ? brandColor : surfaceColor;
-
-    // User: White Text | AI: Main Text Color
     final bubbleText = isUser ? Colors.white : textColor;
 
     return Align(
@@ -225,7 +282,6 @@ class ChatScreen extends StatelessWidget {
           ],
         ),
         constraints: const BoxConstraints(maxWidth: 300),
-
         child: MarkdownBody(
           data: msg.text,
           styleSheet: MarkdownStyleSheet(
@@ -238,14 +294,13 @@ class ChatScreen extends StatelessWidget {
     );
   }
 
-  // --- THEMED INPUT AREA ---
   Widget _buildInputArea(BuildContext context, ChatViewModel viewModel, bool isDark, Color bg, Color text, Color hint, Color focus) {
     final TextEditingController _controller = TextEditingController();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: bg, // Matches CustomTextField background
+        color: bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
@@ -265,7 +320,7 @@ class ChatScreen extends StatelessWidget {
                 hintText: "Ask about your sleep...",
                 hintStyle: TextStyle(color: hint),
                 filled: true,
-                fillColor: isDark ? const Color(0xFF0F172A) : Colors.grey[100], // Inner input background
+                fillColor: isDark ? const Color(0xFF0F172A) : Colors.grey[100],
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
@@ -279,11 +334,9 @@ class ChatScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-
-          // Send Button
           Container(
             decoration: BoxDecoration(
-              color: focus, // Bright Blue
+              color: focus,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(

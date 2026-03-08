@@ -51,8 +51,6 @@ class SleepViewModel extends ChangeNotifier {
 
   // ─────────────────────────────────────────────────────────────
   // MAIN LOAD — Fetches from Health Connect, syncs to DB, checks achievements
-  // ✅ FIXED: BuildContext is now optional and we use named parameters
-  // so this can run safely in a background isolate without crashing.
   // ─────────────────────────────────────────────────────────────
   Future<void> loadSleepData({
     BuildContext? context,
@@ -72,7 +70,6 @@ class SleepViewModel extends ChangeNotifier {
           status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
         isLoading = false;
         notifyListeners();
-        // ✅ FIXED: Only show the dialog if we are in the foreground UI
         if (context != null && context.mounted) {
           _showInstallHealthConnectDialog(context);
         } else {
@@ -84,12 +81,10 @@ class SleepViewModel extends ChangeNotifier {
       final permissions =
       _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
 
-      // Check if we already have permissions before requesting
       bool? hasPermissions = await health.hasPermissions(
           _sleepDataTypes, permissions: permissions);
 
       if (hasPermissions != true) {
-        // ✅ FIXED: Only request authorization if we are in the foreground UI
         if (context != null) {
           bool authorized = await health.requestAuthorization(
             _sleepDataTypes,
@@ -103,7 +98,6 @@ class SleepViewModel extends ChangeNotifier {
             return;
           }
         } else {
-          // We are in the background and lack permissions, silently abort
           debugPrint("⚠️ Background sync aborted: Missing Health Connect permissions.");
           isLoading = false;
           notifyListeners();
@@ -122,15 +116,12 @@ class SleepViewModel extends ChangeNotifier {
 
       _rawHealthData = health.removeDuplicates(healthData);
 
-      // Process both filter views — each writes to its own isolated fields
       _processSleepData(SleepFilter.daily);
       _processSleepData(SleepFilter.weekly);
 
-      // Persist to Supabase, then fetch the full DB history for achievements
       await syncSleepDataToSupabase(userId);
       await fetchWeeklyDataFromDatabase(userId);
 
-      // Check and update all sleep-related achievements
       await _checkSleepAchievements(userId, achievementVM);
     } catch (e) {
       debugPrint("Error fetching from Health Connect: $e");
@@ -141,7 +132,6 @@ class SleepViewModel extends ChangeNotifier {
     }
   }
 
-  // ✅ FIXED: Updated to match loadSleepData signature
   Future<void> refreshData({
     BuildContext? context,
     required String userId,
@@ -160,7 +150,6 @@ class SleepViewModel extends ChangeNotifier {
   Future<void> _checkSleepAchievements(
       String userId, AchievementViewModel achievementVM) async {
     try {
-      // Fetch the user's complete sleep history from DB for accurate totals
       final allRecords = await _repository.getAllSleepRecords(userId);
 
       // ── 1. total_logs ──────────────────────────────────────────
@@ -188,10 +177,17 @@ class SleepViewModel extends ChangeNotifier {
       }
 
       // ── 4. total_hours ─────────────────────────────────────────
-      final totalHours = allRecords.fold<int>(0, (sum, r) => sum + r.totalMinutes) / 60.0;
+      // ✅ FIXED: Calculate true lifetime sleep hours across all records
+      final totalLifetimeMinutes = allRecords.fold<int>(
+          0, (sum, r) => sum + r.totalMinutes);
+
+      final totalLifetimeHours = totalLifetimeMinutes / 60.0;
+
+      debugPrint(
+          "🏆 total_hours: total accumulated ${totalLifetimeHours.toStringAsFixed(2)}h");
 
       for (final a in achievementVM.getByType('total_hours')) {
-        await achievementVM.setProgress(a.userAchievementId, totalHours);
+        await achievementVM.setProgress(a.userAchievementId, totalLifetimeHours);
       }
 
       // ── 5. early_wake_streak ───────────────────────────────────
@@ -227,7 +223,6 @@ class SleepViewModel extends ChangeNotifier {
       if (record != null) {
         streak++;
       } else {
-        // Allow one gap for today (sleep might not be synced yet until night)
         if (i == 0) continue;
         break;
       }
@@ -237,13 +232,11 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // HELPER — Early wake streak: consecutive days where last sleep
-  //          session ended before 07:00
+  // HELPER — Early wake streak
   // ─────────────────────────────────────────────────────────────
   int _computeEarlyWakeStreak() {
     if (_rawHealthData.isEmpty) return 0;
 
-    // Build a map of date → latest sleep session end time
     final Map<String, DateTime> wakeTimeByDay = {};
 
     for (final point in _rawHealthData) {
@@ -272,7 +265,6 @@ class SleepViewModel extends ChangeNotifier {
       if (wakeTime != null && wakeTime.hour < 7) {
         streak++;
       } else {
-        // Allow a gap for today only
         if (i == 0) continue;
         break;
       }
@@ -282,7 +274,7 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // WEEKLY DB FETCH — Fills 7 days for the bar chart
+  // WEEKLY DB FETCH
   // ─────────────────────────────────────────────────────────────
   Future<void> fetchWeeklyDataFromDatabase(String userId) async {
     try {
@@ -328,8 +320,7 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // FILTER — Switching tabs only updates currentFilter.
-  // Both datasets are already computed, nothing re-processes.
+  // FILTER
   // ─────────────────────────────────────────────────────────────
   void changeFilter(SleepFilter newFilter) {
     if (currentFilter != newFilter) {
@@ -339,8 +330,7 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // PROCESS — Compute display data for a specific filter.
-  // Writes only to that filter's backing fields.
+  // PROCESS
   // ─────────────────────────────────────────────────────────────
   void _processSleepData(SleepFilter filter) {
     if (filter == SleepFilter.daily) {
@@ -489,7 +479,7 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // SYNC — Write raw Health Connect data to Supabase
+  // SYNC
   // ─────────────────────────────────────────────────────────────
   Future<void> syncSleepDataToSupabase(String userId) async {
     try {
@@ -538,7 +528,7 @@ class SleepViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // DIALOG — Prompt user to install Health Connect
+  // DIALOG
   // ─────────────────────────────────────────────────────────────
   void _showInstallHealthConnectDialog(BuildContext context) {
     showDialog(

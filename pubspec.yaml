@@ -30,7 +30,6 @@ dependencies:
   app_usage: ^4.0.1
   flutter_typeahead: ^5.2.0
   # For local database storage
-  sqflite: ^2.3.0
   path_provider: ^2.1.2
 
   # For simple key-value caching
@@ -38,6 +37,9 @@ dependencies:
 
   # To detect internet connection status
   connectivity_plus: ^5.0.2
+  sqflite_sqlcipher: ^3.4.0
+  flutter_secure_storage: ^10.0.0
+  flutter_dotenv: ^6.0.0
 
 
 dev_dependencies:
@@ -50,3 +52,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/audio/
+    - .env
+    - assets/sql/schema.sql

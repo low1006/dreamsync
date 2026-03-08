@@ -4,6 +4,7 @@ import 'dart:async'; // Required for StreamSubscription
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/util/global.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
@@ -11,7 +12,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:health/health.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:dreamsync/repositories/sleep_repository.dart';
 
 // ViewModels
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
@@ -23,18 +23,43 @@ import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.d
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 
+// Repositories for Syncing
+import 'package:dreamsync/repositories/sleep_repository.dart';
+import 'package:dreamsync/repositories/schedule_repository.dart';
+import 'package:dreamsync/repositories/user_achievement_repository.dart';
+// Note: Ensure you have your other repositories imported here if you created sync methods for them
+
 // Screens
 import 'package:dreamsync/views/auth_screen/login_screen.dart';
 import 'package:dreamsync/views/main_screen.dart';
 import 'package:dreamsync/views/alarm_ring_screen.dart';
 
-const String supabaseURL = 'https://xagpcogenalviktbsmap.supabase.co';
-const String supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZ3Bjb2dlbmFsdmlrdGJzbWFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTQxNDksImV4cCI6MjA4Mzg5MDE0OX0.8IrDPy-BYywk6A53q6M7gSSEdDqwNK6x6f-TYG93rds';
+
+// 🔥 GLOBAL MESSENGER: Allows SnackBars to show anywhere across the app
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Supabase.initialize(url: supabaseURL, anonKey: supabaseKey);
+  // 1. Load the .env file
+  try {
+    await dotenv.load(fileName: ".env");
+    print("✅ .env loaded. Keys found: ${dotenv.env.keys}");
+  } catch (e) {
+    print("❌ Error loading .env: $e");
+  }
+
+  // 2. Initialize Supabase using the loaded keys
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+  );
+
+  // If this prints 'null', your .env file is empty or keys are named differently
+  print("Supabase URL: ${dotenv.env['SUPABASE_URL']}");
+
+
+
   await AndroidAlarmManager.initialize();
   await NotificationService().init();
 
@@ -54,8 +79,9 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // Connectivity listener variable
+  // 🔥 Variables for internet tracking
   late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
+  bool _isOffline = false;
 
   @override
   void initState() {
@@ -70,24 +96,71 @@ class _MyAppState extends State<MyApp> {
       _requestAllPermissions();
     });
 
-    // Listen for internet connection returning
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
-      if (result == ConnectivityResult.mobile ||
-          result == ConnectivityResult.wifi) {
-        print("🌐 Internet restored! Triggering background sync...");
-        SleepRepository().syncOfflineData();
-      }
-    });
+    // 🔥 Check internet right at launch
+    Connectivity().checkConnectivity().then(_updateConnectionStatus);
+
+    // 🔥 Continuously listen for network changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen(_updateConnectionStatus);
   }
 
   @override
   void dispose() {
-    // Cancel the listener to prevent memory leaks
     _connectivitySubscription.cancel();
     super.dispose();
   }
 
-  // --- Handle Native Health Connect & Bottom Sheets ---
+  // 🔥 Logic for handling network state changes and global syncing
+  void _updateConnectionStatus(ConnectivityResult result) {
+    bool offline = result == ConnectivityResult.none;
+
+    // Only trigger if state actually changes
+    if (offline != _isOffline) {
+      setState(() { _isOffline = offline; });
+
+      // Hide previous snackbars
+      rootScaffoldMessengerKey.currentState?.hideCurrentSnackBar();
+
+      if (offline) {
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.wifi_off, color: Colors.white),
+                SizedBox(width: 10),
+                Expanded(child: Text('📴 Offline Mode. Data will sync later.')),
+              ],
+            ),
+            backgroundColor: Colors.redAccent,
+            duration: Duration(days: 365), // Persists until internet returns
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.wifi, color: Colors.white),
+                SizedBox(width: 10),
+                Text('🌐 Internet restored! Syncing data...'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // 🔥 Trigger all offline data pushes to Supabase here!
+        debugPrint("🌐 Triggering global background sync...");
+        SleepRepository().syncOfflineData();
+        ScheduleRepository().syncOfflineData();
+        UserAchievementRepository(Supabase.instance.client).syncOfflineData();
+        // DailyActivityRepository().syncOfflineData(); // Uncomment if you made this repo
+      }
+    }
+  }
+
   Future<void> _requestAllPermissions() async {
     await Future.delayed(const Duration(seconds: 1));
     final context = navigatorKey.currentContext;
@@ -140,7 +213,6 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  // --- Sleek Bottom Sheet ---
   Future<bool?> _showExplanationBottomSheet(BuildContext context, String title, String content) {
     return showModalBottomSheet<bool>(
       context: context,
@@ -240,6 +312,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: rootScaffoldMessengerKey, // 🔥 Attach Global Messenger Key
       title: 'DreamSync',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,

@@ -23,9 +23,17 @@ class UserViewModel extends ChangeNotifier {
   Future<void> fetchProfile(String userId) async {
     isLoading = true;
     _safeNotify();
-    userProfile = await _repository.getById(userId);
-    isLoading = false;
-    _safeNotify();
+
+    try {
+      // 🔥 Now uses the safe fetch method that won't hang without internet
+      userProfile = await _repository.getProfileSafe(userId);
+    } catch (e) {
+      debugPrint("❌ ViewModel Error fetching profile: $e");
+    } finally {
+      // 🔥 The finally block GUARANTEES the loading spinner stops no matter what
+      isLoading = false;
+      _safeNotify();
+    }
   }
 
   Future<void> updateUserProfile({
@@ -44,6 +52,7 @@ class UserViewModel extends ChangeNotifier {
         height: height,
         sleepGoalHours: sleepGoal,
       );
+      // Fetch again to update the local SharedPreferences cache
       await fetchProfile(userProfile!.userId);
     } catch (e) {
       debugPrint("Error updating profile: $e");

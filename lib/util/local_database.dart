@@ -1,5 +1,10 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._init();
@@ -7,137 +12,110 @@ class LocalDatabase {
 
   LocalDatabase._init();
 
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  static const String _keyName = 'dreamsync_db_key';
+
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('dreamsync_local.db');
+    _database = await _initDB('dreamsync_secure.db');
     return _database!;
+  }
+
+  Future<String> _getEncryptionKey() async {
+    String? key = await _secureStorage.read(key: _keyName);
+
+    if (key == null) {
+      final random = Random.secure();
+      final keyBytes = List<int>.generate(32, (i) => random.nextInt(256));
+      key = base64UrlEncode(keyBytes);
+
+      await _secureStorage.write(key: _keyName, value: key);
+      debugPrint("🔐 Generated and stored new database encryption key.");
+    }
+    return key;
   }
 
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
+    final String password = await _getEncryptionKey();
+
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
+      password: password,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Schema v2 — matches SleepRecordModel exactly
-  // ---------------------------------------------------------------------------
-  Future _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE sleep_record (
-        id            TEXT PRIMARY KEY,
-        user_id       TEXT NOT NULL,
-        date          TEXT NOT NULL,
-        total_minutes INTEGER DEFAULT 0,
-        sleep_score   INTEGER DEFAULT 0,
-        is_synced     INTEGER DEFAULT 0
-      )
-    ''');
-  }
-
-  // Migrates v1 (sleep_duration) → v2 (total_minutes + sleep_score)
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('''
-        CREATE TABLE sleep_record_new (
-          id            TEXT PRIMARY KEY,
-          user_id       TEXT NOT NULL,
-          date          TEXT NOT NULL,
-          total_minutes INTEGER DEFAULT 0,
-          sleep_score   INTEGER DEFAULT 0,
-          is_synced     INTEGER DEFAULT 0
-        )
-      ''');
-
-      await db.execute('''
-        INSERT INTO sleep_record_new (id, user_id, date, total_minutes, sleep_score, is_synced)
-        SELECT id, user_id, date, sleep_duration, 0, is_synced
-        FROM sleep_record
-      ''');
-
-      await db.execute('DROP TABLE sleep_record');
-      await db.execute('ALTER TABLE sleep_record_new RENAME TO sleep_record');
+    if (oldVersion < 3) {
+      await db.execute('DROP TABLE IF EXISTS sleep_record');
+      await db.execute('DROP TABLE IF EXISTS daily_activity');
+      await db.execute('DROP TABLE IF EXISTS schedule');
+      await db.execute('DROP TABLE IF EXISTS user_achievement');
+      await db.execute('DROP TABLE IF EXISTS friend_cache');
+      await _createDB(db, newVersion);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // INSERT — only persists columns that exist in the local schema
-  // ---------------------------------------------------------------------------
-  Future<void> insertSleepRecord(
-      Map<String, dynamic> record, {bool isSynced = false}) async {
-    final db = await instance.database;
+  Future _createDB(Database db, int version) async {
+    // Read the SQL file from assets
+    String schema = await rootBundle.loadString('assets/sql/schema.sql');
 
-    final localRecord = {
-      'id':            record['id'],
-      'user_id':       record['user_id'],
-      'date':          record['date'],
-      'total_minutes': record['total_minutes'] ?? 0,
-      'sleep_score':   record['sleep_score'] ?? 0,
-      'is_synced':     isSynced ? 1 : 0,
-    };
+    // Split the file by semicolon to get individual commands
+    List<String> queries = schema.split(';');
 
-    await db.insert(
-      'sleep_record',
-      localRecord,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    for (String query in queries) {
+      if (query.trim().isNotEmpty) {
+        await db.execute(query);
+      }
+    }
+    debugPrint("✅ Database schema initialized from assets.");
   }
 
-  // ---------------------------------------------------------------------------
-  // GET BY DATE RANGE — offline fallback for weekly chart
-  // ---------------------------------------------------------------------------
-  Future<List<Map<String, dynamic>>> getRecordsByDateRange(
-      String userId, String startDate, String endDate) async {
+  // ==========================================
+  // Generic Helper Methods for All Modules
+  // ==========================================
+
+  Future<void> insertRecord(String table, Map<String, dynamic> record, {bool isSynced = false}) async {
+    final db = await instance.database;
+    final mutableRecord = Map<String, dynamic>.from(record);
+    mutableRecord['is_synced'] = isSynced ? 1 : 0;
+
+    final sanitizedRecord = mutableRecord.map((key, value) {
+      if (value is bool) return MapEntry(key, value ? 1 : 0);
+      if (value is List) return MapEntry(key, value.join(','));
+      return MapEntry(key, value);
+    });
+
+    await db.insert(table, sanitizedRecord, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedRecords(String table) async {
+    final db = await instance.database;
+    return await db.query(table, where: 'is_synced = ?', whereArgs: [0]);
+  }
+
+  Future<void> markAsSynced(String table, dynamic id) async {
+    final db = await instance.database;
+    await db.update(table, {'is_synced': 1}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllByUser(String table, String userId) async {
+    final db = await instance.database;
+    return await db.query(table, where: 'user_id = ?', whereArgs: [userId]);
+  }
+
+  Future<List<Map<String, dynamic>>> getRecordsByDateRange(String userId, String startDate, String endDate) async {
     final db = await instance.database;
     return await db.query(
       'sleep_record',
       where: 'user_id = ? AND date >= ? AND date <= ?',
       whereArgs: [userId, startDate, endDate],
       orderBy: 'date ASC',
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // GET ALL — offline fallback for achievement checks
-  // ---------------------------------------------------------------------------
-  Future<List<Map<String, dynamic>>> getAllRecords(String userId) async {
-    final db = await instance.database;
-    return await db.query(
-      'sleep_record',
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'date ASC',
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // GET UNSYNCED — records not yet pushed to Supabase
-  // ---------------------------------------------------------------------------
-  Future<List<Map<String, dynamic>>> getUnsyncedRecords() async {
-    final db = await instance.database;
-    return await db.query(
-      'sleep_record',
-      where: 'is_synced = ?',
-      whereArgs: [0],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // MARK SYNCED — after successful Supabase upload
-  // ---------------------------------------------------------------------------
-  Future<void> markAsSynced(String id) async {
-    final db = await instance.database;
-    await db.update(
-      'sleep_record',
-      {'is_synced': 1},
-      where: 'id = ?',
-      whereArgs: [id],
     );
   }
 }

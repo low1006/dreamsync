@@ -8,12 +8,15 @@ class SleepRepository {
   final _client = Supabase.instance.client;
 
   // ---------------------------------------------------------------------------
-  // Connectivity helper — single ConnectivityResult (connectivity_plus v5)
+  // Connectivity helper — with 2-second timeout to prevent UI hanging!
   // ---------------------------------------------------------------------------
   Future<bool> _isOnline() async {
-    final result = await Connectivity().checkConnectivity();
-    return result == ConnectivityResult.mobile ||
-        result == ConnectivityResult.wifi;
+    try {
+      final result = await Connectivity().checkConnectivity().timeout(const Duration(seconds: 2));
+      return result == ConnectivityResult.mobile || result == ConnectivityResult.wifi;
+    } catch (_) {
+      return false; // Automatically assume offline if check hangs
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -28,18 +31,15 @@ class SleepRepository {
         );
         debugPrint("✅ Sleep data stored successfully in Supabase!");
 
-        // Cache locally as synced so offline reads work immediately
-        await LocalDatabase.instance
-            .insertSleepRecord(record.toJson(), isSynced: true);
+        // FIXED: Use the generic insertRecord method
+        await LocalDatabase.instance.insertRecord('sleep_record', record.toJson(), isSynced: true);
       } catch (e) {
         debugPrint("❌ Error storing sleep data, saving offline instead: $e");
-        await LocalDatabase.instance
-            .insertSleepRecord(record.toJson(), isSynced: false);
+        await LocalDatabase.instance.insertRecord('sleep_record', record.toJson(), isSynced: false);
       }
     } else {
       debugPrint("📴 Offline: Saving sleep data locally.");
-      await LocalDatabase.instance
-          .insertSleepRecord(record.toJson(), isSynced: false);
+      await LocalDatabase.instance.insertRecord('sleep_record', record.toJson(), isSynced: false);
     }
   }
 
@@ -47,7 +47,8 @@ class SleepRepository {
   // SYNC OFFLINE — push unsynced local records to Supabase when online
   // ---------------------------------------------------------------------------
   Future<void> syncOfflineData() async {
-    final unsyncedRecords = await LocalDatabase.instance.getUnsyncedRecords();
+    // FIXED: Added 'sleep_record' table name argument
+    final unsyncedRecords = await LocalDatabase.instance.getUnsyncedRecords('sleep_record');
     if (unsyncedRecords.isEmpty) return;
 
     debugPrint("🔄 Syncing ${unsyncedRecords.length} offline records...");
@@ -62,7 +63,8 @@ class SleepRepository {
           onConflict: 'user_id, date',
         );
 
-        await LocalDatabase.instance.markAsSynced(recordJson['id']);
+        // FIXED: Added 'sleep_record' table name argument
+        await LocalDatabase.instance.markAsSynced('sleep_record', recordJson['id']);
         debugPrint("✅ Synced record: ${recordJson['id']}");
       } catch (e) {
         debugPrint("❌ Failed to sync record ${recordJson['id']}: $e");
@@ -72,8 +74,6 @@ class SleepRepository {
 
   // ---------------------------------------------------------------------------
   // GET ALL — for achievement checks
-  // Online  → Supabase (full history)
-  // Offline → local SQLite cache
   // ---------------------------------------------------------------------------
   Future<List<SleepRecordModel>> getAllSleepRecords(String userId) async {
     try {
@@ -89,12 +89,18 @@ class SleepRepository {
             .map((json) => SleepRecordModel.fromJson(json))
             .toList();
 
+        // Cache data locally so achievements work when offline tomorrow
+        for (var json in response) {
+          await LocalDatabase.instance.insertRecord('sleep_record', json, isSynced: true);
+        }
+
         debugPrint("✅ getAllSleepRecords: ${records.length} records from Supabase");
         return records;
       } else {
         debugPrint("📴 getAllSleepRecords: offline, reading from SQLite...");
-        final localRecords =
-        await LocalDatabase.instance.getAllRecords(userId);
+
+        // FIXED: Changed to getAllByUser
+        final localRecords = await LocalDatabase.instance.getAllByUser('sleep_record', userId);
         final records = localRecords
             .map((json) => SleepRecordModel.fromJson(json))
             .toList();
@@ -105,10 +111,9 @@ class SleepRepository {
     } catch (e) {
       debugPrint("❌ Error fetching all sleep records: $e");
 
-      // Last resort — try local cache even if online fetch failed
       try {
-        final localRecords =
-        await LocalDatabase.instance.getAllRecords(userId);
+        // FIXED: Changed to getAllByUser
+        final localRecords = await LocalDatabase.instance.getAllByUser('sleep_record', userId);
         return localRecords
             .map((json) => SleepRecordModel.fromJson(json))
             .toList();
@@ -120,8 +125,6 @@ class SleepRepository {
 
   // ---------------------------------------------------------------------------
   // GET BY DATE RANGE — for weekly chart
-  // Online  → Supabase
-  // Offline → local SQLite cache
   // ---------------------------------------------------------------------------
   Future<List<SleepRecordModel>> getSleepRecordsByDateRange(
       String userId, String startDate, String endDate) async {
@@ -156,7 +159,6 @@ class SleepRepository {
     } catch (e) {
       debugPrint("❌ Error fetching sleep data range: $e");
 
-      // Last resort — try local cache even if online fetch failed
       try {
         final localRecords = await LocalDatabase.instance
             .getRecordsByDateRange(userId, startDate, endDate);

@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class NutritionApiService {
-  static const String _apiKey = "rkcq3mdrIIebF7zw19qfR5Lf921JRTu1ecv6vcGa";
+  static final String _apiKey =
+      dotenv.env['NUTRITION_API_KEY'] ?? '';
+
+  static final String _baseUrl =
+      dotenv.env['NUTRITION_API_URL'] ?? '';
 
   static Future<List<Map<String, dynamic>>> searchFoods(String query) async {
     try {
-      final url = Uri.parse(
-          "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=$_apiKey");
-
+      final url = Uri.parse("$_baseUrl?api_key=$_apiKey");
       final response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},

@@ -95,8 +95,6 @@ class AchievementViewModel extends ChangeNotifier {
 
   // ─────────────────────────────────────────────────────────────
   // BACKGROUND PROCESSOR
-  // Call this from your AlarmService after fetching sleep data to
-  // ensure all criteria types run in the background.
   // ─────────────────────────────────────────────────────────────
   Future<void> processDailySleepMetrics({
     required double hoursSlept,
@@ -106,10 +104,9 @@ class AchievementViewModel extends ChangeNotifier {
     required bool noScreenTime,
     required bool isConsecutiveDay,
   }) async {
-    // Duration: Nap Snatcher, Hibernator, Sleep Marathon
-    for (var ua in getByType('total_hours')) {
-      await updateProgress(ua.userAchievementId, hoursSlept);
-    }
+    // ✅ FIXED: Removed the direct update for 'total_hours' here.
+    // The loadSleepData method now correctly calculates and sets the absolute lifetime
+    // total. Background updates with a single night's hours would incorrectly overwrite it.
 
     // Quality: Good Night, Deep Dreamer, Perfect Rest
     for (var ua in getByType('sleep_score')) {
@@ -173,12 +170,16 @@ class AchievementViewModel extends ChangeNotifier {
     if (index == -1) return;
 
     final current = userAchievements[index];
-    if (current.isUnlocked) return;
+
+    // ✅ FIXED: Removed "if (current.isUnlocked) return;" so we can self-correct the bugged 46 hours.
 
     final target = current.achievement?.criteriaValue ?? 100.0;
     final shouldUnlock = newValue >= target;
 
-    await _persist(index, current, newValue, shouldUnlock);
+    // ✅ OPTIMIZATION: Only run the database update if values actually need to change
+    if (current.currentProgress != newValue || current.isUnlocked != shouldUnlock) {
+      await _persist(index, current, newValue, shouldUnlock);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -190,21 +191,16 @@ class AchievementViewModel extends ChangeNotifier {
       double newProgress,
       bool shouldUnlock,
       ) async {
-    // ✅ FIX 1: Cast double to int using .toInt() to fix the bigint error (22P02)
     final Map<String, dynamic> data = {
       'current_progress': newProgress.toInt(),
       'is_unlocked': shouldUnlock,
     };
-
-    // ✅ FIX 2: Removed 'date_unlocked' to fix the missing column error (PGRST204).
-    // Supabase will rely on your model's 'date_claimed' or 'created_at' instead.
 
     final isGhost = current.userAchievementId.startsWith('temp_');
 
     try {
       if (isGhost) {
         data['user_id'] = current.userId;
-        // ✅ FIX 3: Parse achievementId to int safely in case DB expects a bigint for the Foreign Key
         data['achievement_id'] = int.tryParse(current.achievementId) ?? current.achievementId;
         data['is_claimed'] = false;
 
@@ -231,7 +227,7 @@ class AchievementViewModel extends ChangeNotifier {
         );
       }
 
-      if (shouldUnlock) {
+      if (shouldUnlock && !current.isUnlocked) {
         debugPrint(
             "🏆 UNLOCKED: ${current.achievement?.title ?? current.achievementId}");
       }

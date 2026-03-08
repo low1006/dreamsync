@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:app_usage/app_usage.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // 🔥 ADDED
 import 'package:dreamsync/repositories/daily_activity_repository.dart';
 import 'package:dreamsync/models/daily_activity_model.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
@@ -9,12 +10,10 @@ class DailyActivityViewModel extends ChangeNotifier {
 
   bool isLoading = false;
 
-  // UI State Variables
   int exerciseMinutes = 0;
   int foodCalories = 0;
   int screenTimeMinutes = 0;
 
-  // Weekly data list for charts
   List<DailyActivityModel> weeklyData = [];
 
   // ─────────────────────────────────────────────────────────────
@@ -46,9 +45,8 @@ class DailyActivityViewModel extends ChangeNotifier {
     int? addFood,
     int? setScreenTime,
   }) async {
-    // Always fetch fresh DB state first to prevent race-condition wipes
-    final existing = await _repository.getTodayActivity(
-        userId, _getTodayDateString());
+    final existing =
+    await _repository.getTodayActivity(userId, _getTodayDateString());
 
     exerciseMinutes = existing?.exerciseMinutes ?? exerciseMinutes;
     foodCalories = existing?.foodCalories ?? foodCalories;
@@ -60,21 +58,19 @@ class DailyActivityViewModel extends ChangeNotifier {
 
     notifyListeners();
 
-    final newRecord = DailyActivityModel(
+    await _repository.saveActivity(DailyActivityModel(
       userId: userId,
       date: _getTodayDateString(),
       exerciseMinutes: exerciseMinutes,
       foodCalories: foodCalories,
       screenTimeMinutes: screenTimeMinutes,
-    );
+    ));
 
-    await _repository.saveActivity(newRecord);
     await _fetchWeeklyFromDB(userId);
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 3. Fetch today's screen time from the OS and save it.
-  //    AchievementViewModel is passed in to trigger Phone Down.
+  // 3. Fetch today's total screen time from the OS and save it.
   // ─────────────────────────────────────────────────────────────
   Future<String> fetchAndSaveScreenTime(
       String userId,
@@ -95,16 +91,6 @@ class DailyActivityViewModel extends ChangeNotifier {
 
       await addActivity(userId: userId, setScreenTime: totalMinutes);
 
-      // ── no_screen_time ────────────────────────────────────────
-      // Phone Down: Stop using phone 30 min before sleep.
-      // Proxy: if total daily screen time < 30 minutes, award the day.
-      // setProgress guards against awarding it twice.
-      if (totalMinutes < 30) {
-        for (final a in achievementVM.getByType('no_screen_time')) {
-          await achievementVM.updateProgress(a.userAchievementId, 1.0);
-        }
-      }
-
       final int hours = totalMinutes ~/ 60;
       final int minutes = totalMinutes % 60;
       return "${hours}h ${minutes}m";
@@ -115,22 +101,76 @@ class DailyActivityViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 4. Sync the last 7 days of screen time from the OS to Supabase
+  // 4. Phone Down achievement — sliding window check (BUG FIXED)
+  // ─────────────────────────────────────────────────────────────
+  Future<void> checkPreSleepScreenTime(
+      DateTime sleepStart,
+      AchievementViewModel achievementVM,
+      ) async {
+    try {
+      // 🔥 FIX 1: THE GUARD
+      // Check if we already rewarded the user for this EXACT sleep session
+      final prefs = await SharedPreferences.getInstance();
+      final lastAwardedSleep = prefs.getString('last_awarded_phone_down');
+      final currentSleepId = sleepStart.toIso8601String();
+
+      if (lastAwardedSleep == currentSleepId) {
+        debugPrint("🛡️ Phone Down: Already awarded for this sleep session. Skipping.");
+        return; // Stop here, prevent double counting!
+      }
+
+      final windowStart = sleepStart.subtract(const Duration(minutes: 30));
+
+      final List<AppUsageInfo> infoList =
+      await AppUsage().getAppUsage(windowStart, sleepStart);
+
+      int preSleepMinutes = 0;
+      for (var info in infoList) {
+        preSleepMinutes += info.usage.inMinutes;
+      }
+
+      debugPrint(
+          "📱 Pre-sleep screen time "
+              "(${windowStart.hour}:${windowStart.minute.toString().padLeft(2, '0')} → "
+              "${sleepStart.hour}:${sleepStart.minute.toString().padLeft(2, '0')}): "
+              "${preSleepMinutes} min");
+
+      if (preSleepMinutes == 0) {
+        for (final a in achievementVM.getByType('no_screen_time')) {
+          // Because of our Guard above, it is now safe to use updateProgress (+1.0)
+          await achievementVM.updateProgress(a.userAchievementId, 1.0);
+        }
+
+        // 🔥 FIX 2: LOCK IT IN
+        // Save this sleep session ID so we never reward it again
+        await prefs.setString('last_awarded_phone_down', currentSleepId);
+
+        debugPrint("✅ Phone Down: no usage in 30 min before sleep. Awarded +1!");
+      } else {
+        debugPrint(
+            "❌ Phone Down: ${preSleepMinutes} min of usage before sleep — not awarded");
+      }
+    } catch (e) {
+      debugPrint("❌ checkPreSleepScreenTime error: $e");
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 5. Sync the last 7 days of screen time from OS → Supabase
   // ─────────────────────────────────────────────────────────────
   Future<void> syncWeeklyScreenTime(String userId) async {
     try {
       final now = DateTime.now();
       for (int i = 6; i >= 0; i--) {
         final targetDate = now.subtract(Duration(days: i));
-        final startDate = DateTime(
-            targetDate.year, targetDate.month, targetDate.day);
+        final startDate =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
         final endDate = i == 0
             ? now
-            : DateTime(targetDate.year, targetDate.month, targetDate.day,
-            23, 59, 59);
+            : DateTime(
+            targetDate.year, targetDate.month, targetDate.day, 23, 59, 59);
 
-        final infoList =
-        await AppUsage().getAppUsage(startDate, endDate);
+        final infoList = await AppUsage().getAppUsage(startDate, endDate);
         int totalMinutes = 0;
         for (var info in infoList) {
           totalMinutes += info.usage.inMinutes;
@@ -142,15 +182,13 @@ class DailyActivityViewModel extends ChangeNotifier {
         final existing =
         await _repository.getTodayActivity(userId, targetDateStr);
 
-        final newRecord = DailyActivityModel(
+        await _repository.saveActivity(DailyActivityModel(
           userId: userId,
           date: targetDateStr,
           exerciseMinutes: existing?.exerciseMinutes ?? 0,
           foodCalories: existing?.foodCalories ?? 0,
           screenTimeMinutes: totalMinutes,
-        );
-
-        await _repository.saveActivity(newRecord);
+        ));
       }
     } catch (e) {
       debugPrint("❌ Error syncing weekly screen time: $e");
@@ -158,7 +196,7 @@ class DailyActivityViewModel extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 5. Load 7 days of behavioural data for the weekly charts
+  // 6. Load 7 days of behavioural data for the weekly charts
   // ─────────────────────────────────────────────────────────────
   Future<void> loadWeeklyData(String userId) async {
     try {
@@ -192,17 +230,14 @@ class DailyActivityViewModel extends ChangeNotifier {
         final existing =
             records.where((r) => r.date == targetDateStr).firstOrNull;
 
-        if (existing != null) {
-          filledRecords.add(existing);
-        } else {
-          filledRecords.add(DailyActivityModel(
-            userId: userId,
-            date: targetDateStr,
-            exerciseMinutes: 0,
-            foodCalories: 0,
-            screenTimeMinutes: 0,
-          ));
-        }
+        filledRecords.add(existing ??
+            DailyActivityModel(
+              userId: userId,
+              date: targetDateStr,
+              exerciseMinutes: 0,
+              foodCalories: 0,
+              screenTimeMinutes: 0,
+            ));
       }
 
       weeklyData = filledRecords;

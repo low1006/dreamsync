@@ -4,13 +4,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/models/chat_message_model.dart';
 import 'package:dreamsync/repositories/chat_repository.dart';
 import 'dart:math';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 
 class ChatViewModel extends ChangeNotifier {
-  static const List<String> _apiKeys = [
-    'AIzaSyAzPlvJ5GfS0jHpMsSaRob_9DGbrQ-VFxs', 'AIzaSyAtPOUG4mGcznimCB5qyW6om_L7pY4tQa0','AIzaSyDkryl-Lmphq472DQ0XjThn7yIzoUlmJQ0', 'AIzaSyD04XYaBc0UwzwBlE2AgHnjyxGXIIwh3uo','AIzaSyD3LeAfZRFfywHiY7Sm4LTxU2-r0m5vYzQ'];
+  // static const List<String> _apiKeys = [
+  //   'AIzaSyAzPlvJ5GfS0jHpMsSaRob_9DGbrQ-VFxs', 'AIzaSyAtPOUG4mGcznimCB5qyW6om_L7pY4tQa0','AIzaSyDkryl-Lmphq472DQ0XjThn7yIzoUlmJQ0', 'AIzaSyD04XYaBc0UwzwBlE2AgHnjyxGXIIwh3uo','AIzaSyD3LeAfZRFfywHiY7Sm4LTxU2-r0m5vYzQ'];
 
-  // static const String _apiKeys = "AIzaSyAzPlvJ5GfS0jHpMsSaRob_9DGbrQ-VFxs";
+  static final List<String> _apiKeys =
+  (dotenv.env['GEMINI_API_KEYS'] ?? '')
+      .split(',')
+      .map((key) => key.trim())
+      .toList();
 
   // 1. Use the Repository instead of raw Supabase calls
   final ChatRepository _repository = ChatRepository(Supabase.instance.client);
