@@ -28,7 +28,6 @@ class AuthViewModel extends ChangeNotifier {
     super.dispose();
   }
 
-  // Set loading state
   void _setLoading(bool loading) {
     if (_isDisposed) return;
     isLoading = loading;
@@ -36,14 +35,12 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Set error message
   void _setError(String? message) {
     if (_isDisposed) return;
     errorMessage = message;
     notifyListeners();
   }
 
-  // Update profile attributes
   void updateAttribute(String attribute, double value) {
     if (attribute == 'weight') weight = value;
     else if (attribute == 'height') height = value;
@@ -51,17 +48,29 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // =================================================
-  // LOGIN FUNCTION (With 3-Attempt Lockout)
-  // =================================================
+  // ---------------------------------------------------------------------------
+  // LOGIN
+  //
+  // Two scenarios:
+  //
+  // 1. Login within 30 days of deletion request:
+  //    → signInWithPassword succeeds
+  //    → _handleSoftDelete detects deleted_at, auto-restores via RPC
+  //    → user enters app normally
+  //
+  // 2. Login after 30 days:
+  //    → cron job already deleted auth.users row
+  //    → signInWithPassword FAILS with AuthException
+  //    → "Invalid email or password" shown
+  //    → never reaches _handleSoftDelete
+  // ---------------------------------------------------------------------------
   Future<void> signIn(String email, String password) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. Check Persisted Lockout
+    // 1. Check persisted lockout
     final lockoutTimestamp = prefs.getInt('lockout_timestamp');
     if (lockoutTimestamp != null) {
       final lockoutTime = DateTime.fromMillisecondsSinceEpoch(lockoutTimestamp);
-
       if (DateTime.now().isBefore(lockoutTime)) {
         final remaining = lockoutTime.difference(DateTime.now());
         final minutesLeft = remaining.inMinutes + 1;
@@ -75,22 +84,27 @@ class AuthViewModel extends ChangeNotifier {
 
     _setLoading(true);
     try {
-      await _client.auth.signInWithPassword(
+      final response = await _client.auth.signInWithPassword(
         email: email.trim(),
         password: password,
       );
 
-      // 2. Success: Reset Counters
       _failedAttempts = 0;
       await prefs.remove('lockout_timestamp');
 
-    } on AuthException catch (_) {
-      // 3. Failure: Increment & Lockout
-      _failedAttempts++;
+      // 2. Auto-restore if account was pending deletion
+      await _handleSoftDelete(response.user?.id);
 
+      // 3. Auth state listener fires → navigates to home
+
+    } on AuthException catch (_) {
+      // Covers both wrong password AND permanently deleted accounts
+      // (deleted accounts no longer exist in auth.users after 30 days)
+      _failedAttempts++;
       if (_failedAttempts >= _maxAttempts) {
         final lockoutTime = DateTime.now().add(_lockoutDuration);
-        await prefs.setInt('lockout_timestamp', lockoutTime.millisecondsSinceEpoch);
+        await prefs.setInt(
+            'lockout_timestamp', lockoutTime.millisecondsSinceEpoch);
         _setError("Too many failed attempts. You are blocked for 3 minutes.");
       } else {
         _setError("Invalid email or password.");
@@ -101,11 +115,68 @@ class AuthViewModel extends ChangeNotifier {
     _setLoading(false);
   }
 
-  // =================================================
-  // REGISTRATION STEP 1: SEND OTP ONLY
-  // No signup yet — just sends OTP email to verify
-  // the email exists before creating the account.
-  // =================================================
+  // ---------------------------------------------------------------------------
+  // _handleSoftDelete
+  //
+  // Only runs when signInWithPassword already SUCCEEDED — meaning the user
+  // still exists in auth.users (i.e. within the 30-day grace window).
+  //
+  // If deleted_at is set → auto-restore silently and let them in.
+  // If deleted_at is null → normal account, do nothing.
+  //
+  // The "after 30 days" case is never reached here because the cron job
+  // deletes auth.users first, causing signInWithPassword to fail above.
+  // ---------------------------------------------------------------------------
+  Future<void> _handleSoftDelete(String? userId) async {
+    if (userId == null) return;
+
+    try {
+      final row = await _client
+          .from('profile')
+          .select('deleted_at')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      debugPrint("🔍 _handleSoftDelete row: $row");
+
+      // No deleted_at → active account, nothing to do
+      if (row == null || row['deleted_at'] == null) return;
+
+      // deleted_at is set → user logged in within 30-day grace period
+      // Auto-restore their account silently
+      debugPrint("🔄 Pending deletion detected — auto-restoring account...");
+      await _client.rpc('restore_deleted_account');
+      debugPrint("✅ Account auto-restored successfully");
+
+    } catch (e) {
+      // Non-fatal: log but allow login to proceed
+      debugPrint("❌ _handleSoftDelete error: $e");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // REQUEST ACCOUNT DELETION  (called from settings / account screen)
+  // Sets deleted_at via RPC then signs out.
+  // Cron job hard-deletes after 30 days automatically.
+  // ---------------------------------------------------------------------------
+  Future<bool> requestAccountDeletion() async {
+    _setLoading(true);
+    try {
+      await _client.rpc('delete_user_account');
+      _setLoading(false);
+      await _client.auth.signOut();
+      return true;
+    } catch (e) {
+      debugPrint("Request deletion failed: $e");
+      _setError("Failed to request account deletion.");
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // REGISTRATION STEP 1: Send OTP
+  // ---------------------------------------------------------------------------
   Future<bool> sendVerificationOtp(String email) async {
     _setLoading(true);
     try {
@@ -126,15 +197,9 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // =================================================
-  // REGISTRATION STEP 2: VERIFY OTP → SET PASSWORD
-  // → UPSERT FULL PROFILE
-  //
-  // Flow:
-  // 1. verifyOTP  → user is now logged in via magic link
-  // 2. updateUser → sets the real password on the account
-  // 3. upsert     → writes full profile data to public.profile
-  // =================================================
+  // ---------------------------------------------------------------------------
+  // REGISTRATION STEP 2: Verify OTP → set password → upsert profile
+  // ---------------------------------------------------------------------------
   Future<bool> verifyOtpAndRegister({
     required String email,
     required String token,
@@ -148,7 +213,6 @@ class AuthViewModel extends ChangeNotifier {
   }) async {
     _setLoading(true);
     try {
-      // 1. Verify OTP — session is created after this
       final verifyResponse = await _client.auth.verifyOTP(
         token: token.trim(),
         type: OtpType.email,
@@ -163,12 +227,10 @@ class AuthViewModel extends ChangeNotifier {
 
       final userId = verifyResponse.user!.id;
 
-      // 2. Set the real password on the account
       await _client.auth.updateUser(
         UserAttributes(password: password),
       );
 
-      // 3. Upsert full profile — overwrites the trigger's placeholder row
       await _client.from('profile').upsert({
         'user_id': userId,
         'username': username,
@@ -181,11 +243,11 @@ class AuthViewModel extends ChangeNotifier {
         'streak': 0,
         'current_points': 0,
         'uid_text': userId.substring(0, 8),
+        'deleted_at': null,
       });
 
       _setLoading(false);
       return true;
-
     } on AuthException catch (e) {
       _setError('Auth: ${e.message} (${e.statusCode})');
       _setLoading(false);
@@ -198,9 +260,9 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // =================================================
+  // ---------------------------------------------------------------------------
   // RESEND OTP
-  // =================================================
+  // ---------------------------------------------------------------------------
   Future<void> resendOtp(String email) async {
     try {
       await _client.auth.signInWithOtp(
@@ -212,9 +274,9 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // =================================================
+  // ---------------------------------------------------------------------------
   // VALIDATION HELPERS
-  // =================================================
+  // ---------------------------------------------------------------------------
   String? validateUsername(String? value) {
     if (value == null || value.isEmpty) return 'Please enter a username';
     if (value.length < 3) return 'Username is too short';

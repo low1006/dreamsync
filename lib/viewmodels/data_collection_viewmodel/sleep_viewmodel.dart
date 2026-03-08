@@ -3,6 +3,7 @@ import 'package:health/health.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:dreamsync/repositories/sleep_repository.dart';
 import 'package:dreamsync/models/sleep_record_model.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 
 class SleepChartPoint {
   final double hour;
@@ -11,7 +12,7 @@ class SleepChartPoint {
   SleepChartPoint(this.hour, this.stage);
 }
 
-enum SleepFilter { daily, weekly}
+enum SleepFilter { daily, weekly }
 
 class SleepViewModel extends ChangeNotifier {
   bool isLoading = false;
@@ -25,13 +26,18 @@ class SleepViewModel extends ChangeNotifier {
 
   List<HealthDataPoint> _rawHealthData = [];
 
-  String totalSleepDuration = "0h 0m";
-  int sleepScore = 0;
-  String deepSleep = "0h 0m";
-  String lightSleep = "0h 0m";
-  String remSleep = "0h 0m";
-
+  // Daily-specific state
+  String dailyTotalSleepDuration = "0h 0m";
+  int dailySleepScore = 0;
+  String dailyDeepSleep = "0h 0m";
+  String dailyLightSleep = "0h 0m";
+  String dailyRemSleep = "0h 0m";
   List<SleepChartPoint> hypnogramData = [];
+
+  // Weekly-specific state
+  String weeklyTotalSleepDuration = "0h 0m";
+  int weeklySleepScore = 0;
+
   List<SleepRecordModel> weeklyData = [];
 
   final List<HealthDataType> _sleepDataTypes = [
@@ -43,7 +49,16 @@ class SleepViewModel extends ChangeNotifier {
     HealthDataType.SLEEP_ASLEEP,
   ];
 
-  Future<void> loadSleepData(BuildContext context, String userId) async {
+  // ─────────────────────────────────────────────────────────────
+  // MAIN LOAD — Fetches from Health Connect, syncs to DB, checks achievements
+  // ✅ FIXED: BuildContext is now optional and we use named parameters
+  // so this can run safely in a background isolate without crashing.
+  // ─────────────────────────────────────────────────────────────
+  Future<void> loadSleepData({
+    BuildContext? context,
+    required String userId,
+    required AchievementViewModel achievementVM,
+  }) async {
     isLoading = true;
     errorMessage = "";
     notifyListeners();
@@ -57,24 +72,43 @@ class SleepViewModel extends ChangeNotifier {
           status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
         isLoading = false;
         notifyListeners();
-        if (context.mounted) {
+        // ✅ FIXED: Only show the dialog if we are in the foreground UI
+        if (context != null && context.mounted) {
           _showInstallHealthConnectDialog(context);
+        } else {
+          debugPrint("⚠️ Background sync: Health Connect not available.");
         }
         return;
       }
 
-      final permissions = _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
+      final permissions =
+      _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
 
-      bool authorized = await health.requestAuthorization(
-        _sleepDataTypes,
-        permissions: permissions,
-      );
+      // Check if we already have permissions before requesting
+      bool? hasPermissions = await health.hasPermissions(
+          _sleepDataTypes, permissions: permissions);
 
-      if (!authorized) {
-        errorMessage = "Permission denied.";
-        isLoading = false;
-        notifyListeners();
-        return;
+      if (hasPermissions != true) {
+        // ✅ FIXED: Only request authorization if we are in the foreground UI
+        if (context != null) {
+          bool authorized = await health.requestAuthorization(
+            _sleepDataTypes,
+            permissions: permissions,
+          );
+
+          if (!authorized) {
+            errorMessage = "Permission denied.";
+            isLoading = false;
+            notifyListeners();
+            return;
+          }
+        } else {
+          // We are in the background and lack permissions, silently abort
+          debugPrint("⚠️ Background sync aborted: Missing Health Connect permissions.");
+          isLoading = false;
+          notifyListeners();
+          return;
+        }
       }
 
       final now = DateTime.now();
@@ -88,11 +122,16 @@ class SleepViewModel extends ChangeNotifier {
 
       _rawHealthData = health.removeDuplicates(healthData);
 
-      _processSleepData();
+      // Process both filter views — each writes to its own isolated fields
+      _processSleepData(SleepFilter.daily);
+      _processSleepData(SleepFilter.weekly);
 
+      // Persist to Supabase, then fetch the full DB history for achievements
       await syncSleepDataToSupabase(userId);
       await fetchWeeklyDataFromDatabase(userId);
 
+      // Check and update all sleep-related achievements
+      await _checkSleepAchievements(userId, achievementVM);
     } catch (e) {
       debugPrint("Error fetching from Health Connect: $e");
       errorMessage = "Failed to sync with Health Connect. Ensure data exists.";
@@ -102,31 +141,176 @@ class SleepViewModel extends ChangeNotifier {
     }
   }
 
-  // 🔥 UPDATE: This function now guarantees exactly 7 records, filling missing days with 0s
+  // ✅ FIXED: Updated to match loadSleepData signature
+  Future<void> refreshData({
+    BuildContext? context,
+    required String userId,
+    required AchievementViewModel achievementVM,
+  }) async {
+    await loadSleepData(
+        context: context,
+        userId: userId,
+        achievementVM: achievementVM
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // ACHIEVEMENT CHECKS — Called after every successful sync
+  // ─────────────────────────────────────────────────────────────
+  Future<void> _checkSleepAchievements(
+      String userId, AchievementViewModel achievementVM) async {
+    try {
+      // Fetch the user's complete sleep history from DB for accurate totals
+      final allRecords = await _repository.getAllSleepRecords(userId);
+
+      // ── 1. total_logs ──────────────────────────────────────────
+      final totalLogs = allRecords
+          .where((r) => r.totalMinutes > 0)
+          .length
+          .toDouble();
+
+      for (final a in achievementVM.getByType('total_logs')) {
+        await achievementVM.setProgress(a.userAchievementId, totalLogs);
+      }
+
+      // ── 2. streak_days ─────────────────────────────────────────
+      final currentStreak = _computeStreak(allRecords).toDouble();
+
+      for (final a in achievementVM.getByType('streak_days')) {
+        await achievementVM.setProgress(a.userAchievementId, currentStreak);
+      }
+
+      // ── 3. sleep_score ─────────────────────────────────────────
+      final score = dailySleepScore.toDouble();
+
+      for (final a in achievementVM.getByType('sleep_score')) {
+        await achievementVM.setProgress(a.userAchievementId, score);
+      }
+
+      // ── 4. total_hours ─────────────────────────────────────────
+      final totalHours = allRecords.fold<int>(0, (sum, r) => sum + r.totalMinutes) / 60.0;
+
+      for (final a in achievementVM.getByType('total_hours')) {
+        await achievementVM.setProgress(a.userAchievementId, totalHours);
+      }
+
+      // ── 5. early_wake_streak ───────────────────────────────────
+      final earlyWakeStreak = _computeEarlyWakeStreak().toDouble();
+
+      for (final a in achievementVM.getByType('early_wake_streak')) {
+        await achievementVM.setProgress(a.userAchievementId, earlyWakeStreak);
+      }
+
+    } catch (e) {
+      debugPrint("❌ Error checking sleep achievements: $e");
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // HELPER — Streak: consecutive days with sleep > 0 (newest first)
+  // ─────────────────────────────────────────────────────────────
+  int _computeStreak(List<SleepRecordModel> allRecords) {
+    if (allRecords.isEmpty) return 0;
+
+    int streak = 0;
+    final now = DateTime.now();
+
+    for (int i = 0; i < 365; i++) {
+      final day = now.subtract(Duration(days: i));
+      final dayStr =
+          "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
+
+      final record = allRecords
+          .where((r) => r.date.startsWith(dayStr) && r.totalMinutes > 0)
+          .firstOrNull;
+
+      if (record != null) {
+        streak++;
+      } else {
+        // Allow one gap for today (sleep might not be synced yet until night)
+        if (i == 0) continue;
+        break;
+      }
+    }
+
+    return streak;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // HELPER — Early wake streak: consecutive days where last sleep
+  //          session ended before 07:00
+  // ─────────────────────────────────────────────────────────────
+  int _computeEarlyWakeStreak() {
+    if (_rawHealthData.isEmpty) return 0;
+
+    // Build a map of date → latest sleep session end time
+    final Map<String, DateTime> wakeTimeByDay = {};
+
+    for (final point in _rawHealthData) {
+      if (point.type != HealthDataType.SLEEP_SESSION &&
+          point.type != HealthDataType.SLEEP_ASLEEP) continue;
+
+      final dayStr =
+          "${point.dateTo.year}-${point.dateTo.month.toString().padLeft(2, '0')}-${point.dateTo.day.toString().padLeft(2, '0')}";
+
+      if (!wakeTimeByDay.containsKey(dayStr) ||
+          point.dateTo.isAfter(wakeTimeByDay[dayStr]!)) {
+        wakeTimeByDay[dayStr] = point.dateTo;
+      }
+    }
+
+    int streak = 0;
+    final now = DateTime.now();
+
+    for (int i = 0; i < 30; i++) {
+      final day = now.subtract(Duration(days: i));
+      final dayStr =
+          "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
+
+      final wakeTime = wakeTimeByDay[dayStr];
+
+      if (wakeTime != null && wakeTime.hour < 7) {
+        streak++;
+      } else {
+        // Allow a gap for today only
+        if (i == 0) continue;
+        break;
+      }
+    }
+
+    return streak;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // WEEKLY DB FETCH — Fills 7 days for the bar chart
+  // ─────────────────────────────────────────────────────────────
   Future<void> fetchWeeklyDataFromDatabase(String userId) async {
     try {
       final now = DateTime.now();
       final weekStart = now.subtract(const Duration(days: 6));
 
-      final startDateStr = "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
-      final endDateStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final startDateStr =
+          "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
+      final endDateStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final endDateQuery = "$endDateStr 23:59:59";
 
-      final records = await _repository.getSleepRecordsByDateRange(userId, startDateStr, endDateStr);
+      final records = await _repository.getSleepRecordsByDateRange(
+          userId, startDateStr, endDateQuery);
 
       List<SleepRecordModel> filledRecords = [];
 
-      // Loop exactly 7 times (6 days ago -> Today)
       for (int i = 6; i >= 0; i--) {
         final targetDate = now.subtract(Duration(days: i));
-        final targetDateStr = "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
+        final targetDateStr =
+            "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
 
-        // Try to find a matching record in the database
-        final existingRecord = records.where((r) => r.date == targetDateStr).firstOrNull;
+        final existingRecord =
+            records.where((r) => r.date.startsWith(targetDateStr)).firstOrNull;
 
         if (existingRecord != null) {
           filledRecords.add(existingRecord);
         } else {
-          // If the user didn't sync sleep that day, inject a "0" so the chart still draws the Day label!
           filledRecords.add(SleepRecordModel(
             userId: userId,
             date: targetDateStr,
@@ -143,19 +327,28 @@ class SleepViewModel extends ChangeNotifier {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // FILTER — Switching tabs only updates currentFilter.
+  // Both datasets are already computed, nothing re-processes.
+  // ─────────────────────────────────────────────────────────────
   void changeFilter(SleepFilter newFilter) {
     if (currentFilter != newFilter) {
       currentFilter = newFilter;
-      _processSleepData();
       notifyListeners();
     }
   }
 
-  void _processSleepData() {
-    isDataPendingSync = false;
+  // ─────────────────────────────────────────────────────────────
+  // PROCESS — Compute display data for a specific filter.
+  // Writes only to that filter's backing fields.
+  // ─────────────────────────────────────────────────────────────
+  void _processSleepData(SleepFilter filter) {
+    if (filter == SleepFilter.daily) {
+      isDataPendingSync = false;
+    }
 
     if (_rawHealthData.isEmpty) {
-      _resetDisplayData();
+      _resetDisplayData(filter);
       return;
     }
 
@@ -163,40 +356,44 @@ class SleepViewModel extends ChangeNotifier {
     final todayMidnight = DateTime(now.year, now.month, now.day);
     List<HealthDataPoint> filteredData = [];
 
-    switch (currentFilter) {
+    switch (filter) {
       case SleepFilter.daily:
-        if (_rawHealthData.isNotEmpty) {
-          DateTime latestDate = _rawHealthData.reduce((a, b) =>
-          a.dateTo.isAfter(b.dateTo) ? a : b).dateTo;
+        DateTime latestDate = _rawHealthData
+            .reduce((a, b) => a.dateTo.isAfter(b.dateTo) ? a : b)
+            .dateTo;
 
-          DateTime latestMidnight = DateTime(latestDate.year, latestDate.month, latestDate.day);
-          DateTime yesterdayMidnight = todayMidnight.subtract(const Duration(days: 1));
+        DateTime latestMidnight =
+        DateTime(latestDate.year, latestDate.month, latestDate.day);
+        DateTime yesterdayMidnight =
+        todayMidnight.subtract(const Duration(days: 1));
 
-          if (now.hour < 12) {
-            if (latestMidnight.isBefore(yesterdayMidnight)) {
-              isDataPendingSync = true;
-            }
-          } else {
-            if (latestMidnight.isBefore(todayMidnight)) {
-              isDataPendingSync = true;
-            }
+        if (now.hour < 12) {
+          if (latestMidnight.isBefore(yesterdayMidnight)) {
+            isDataPendingSync = true;
           }
-
-          filteredData = _rawHealthData.where((p) =>
-          p.dateTo.year == latestDate.year &&
-              p.dateTo.month == latestDate.month &&
-              p.dateTo.day == latestDate.day
-          ).toList();
+        } else {
+          if (latestMidnight.isBefore(todayMidnight)) {
+            isDataPendingSync = true;
+          }
         }
+
+        filteredData = _rawHealthData
+            .where((p) =>
+        p.dateTo.year == latestDate.year &&
+            p.dateTo.month == latestDate.month &&
+            p.dateTo.day == latestDate.day)
+            .toList();
         break;
+
       case SleepFilter.weekly:
         final weekStart = todayMidnight.subtract(const Duration(days: 7));
-        filteredData = _rawHealthData.where((p) => p.dateTo.isAfter(weekStart)).toList();
+        filteredData =
+            _rawHealthData.where((p) => p.dateTo.isAfter(weekStart)).toList();
         break;
     }
 
     if (filteredData.isEmpty) {
-      _resetDisplayData();
+      _resetDisplayData(filter);
       return;
     }
 
@@ -205,17 +402,20 @@ class SleepViewModel extends ChangeNotifier {
     int lightMin = 0;
     int remMin = 0;
 
-    bool hasSessions = filteredData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
+    bool hasSessions =
+    filteredData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
     Set<String> uniqueDays = {};
-    hypnogramData = [];
+    List<SleepChartPoint> newHypnogramData = [];
 
     for (var point in filteredData) {
       final duration = point.dateTo.difference(point.dateFrom).inMinutes;
-      uniqueDays.add("${point.dateTo.year}-${point.dateTo.month}-${point.dateTo.day}");
+      uniqueDays.add(
+          "${point.dateTo.year}-${point.dateTo.month}-${point.dateTo.day}");
 
       if (point.type == HealthDataType.SLEEP_DEEP) {
         deepMin += duration;
-      } else if (point.type == HealthDataType.SLEEP_LIGHT || point.type == HealthDataType.SLEEP_ASLEEP) {
+      } else if (point.type == HealthDataType.SLEEP_LIGHT ||
+          point.type == HealthDataType.SLEEP_ASLEEP) {
         lightMin += duration;
       } else if (point.type == HealthDataType.SLEEP_REM) {
         remMin += duration;
@@ -224,63 +424,82 @@ class SleepViewModel extends ChangeNotifier {
       if (hasSessions) {
         if (point.type == HealthDataType.SLEEP_SESSION) totalMinutes += duration;
       } else {
-        if (point.type != HealthDataType.SLEEP_AWAKE && point.type != HealthDataType.SLEEP_SESSION) {
+        if (point.type != HealthDataType.SLEEP_AWAKE &&
+            point.type != HealthDataType.SLEEP_SESSION) {
           totalMinutes += duration;
         }
       }
 
-      if (currentFilter == SleepFilter.daily && point.type != HealthDataType.SLEEP_SESSION) {
+      if (filter == SleepFilter.daily &&
+          point.type != HealthDataType.SLEEP_SESSION) {
         double stageVal = 0;
         if (point.type == HealthDataType.SLEEP_REM) stageVal = 1;
-        else if (point.type == HealthDataType.SLEEP_LIGHT || point.type == HealthDataType.SLEEP_ASLEEP) stageVal = 2;
+        else if (point.type == HealthDataType.SLEEP_LIGHT ||
+            point.type == HealthDataType.SLEEP_ASLEEP) stageVal = 2;
         else if (point.type == HealthDataType.SLEEP_DEEP) stageVal = 3;
 
         double hour = point.dateFrom.hour + (point.dateFrom.minute / 60.0);
         if (hour > 12) hour -= 24;
 
-        hypnogramData.add(SleepChartPoint(hour, stageVal));
+        newHypnogramData.add(SleepChartPoint(hour, stageVal));
       }
     }
 
-    if (currentFilter == SleepFilter.daily) {
-      hypnogramData.sort((a, b) => a.hour.compareTo(b.hour));
-    } else {
-      hypnogramData = [];
+    if (filter == SleepFilter.daily) {
+      newHypnogramData.sort((a, b) => a.hour.compareTo(b.hour));
+      hypnogramData = newHypnogramData;
     }
 
-    if (currentFilter != SleepFilter.daily) {
+    if (filter != SleepFilter.daily) {
       int daysCount = uniqueDays.isNotEmpty ? uniqueDays.length : 1;
       totalMinutes = totalMinutes ~/ daysCount;
+      deepMin = deepMin ~/ daysCount;
+      lightMin = lightMin ~/ daysCount;
+      remMin = remMin ~/ daysCount;
     }
 
-    totalSleepDuration = _formatMinutes(totalMinutes);
-    deepSleep = _formatMinutes(deepMin);
-    lightSleep = _formatMinutes(lightMin);
-    remSleep = _formatMinutes(remMin);
-
-    if (totalMinutes > 0) {
-      sleepScore = ((totalMinutes / 480) * 100).clamp(0, 100).toInt();
+    if (filter == SleepFilter.daily) {
+      dailyTotalSleepDuration = _formatMinutes(totalMinutes);
+      dailyDeepSleep = _formatMinutes(deepMin);
+      dailyLightSleep = _formatMinutes(lightMin);
+      dailyRemSleep = _formatMinutes(remMin);
+      dailySleepScore = totalMinutes > 0
+          ? ((totalMinutes / 480) * 100).clamp(0, 100).toInt()
+          : 0;
     } else {
-      sleepScore = 0;
+      weeklyTotalSleepDuration = _formatMinutes(totalMinutes);
+      weeklySleepScore = totalMinutes > 0
+          ? ((totalMinutes / 480) * 100).clamp(0, 100).toInt()
+          : 0;
     }
   }
 
-  void _resetDisplayData() {
-    totalSleepDuration = "0h 0m";
-    sleepScore = 0;
-    deepSleep = "0h 0m";
-    lightSleep = "0h 0m";
-    remSleep = "0h 0m";
-    hypnogramData = [];
+  void _resetDisplayData(SleepFilter filter) {
+    if (filter == SleepFilter.daily) {
+      dailyTotalSleepDuration = "0h 0m";
+      dailySleepScore = 0;
+      dailyDeepSleep = "0h 0m";
+      dailyLightSleep = "0h 0m";
+      dailyRemSleep = "0h 0m";
+      hypnogramData = [];
+    } else {
+      weeklyTotalSleepDuration = "0h 0m";
+      weeklySleepScore = 0;
+    }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // SYNC — Write raw Health Connect data to Supabase
+  // ─────────────────────────────────────────────────────────────
   Future<void> syncSleepDataToSupabase(String userId) async {
     try {
       Map<String, int> dailyTotals = {};
-      bool hasSessions = _rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
+      bool hasSessions =
+      _rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
 
       for (var point in _rawHealthData) {
-        final dateStr = "${point.dateTo.year}-${point.dateTo.month.toString().padLeft(2, '0')}-${point.dateTo.day.toString().padLeft(2, '0')}";
+        final dateStr =
+            "${point.dateTo.year}-${point.dateTo.month.toString().padLeft(2, '0')}-${point.dateTo.day.toString().padLeft(2, '0')}";
         int duration = point.dateTo.difference(point.dateFrom).inMinutes;
 
         if (hasSessions) {
@@ -295,20 +514,15 @@ class SleepViewModel extends ChangeNotifier {
       }
 
       for (var entry in dailyTotals.entries) {
-        final dateString = entry.key;
         final totalMins = entry.value;
-
         if (totalMins > 0) {
           int dailyScore = ((totalMins / 480) * 100).clamp(0, 100).toInt();
-
-          final newRecord = SleepRecordModel(
+          await _repository.saveDailySummary(SleepRecordModel(
             userId: userId,
-            date: dateString,
+            date: entry.key,
             totalMinutes: totalMins,
             sleepScore: dailyScore,
-          );
-
-          await _repository.saveDailySummary(newRecord);
+          ));
         }
       }
     } catch (e) {
@@ -323,10 +537,9 @@ class SleepViewModel extends ChangeNotifier {
     return "${hours}h ${minutes}m";
   }
 
-  Future<void> refreshData(BuildContext context, String userId) async {
-    await loadSleepData(context, userId);
-  }
-
+  // ─────────────────────────────────────────────────────────────
+  // DIALOG — Prompt user to install Health Connect
+  // ─────────────────────────────────────────────────────────────
   void _showInstallHealthConnectDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -355,9 +568,11 @@ class SleepViewModel extends ChangeNotifier {
             ),
             onPressed: () async {
               Navigator.pop(context);
-              final Uri playStoreUri = Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata");
+              final Uri playStoreUri = Uri.parse(
+                  "https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata");
               if (await canLaunchUrl(playStoreUri)) {
-                await launchUrl(playStoreUri, mode: LaunchMode.externalApplication);
+                await launchUrl(playStoreUri,
+                    mode: LaunchMode.externalApplication);
               }
             },
             child: const Text("Install"),

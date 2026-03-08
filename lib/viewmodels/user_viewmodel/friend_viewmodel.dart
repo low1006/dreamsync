@@ -1,25 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 
 class FriendViewModel extends ChangeNotifier {
   final _client = Supabase.instance.client;
 
-  // --- ORIGINAL VARIABLES (For Friend List Screen) ---
+  // --- Friend List State ---
   List<Map<String, dynamic>> friends = [];
   List<Map<String, dynamic>> pendingRequests = [];
   bool isLoading = false;
   String? errorMessage;
 
-  // Search state variables
+  // Search state
   UserModel? searchedUser;
   String? friendshipStatus; // 'none', 'pending', 'accepted'
 
-  // --- NEW VARIABLE (For Leaderboard Screen) ---
+  // --- Leaderboard State ---
   List<UserModel> leaderboardUsers = [];
 
   // =========================================================
-  // 1. ORIGINAL FUNCTION: LOAD FRIENDS
+  // 1. LOAD FRIENDS
   // =========================================================
   Future<void> loadFriendListData() async {
     isLoading = true;
@@ -28,15 +29,11 @@ class FriendViewModel extends ChangeNotifier {
     final myId = _client.auth.currentUser!.id;
 
     try {
-      // Fetch all Friends
-      // MODIFIED: Added sleep_goal_hours and streak to the nested join query
-      final response = await _client.from('friendships')
-          .select('''
+      final response = await _client.from('friendships').select('''
             *,
             sender:profile!sender_id(username, email, uid_text, sleep_goal_hours, streak),
             receiver:profile!receiver_id(username, email, uid_text, sleep_goal_hours, streak)
-          ''')
-          .or('sender_id.eq.$myId,receiver_id.eq.$myId');
+          ''').or('sender_id.eq.$myId,receiver_id.eq.$myId');
 
       final data = List<Map<String, dynamic>>.from(response);
 
@@ -44,19 +41,17 @@ class FriendViewModel extends ChangeNotifier {
       pendingRequests.clear();
 
       for (var item in data) {
-        // If profile is restricted (null), we skip it to prevent crash
         if (item['sender'] == null || item['receiver'] == null) continue;
 
         if (item['status'] == 'accepted') {
           final isMeSender = item['sender_id'] == myId;
-          final friendProfile = isMeSender ? item['receiver'] : item['sender'];
+          final friendProfile =
+          isMeSender ? item['receiver'] : item['sender'];
           friendProfile['friendship_id'] = item['id'];
           friends.add(friendProfile);
-
-        } else if (item['status'] == 'pending' && item['receiver_id'] == myId) {
-          // REQUEST FOR ME: The sender is the one asking
+        } else if (item['status'] == 'pending' &&
+            item['receiver_id'] == myId) {
           final senderProfile = item['sender'];
-          // CRITICAL: We need the sender's data to display the request card
           if (senderProfile != null) {
             senderProfile['friendship_id'] = item['id'];
             pendingRequests.add(senderProfile);
@@ -73,17 +68,13 @@ class FriendViewModel extends ChangeNotifier {
   }
 
   // =========================================================
-  // 2. NEW FUNCTION: LOAD LEADERBOARD (Added for Achievement Screen)
+  // 2. LOAD LEADERBOARD
   // =========================================================
   Future<void> loadLeaderboard() async {
     final currentUser = _client.auth.currentUser;
     if (currentUser == null) return;
 
-    // Note: We don't set global isLoading = true here to avoid flickering
-    // the FriendList screen if they are running simultaneously.
-
     try {
-      // 1. Fetch Friend IDs (Accepted only)
       final response = await _client
           .from('friendships')
           .select('sender_id, receiver_id')
@@ -99,36 +90,28 @@ class FriendViewModel extends ChangeNotifier {
         }
       }
 
-      // 2. Add Current User to list (so you appear on the board)
       userIds.add(currentUser.id);
 
-      // 3. Fetch Full Profiles (to get 'streak' and 'username')
       final profilesData = await _client
           .from('profile')
           .select()
           .inFilter('user_id', userIds);
 
-      // 4. Map to UserModel
       leaderboardUsers = (profilesData as List)
           .map((data) => UserModel.fromJson(data))
           .toList();
 
-      // 5. Sort by Streak Descending
-      // (Ensure your UserModel has the 'streak' field as added in the previous step)
       leaderboardUsers.sort((a, b) => b.streak.compareTo(a.streak));
 
       notifyListeners();
-
     } catch (e) {
       debugPrint("Error loading leaderboard: $e");
     }
   }
 
   // =========================================================
-  // 3. ORIGINAL SEARCH & REQUEST FUNCTIONS
+  // 3. SEARCH USER
   // =========================================================
-
-  // Search User
   Future<bool> searchUserByUid(String shortUid) async {
     isLoading = true;
     errorMessage = null;
@@ -138,9 +121,10 @@ class FriendViewModel extends ChangeNotifier {
     try {
       final myId = _client.auth.currentUser!.id;
 
-      final List<dynamic> response = await _client.rpc('search_user_by_uid', params: {
-        'search_uid': shortUid,
-      });
+      final List<dynamic> response = await _client.rpc(
+        'search_user_by_uid',
+        params: {'search_uid': shortUid},
+      );
 
       if (response.isEmpty) {
         errorMessage = "User not found. Check the UID and try again.";
@@ -149,8 +133,7 @@ class FriendViewModel extends ChangeNotifier {
         return false;
       }
 
-      final data = response.first;
-      searchedUser = UserModel.fromJson(data);
+      searchedUser = UserModel.fromJson(response.first);
 
       if (searchedUser!.userId == myId) {
         errorMessage = "You cannot add yourself as a friend.";
@@ -163,19 +146,15 @@ class FriendViewModel extends ChangeNotifier {
           .from('friendships')
           .select('status')
           .or('sender_id.eq.$myId,receiver_id.eq.$myId')
-          .or('sender_id.eq.${searchedUser!.userId},receiver_id.eq.${searchedUser!.userId}')
+          .or(
+          'sender_id.eq.${searchedUser!.userId},receiver_id.eq.${searchedUser!.userId}')
           .maybeSingle();
 
-      if (connection != null) {
-        friendshipStatus = connection['status'];
-      } else {
-        friendshipStatus = 'none';
-      }
+      friendshipStatus = connection != null ? connection['status'] : 'none';
 
       isLoading = false;
       notifyListeners();
       return true;
-
     } catch (e) {
       debugPrint("SEARCH ERROR: $e");
       errorMessage = "Connection error. Please try again.";
@@ -185,7 +164,9 @@ class FriendViewModel extends ChangeNotifier {
     }
   }
 
-  // Send Request
+  // =========================================================
+  // 4. SEND FRIEND REQUEST
+  // =========================================================
   Future<void> sendFriendRequestToSearchedUser() async {
     if (searchedUser == null) return;
 
@@ -200,25 +181,51 @@ class FriendViewModel extends ChangeNotifier {
 
       friendshipStatus = 'pending';
       notifyListeners();
-      loadFriendListData(); // Reload list to reflect changes
+      loadFriendListData();
     } catch (e) {
       errorMessage = 'Could not send request.';
       notifyListeners();
     }
   }
 
-  // Accept Request
-  Future<void> acceptRequest(String friendshipId) async {
+  // =========================================================
+  // 5. ACCEPT FRIEND REQUEST
+  // ✅ UPDATED: Now accepts AchievementViewModel to trigger
+  // the Social Butterfly (friends_count) achievement check
+  // immediately after the friendship is confirmed.
+  // =========================================================
+  Future<void> acceptRequest(
+      String friendshipId,
+      AchievementViewModel achievementVM,
+      ) async {
     try {
       await _client
           .from('friendships')
-          .update({'status': 'accepted'})
-          .eq('id', friendshipId);
+          .update({'status': 'accepted'}).eq('id', friendshipId);
 
+      // Reload so the friends list reflects the newly accepted friendship
       await loadFriendListData();
+
+      // ── friends_count ─────────────────────────────────────────
+      // Social Butterfly: Add your first friend on DreamSync.
+      // setProgress (absolute) ensures the count always mirrors
+      // the true number of accepted friends — handles both adds
+      // and future removals correctly.
+      await _checkFriendAchievements(achievementVM);
     } catch (e) {
       errorMessage = 'Failed to accept request.';
       notifyListeners();
+    }
+  }
+
+  // =========================================================
+  // PRIVATE — Check friends_count achievements
+  // =========================================================
+  Future<void> _checkFriendAchievements(
+      AchievementViewModel achievementVM) async {
+    final count = friends.length.toDouble();
+    for (final a in achievementVM.getByType('friends_count')) {
+      await achievementVM.setProgress(a.userAchievementId, count);
     }
   }
 }

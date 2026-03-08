@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:app_usage/app_usage.dart';
 import 'package:dreamsync/repositories/daily_activity_repository.dart';
 import 'package:dreamsync/models/daily_activity_model.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 
 class DailyActivityViewModel extends ChangeNotifier {
   final DailyActivityRepository _repository = DailyActivityRepository();
@@ -16,7 +17,9 @@ class DailyActivityViewModel extends ChangeNotifier {
   // Weekly data list for charts
   List<DailyActivityModel> weeklyData = [];
 
+  // ─────────────────────────────────────────────────────────────
   // 1. Load today's data from the database
+  // ─────────────────────────────────────────────────────────────
   Future<void> loadTodayData(String userId) async {
     isLoading = true;
     notifyListeners();
@@ -34,29 +37,29 @@ class DailyActivityViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // 2. Add new activity (🔥 FIXED: Foolproof to prevent wiping DB)
+  // ─────────────────────────────────────────────────────────────
+  // 2. Add / update today's activity
+  // ─────────────────────────────────────────────────────────────
   Future<void> addActivity({
     required String userId,
     int? addExercise,
     int? addFood,
     int? setScreenTime,
   }) async {
-    // 1. Fetch the absolute latest from DB first to prevent race condition wipes
-    final existing = await _repository.getTodayActivity(userId, _getTodayDateString());
+    // Always fetch fresh DB state first to prevent race-condition wipes
+    final existing = await _repository.getTodayActivity(
+        userId, _getTodayDateString());
 
-    // 2. Merge memory with DB truth to guarantee we never accidentally wipe data with 0s
     exerciseMinutes = existing?.exerciseMinutes ?? exerciseMinutes;
     foodCalories = existing?.foodCalories ?? foodCalories;
     screenTimeMinutes = existing?.screenTimeMinutes ?? screenTimeMinutes;
 
-    // 3. Apply the new additions
     if (addExercise != null) exerciseMinutes += addExercise;
     if (addFood != null) foodCalories += addFood;
     if (setScreenTime != null) screenTimeMinutes = setScreenTime;
 
     notifyListeners();
 
-    // 4. Save to DB
     final newRecord = DailyActivityModel(
       userId: userId,
       date: _getTodayDateString(),
@@ -66,18 +69,24 @@ class DailyActivityViewModel extends ChangeNotifier {
     );
 
     await _repository.saveActivity(newRecord);
-
-    // 5. Update Weekly Chart
     await _fetchWeeklyFromDB(userId);
   }
 
-  // 3. Fetch today's screen time
-  Future<String> fetchAndSaveScreenTime(String userId) async {
+  // ─────────────────────────────────────────────────────────────
+  // 3. Fetch today's screen time from the OS and save it.
+  //    AchievementViewModel is passed in to trigger Phone Down.
+  // ─────────────────────────────────────────────────────────────
+  Future<String> fetchAndSaveScreenTime(
+      String userId,
+      AchievementViewModel achievementVM,
+      ) async {
     try {
       final DateTime endDate = DateTime.now();
-      final DateTime startDate = DateTime(endDate.year, endDate.month, endDate.day);
+      final DateTime startDate =
+      DateTime(endDate.year, endDate.month, endDate.day);
 
-      final List<AppUsageInfo> infoList = await AppUsage().getAppUsage(startDate, endDate);
+      final List<AppUsageInfo> infoList =
+      await AppUsage().getAppUsage(startDate, endDate);
 
       int totalMinutes = 0;
       for (var info in infoList) {
@@ -85,6 +94,16 @@ class DailyActivityViewModel extends ChangeNotifier {
       }
 
       await addActivity(userId: userId, setScreenTime: totalMinutes);
+
+      // ── no_screen_time ────────────────────────────────────────
+      // Phone Down: Stop using phone 30 min before sleep.
+      // Proxy: if total daily screen time < 30 minutes, award the day.
+      // setProgress guards against awarding it twice.
+      if (totalMinutes < 30) {
+        for (final a in achievementVM.getByType('no_screen_time')) {
+          await achievementVM.updateProgress(a.userAchievementId, 1.0);
+        }
+      }
 
       final int hours = totalMinutes ~/ 60;
       final int minutes = totalMinutes % 60;
@@ -95,24 +114,33 @@ class DailyActivityViewModel extends ChangeNotifier {
     }
   }
 
-  // 4. Sync the last 7 days of Screen Time from the Android OS to Supabase
+  // ─────────────────────────────────────────────────────────────
+  // 4. Sync the last 7 days of screen time from the OS to Supabase
+  // ─────────────────────────────────────────────────────────────
   Future<void> syncWeeklyScreenTime(String userId) async {
     try {
       final now = DateTime.now();
       for (int i = 6; i >= 0; i--) {
         final targetDate = now.subtract(Duration(days: i));
-        final startDate = DateTime(targetDate.year, targetDate.month, targetDate.day);
-        final endDate = i == 0 ? now : DateTime(targetDate.year, targetDate.month, targetDate.day, 23, 59, 59);
+        final startDate = DateTime(
+            targetDate.year, targetDate.month, targetDate.day);
+        final endDate = i == 0
+            ? now
+            : DateTime(targetDate.year, targetDate.month, targetDate.day,
+            23, 59, 59);
 
-        final infoList = await AppUsage().getAppUsage(startDate, endDate);
+        final infoList =
+        await AppUsage().getAppUsage(startDate, endDate);
         int totalMinutes = 0;
         for (var info in infoList) {
           totalMinutes += info.usage.inMinutes;
         }
 
-        final targetDateStr = "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
+        final targetDateStr =
+            "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
 
-        final existing = await _repository.getTodayActivity(userId, targetDateStr);
+        final existing =
+        await _repository.getTodayActivity(userId, targetDateStr);
 
         final newRecord = DailyActivityModel(
           userId: userId,
@@ -129,7 +157,9 @@ class DailyActivityViewModel extends ChangeNotifier {
     }
   }
 
-  // 5. Load 7 days of behavioural data for the Weekly Charts
+  // ─────────────────────────────────────────────────────────────
+  // 5. Load 7 days of behavioural data for the weekly charts
+  // ─────────────────────────────────────────────────────────────
   Future<void> loadWeeklyData(String userId) async {
     try {
       await _fetchWeeklyFromDB(userId);
@@ -145,17 +175,22 @@ class DailyActivityViewModel extends ChangeNotifier {
       final now = DateTime.now();
       final weekStart = now.subtract(const Duration(days: 6));
 
-      final startDateStr = "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
-      final endDateStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final startDateStr =
+          "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
+      final endDateStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-      final records = await _repository.getActivityByDateRange(userId, startDateStr, endDateStr);
+      final records = await _repository.getActivityByDateRange(
+          userId, startDateStr, endDateStr);
 
       List<DailyActivityModel> filledRecords = [];
       for (int i = 6; i >= 0; i--) {
         final targetDate = now.subtract(Duration(days: i));
-        final targetDateStr = "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
+        final targetDateStr =
+            "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
 
-        final existing = records.where((r) => r.date == targetDateStr).firstOrNull;
+        final existing =
+            records.where((r) => r.date == targetDateStr).firstOrNull;
 
         if (existing != null) {
           filledRecords.add(existing);

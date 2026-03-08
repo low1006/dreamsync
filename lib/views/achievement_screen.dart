@@ -12,15 +12,28 @@ class AchievementScreen extends StatefulWidget {
   State<AchievementScreen> createState() => _AchievementScreenState();
 }
 
-class _AchievementScreenState extends State<AchievementScreen> with SingleTickerProviderStateMixin {
+class _AchievementScreenState extends State<AchievementScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // UPDATED: Completely removed the fetching logic from here!
-    // It is now handled automatically by the MainScreen.
+
+    // ✅ FIX: Re-fetch achievements and leaderboard every time this screen
+    // opens. This ensures progress updated by sleep/friend syncs (which write
+    // to Supabase and update the local list) is always reflected here, even
+    // if the user navigates away and comes back.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = context.read<UserViewModel>().userProfile;
+      if (user != null) {
+        context
+            .read<AchievementViewModel>()
+            .fetchUserAchievements(user.userId);
+      }
+      context.read<FriendViewModel>().loadLeaderboard();
+    });
   }
 
   @override
@@ -43,8 +56,8 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
         elevation: 0,
         centerTitle: true,
         title: Text(
-            "Achievements",
-            style: TextStyle(color: text, fontWeight: FontWeight.bold)
+          "Achievements",
+          style: TextStyle(color: text, fontWeight: FontWeight.bold),
         ),
         iconTheme: IconThemeData(color: text),
         bottom: TabBar(
@@ -70,14 +83,23 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
     );
   }
 
-  // --- BADGES TAB ---
+  // ─────────────────────────────────────────────
+  // BADGES TAB
+  // ─────────────────────────────────────────────
   Widget _buildBadgesTab(BuildContext context, Color text, Color accent) {
     return Consumer<AchievementViewModel>(
       builder: (context, vm, child) {
-        if (vm.isLoading) return Center(child: CircularProgressIndicator(color: accent));
+        if (vm.isLoading) {
+          return Center(child: CircularProgressIndicator(color: accent));
+        }
 
         if (vm.userAchievements.isEmpty) {
-          return Center(child: Text("No achievements yet!", style: TextStyle(color: text.withOpacity(0.5))));
+          return Center(
+            child: Text(
+              "No achievements yet!",
+              style: TextStyle(color: text.withOpacity(0.5)),
+            ),
+          );
         }
 
         return ListView.separated(
@@ -90,71 +112,99 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
 
             if (badge == null) return const SizedBox.shrink();
 
+            final progress =
+            (userAchievement.currentProgress / badge.criteriaValue)
+                .clamp(0.0, 1.0);
+
             return Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: text.withOpacity(0.05)),
+                border: Border.all(
+                  // Highlight unlocked badges with a subtle gold border
+                  color: userAchievement.isUnlocked
+                      ? Colors.amber.withOpacity(0.4)
+                      : text.withOpacity(0.05),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.03),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
-                  )
+                  ),
                 ],
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Badge icon
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: userAchievement.isUnlocked ? Colors.amber.withOpacity(0.1) : text.withOpacity(0.05),
+                      color: userAchievement.isUnlocked
+                          ? Colors.amber.withOpacity(0.1)
+                          : text.withOpacity(0.05),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       Icons.emoji_events,
-                      color: userAchievement.isUnlocked ? Colors.amber : text.withOpacity(0.3),
+                      color: userAchievement.isUnlocked
+                          ? Colors.amber
+                          : text.withOpacity(0.3),
                       size: 28,
                     ),
                   ),
                   const SizedBox(width: 16),
+
+                  // Title, description, progress bar
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           badge.title,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: text),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           badge.description,
-                          style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                          style: TextStyle(
+                              color: text.withOpacity(0.6), fontSize: 13),
                         ),
                         const SizedBox(height: 12),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
-                            value: (userAchievement.currentProgress / badge.criteriaValue).clamp(0.0, 1.0),
+                            value: progress,
                             backgroundColor: text.withOpacity(0.1),
-                            color: userAchievement.isUnlocked ? Colors.green : accent,
+                            color: userAchievement.isUnlocked
+                                ? Colors.green
+                                : accent,
                             minHeight: 6,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
-                          style: TextStyle(fontSize: 12, color: text.withOpacity(0.5), fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: text.withOpacity(0.5),
+                              fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
+
+                  // Unlocked tick
                   if (userAchievement.isUnlocked)
                     const Padding(
                       padding: EdgeInsets.only(left: 8.0),
-                      child: Icon(Icons.check_circle, color: Colors.green, size: 20),
+                      child: Icon(Icons.check_circle,
+                          color: Colors.green, size: 20),
                     ),
                 ],
               ),
@@ -165,11 +215,13 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
     );
   }
 
-  // --- LEADERBOARD TAB ---
-  Widget _buildLeaderboardTab(BuildContext context, Color text, Color accent) {
+  // ─────────────────────────────────────────────
+  // LEADERBOARD TAB
+  // ─────────────────────────────────────────────
+  Widget _buildLeaderboardTab(
+      BuildContext context, Color text, Color accent) {
     return Consumer2<FriendViewModel, UserViewModel>(
       builder: (context, friendVM, profileVM, child) {
-
         final currentUser = profileVM.userProfile;
 
         if (currentUser == null) {
@@ -181,7 +233,7 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
         }
 
         final leaderboard = friendVM.leaderboardUsers;
-        bool noFriends = leaderboard.length <= 1;
+        final noFriends = leaderboard.length <= 1;
 
         if (noFriends) {
           return _buildNoFriendsView(currentUser, text, accent, context);
@@ -197,9 +249,12 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
             final isMe = user.userId == currentUser.userId;
 
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isMe ? accent.withOpacity(0.1) : Theme.of(context).cardColor,
+                color: isMe
+                    ? accent.withOpacity(0.1)
+                    : Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
                 border: isMe
                     ? Border.all(color: accent, width: 1.5)
@@ -217,7 +272,10 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                     ),
                     child: Text(
                       "#$rank",
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 14),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -230,17 +288,19 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: isMe ? accent : text,
-                              fontSize: 16
-                          ),
+                              fontSize: 16),
                         ),
                         const SizedBox(height: 2),
                         Row(
                           children: [
-                            const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
+                            const Icon(Icons.local_fire_department,
+                                size: 16, color: Colors.orange),
                             const SizedBox(width: 4),
                             Text(
                               "${user.streak} Day Streak",
-                              style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                              style: TextStyle(
+                                  color: text.withOpacity(0.6),
+                                  fontSize: 13),
                             ),
                           ],
                         ),
@@ -248,7 +308,8 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                     ),
                   ),
                   if (isMe)
-                    Icon(Icons.star, color: Colors.amber.shade400, size: 24),
+                    Icon(Icons.star,
+                        color: Colors.amber.shade400, size: 24),
                 ],
               ),
             );
@@ -258,13 +319,15 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
     );
   }
 
-  Widget _buildNoFriendsView(UserModel currentUser, Color text, Color accent, BuildContext context) {
+  Widget _buildNoFriendsView(UserModel currentUser, Color text,
+      Color accent, BuildContext context) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
             decoration: BoxDecoration(
               color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(24),
@@ -274,21 +337,31 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
                   color: Colors.black.withOpacity(0.05),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
-                )
+                ),
               ],
             ),
             child: Column(
               children: [
-                Text("Your Current Streak", style: TextStyle(fontSize: 14, color: text.withOpacity(0.5), fontWeight: FontWeight.w600)),
+                Text(
+                  "Your Current Streak",
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: text.withOpacity(0.5),
+                      fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.local_fire_department, color: Colors.orange, size: 40),
+                    const Icon(Icons.local_fire_department,
+                        color: Colors.orange, size: 40),
                     const SizedBox(width: 8),
                     Text(
                       "${currentUser.streak}",
-                      style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: text),
+                      style: TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                          color: text),
                     ),
                   ],
                 ),
@@ -299,9 +372,10 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40.0),
             child: Text(
-              "You haven’t added any friends yet.\nAdd friends to compete on the leaderboard!",
+              "You haven't added any friends yet.\nAdd friends to compete on the leaderboard!",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: text.withOpacity(0.6), height: 1.5),
+              style: TextStyle(
+                  fontSize: 15, color: text.withOpacity(0.6), height: 1.5),
             ),
           ),
           const SizedBox(height: 24),
@@ -309,16 +383,18 @@ class _AchievementScreenState extends State<AchievementScreen> with SingleTicker
             style: ElevatedButton.styleFrom(
               backgroundColor: accent,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               elevation: 4,
             ),
-            onPressed: () {
-              Navigator.pushNamed(context, '/friend_list');
-            },
+            onPressed: () =>
+                Navigator.pushNamed(context, '/friend_list'),
             icon: const Icon(Icons.person_add),
-            label: const Text("Find Friends", style: TextStyle(fontWeight: FontWeight.bold)),
-          )
+            label: const Text("Find Friends",
+                style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
     );

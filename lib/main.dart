@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'dart:async'; // Required for StreamSubscription
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,7 +9,9 @@ import 'package:dreamsync/util/global.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:health/health.dart'; // <--- Import the health package
+import 'package:health/health.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dreamsync/repositories/sleep_repository.dart';
 
 // ViewModels
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
@@ -51,6 +54,9 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  // Connectivity listener variable
+  late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
+
   @override
   void initState() {
     super.initState();
@@ -60,24 +66,36 @@ class _MyAppState extends State<MyApp> {
       _navigateToAlarm(payload);
     });
 
-    // Trigger the permission requests shortly after app launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestAllPermissions();
     });
+
+    // Listen for internet connection returning
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      if (result == ConnectivityResult.mobile ||
+          result == ConnectivityResult.wifi) {
+        print("🌐 Internet restored! Triggering background sync...");
+        SleepRepository().syncOfflineData();
+      }
+    });
   }
 
-  // --- UPDATED METHOD: Handle Native Health Connect & Bottom Sheets ---
+  @override
+  void dispose() {
+    // Cancel the listener to prevent memory leaks
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  // --- Handle Native Health Connect & Bottom Sheets ---
   Future<void> _requestAllPermissions() async {
     await Future.delayed(const Duration(seconds: 1));
     final context = navigatorKey.currentContext;
     if (context == null) return;
 
-    // 1. Native Health Connect Request (Sleep data)
-    // This brings up the native Google Health Connect / Apple HealthKit pop-up screen
     final Health _health = Health();
-    final types = [HealthDataType.SLEEP_SESSION]; // Add other types if needed (e.g., HEART_RATE)
+    final types = [HealthDataType.SLEEP_SESSION];
 
-    // Check if permission is already granted, if not, ask.
     bool? hasHealthPermissions = await _health.hasPermissions(types);
     if (hasHealthPermissions == null || !hasHealthPermissions) {
       try {
@@ -87,13 +105,11 @@ class _MyAppState extends State<MyApp> {
       }
     }
 
-    // 2. Physical Activity / Sensors Native Request (often used alongside Health Connect)
     if (await Permission.activityRecognition.isDenied) {
       await Permission.activityRecognition.request();
     }
 
     if (Platform.isAndroid) {
-      // 3. Exact Alarm Permission (Android 12+) using Bottom Sheet
       if (await Permission.scheduleExactAlarm.isDenied) {
         bool? goToSettings = await _showExplanationBottomSheet(
           context,
@@ -103,7 +119,6 @@ class _MyAppState extends State<MyApp> {
         if (goToSettings == true) await Permission.scheduleExactAlarm.request();
       }
 
-      // 4. Display Over Other Apps (For Alarms) using Bottom Sheet
       if (await Permission.systemAlertWindow.isDenied) {
         bool? goToSettings = await _showExplanationBottomSheet(
           context,
@@ -113,7 +128,6 @@ class _MyAppState extends State<MyApp> {
         if (goToSettings == true) await Permission.systemAlertWindow.request();
       }
 
-      // 5. Do Not Disturb Access using Bottom Sheet
       bool hasDnd = await NotificationService().hasDndAccess();
       if (!hasDnd) {
         bool? goToSettings = await _showExplanationBottomSheet(
@@ -126,11 +140,11 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  // --- NEW UI: Sleek Bottom Sheet with Bottom-Anchored Buttons ---
+  // --- Sleek Bottom Sheet ---
   Future<bool?> _showExplanationBottomSheet(BuildContext context, String title, String content) {
     return showModalBottomSheet<bool>(
       context: context,
-      isDismissible: false, // Force the user to interact
+      isDismissible: false,
       enableDrag: false,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
@@ -140,10 +154,9 @@ class _MyAppState extends State<MyApp> {
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
-            mainAxisSize: MainAxisSize.min, // Wrap content height
-            crossAxisAlignment: CrossAxisAlignment.stretch, // Stretch button full width
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header Icon and Title
               const Icon(Icons.settings_suggest, size: 48, color: Colors.blue),
               const SizedBox(height: 16),
               Text(
@@ -152,16 +165,12 @@ class _MyAppState extends State<MyApp> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
-
-              // Explanation text
               Text(
                 content,
                 style: const TextStyle(fontSize: 16, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
-              // Bottom Button Action
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -175,8 +184,6 @@ class _MyAppState extends State<MyApp> {
                 child: const Text("Go To Settings", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 8),
-
-              // Dismiss Button
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
                 child: const Text("Maybe Later", style: TextStyle(color: Colors.grey)),
@@ -191,7 +198,6 @@ class _MyAppState extends State<MyApp> {
   void _navigateToAlarm(String? payload) {
     if (payload == null) return;
 
-    // ... (Your existing parsing logic unchanged) ...
     int id = 0;
     bool isSmartAlarm = false;
     bool isSnoozeOn = true;
@@ -233,7 +239,6 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // ... (Your existing build logic unchanged) ...
       navigatorKey: navigatorKey,
       title: 'DreamSync',
       debugShowCheckedModeBanner: false,

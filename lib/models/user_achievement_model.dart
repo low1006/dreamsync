@@ -23,8 +23,9 @@ class UserAchievementModel {
 
   factory UserAchievementModel.fromJson(Map<String, dynamic> json) {
     return UserAchievementModel(
-      userAchievementId: json['user_achievement_id'].toString(),
-      userId: json['id']?.toString() ?? '',
+      userAchievementId: json['user_achievement_id']?.toString() ?? '',
+      // ✅ FIXED: was json['id'] — must be json['user_id']
+      userId: json['user_id']?.toString() ?? '',
       achievementId: json['achievement_id']?.toString() ?? '',
       currentProgress: (json['current_progress'] as num?)?.toDouble() ?? 0.0,
       isUnlocked: json['is_unlocked'] ?? false,
@@ -36,5 +37,17 @@ class UserAchievementModel {
           ? AchievementModel.fromJson(json['achievement'])
           : null,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'user_achievement_id': userAchievementId,
+      'user_id': userId,
+      'achievement_id': achievementId,
+      'current_progress': currentProgress,
+      'is_unlocked': isUnlocked,
+      'is_claimed': isClaimed,
+      if (dateClaim != null) 'date_claimed': dateClaim!.toIso8601String(),
+    };
   }
 }

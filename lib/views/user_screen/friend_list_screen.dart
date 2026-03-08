@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
-// Ensure this import points to your actual CustomTextField location
+import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/widget/custom/custom_text_field.dart';
 
 class FriendListScreen extends StatefulWidget {
@@ -25,8 +25,8 @@ class _FriendListScreenState extends State<FriendListScreen>
     });
   }
 
-  // --- BOTTOM SHEET METHOD ---
-  void _showFriendDetailSheet(BuildContext context, Map<String, dynamic> friend, Color surface, Color text, Color accent) {
+  void _showFriendDetailSheet(BuildContext context, Map<String, dynamic> friend,
+      Color surface, Color text, Color accent) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -41,7 +41,6 @@ class _FriendListScreenState extends State<FriendListScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Drag Handle
               Container(
                 width: 40,
                 height: 4,
@@ -51,29 +50,27 @@ class _FriendListScreenState extends State<FriendListScreen>
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-
-              // Profile Header
               CircleAvatar(
                 radius: 36,
                 backgroundColor: accent.withOpacity(0.1),
                 child: Text(
                   friend['username'][0].toUpperCase(),
-                  style: TextStyle(fontWeight: FontWeight.bold, color: accent, fontSize: 28),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: accent, fontSize: 28),
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 friend['username'],
-                style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 22),
+                style: TextStyle(
+                    color: text, fontWeight: FontWeight.bold, fontSize: 22),
               ),
               Text(
                 "UID: ${friend['uid_text'] ?? 'Unknown'}",
-                style: TextStyle(color: text.withOpacity(0.5), fontSize: 14),
+                style:
+                TextStyle(color: text.withOpacity(0.5), fontSize: 14),
               ),
-
               const SizedBox(height: 32),
-
-              // Stats Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -82,22 +79,18 @@ class _FriendListScreenState extends State<FriendListScreen>
                       "${friend['sleep_goal_hours'] ?? '8'}h",
                       "Sleep Goal",
                       text,
-                      accent
-                  ),
-                  Container(width: 1, height: 40, color: text.withOpacity(0.1)), // Divider
+                      accent),
+                  Container(
+                      width: 1, height: 40, color: text.withOpacity(0.1)),
                   _buildStatItem(
                       Icons.local_fire_department,
                       "${friend['streak'] ?? '0'}",
                       "Day Streak",
                       text,
-                      Colors.orange
-                  ),
+                      Colors.orange),
                 ],
               ),
-
               const SizedBox(height: 32),
-
-              // Close Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -106,10 +99,13 @@ class _FriendListScreenState extends State<FriendListScreen>
                     foregroundColor: accent,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("Close", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  child: const Text("Close",
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
               ),
             ],
@@ -123,12 +119,12 @@ class _FriendListScreenState extends State<FriendListScreen>
   Widget build(BuildContext context) {
     final viewModel = Provider.of<FriendViewModel>(context);
 
-    // --- THEME COLORS ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
     final accent = const Color(0xFF3B82F6);
-    final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+    final surface =
+    isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
     return Scaffold(
       backgroundColor: bg,
@@ -136,10 +132,8 @@ class _FriendListScreenState extends State<FriendListScreen>
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
-        title: Text(
-            "My Friends",
-            style: TextStyle(color: text, fontWeight: FontWeight.bold)
-        ),
+        title: Text("My Friends",
+            style: TextStyle(color: text, fontWeight: FontWeight.bold)),
         iconTheme: IconThemeData(color: text),
         bottom: TabBar(
           controller: _tabController,
@@ -162,17 +156,18 @@ class _FriendListScreenState extends State<FriendListScreen>
           // --- TAB 1: FRIENDS LIST ---
           viewModel.friends.isEmpty
               ? _buildEmptyState("No friends yet. Add someone!", text)
-              : ListView.separated( // Removed the wrapping Column
+              : ListView.separated(
             padding: const EdgeInsets.all(20),
             itemCount: viewModel.friends.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, __) =>
+            const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final friend = viewModel.friends[index];
               return GestureDetector(
-                onTap: () {
-                  _showFriendDetailSheet(context, friend, surface, text, accent);
-                },
-                child: _buildFriendCard(friend, surface, text, accent),
+                onTap: () => _showFriendDetailSheet(
+                    context, friend, surface, text, accent),
+                child: _buildFriendCard(
+                    friend, surface, text, accent),
               );
             },
           ),
@@ -183,10 +178,12 @@ class _FriendListScreenState extends State<FriendListScreen>
               : ListView.separated(
             padding: const EdgeInsets.all(20),
             itemCount: viewModel.pendingRequests.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, __) =>
+            const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final req = viewModel.pendingRequests[index];
-              return _buildRequestCard(req, viewModel, surface, text, accent);
+              return _buildRequestCard(
+                  req, viewModel, surface, text, accent);
             },
           ),
         ],
@@ -194,39 +191,43 @@ class _FriendListScreenState extends State<FriendListScreen>
       floatingActionButton: FloatingActionButton(
         backgroundColor: accent,
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: const Icon(Icons.person_add, color: Colors.white),
-        onPressed: () => _showAddFriendDialog(context, viewModel, bg, surface, text, accent),
+        onPressed: () => _showAddFriendDialog(
+            context, viewModel, bg, surface, text, accent),
       ),
     );
   }
 
-  // --- WIDGETS ---
+  // ─────────────────────────────────────────────
+  // WIDGETS
+  // ─────────────────────────────────────────────
 
-  Widget _buildStatItem(IconData icon, String value, String label, Color text, Color iconColor) {
+  Widget _buildStatItem(IconData icon, String value, String label,
+      Color text, Color iconColor) {
     return Column(
       children: [
         Icon(icon, color: iconColor, size: 28),
         const SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 20),
-        ),
-        Text(
-          label,
-          style: TextStyle(color: text.withOpacity(0.5), fontSize: 12),
-        ),
+        Text(value,
+            style: TextStyle(
+                color: text, fontWeight: FontWeight.bold, fontSize: 20)),
+        Text(label,
+            style:
+            TextStyle(color: text.withOpacity(0.5), fontSize: 12)),
       ],
     );
   }
 
-  Widget _buildFriendCard(Map<String, dynamic> friend, Color surface, Color text, Color accent) {
+  Widget _buildFriendCard(Map<String, dynamic> friend, Color surface,
+      Color text, Color accent) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: text.withOpacity(0.05)), // Cleaned up border color logic
+        border: Border.all(color: text.withOpacity(0.05)),
       ),
       child: Row(
         children: [
@@ -234,14 +235,18 @@ class _FriendListScreenState extends State<FriendListScreen>
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: accent.withOpacity(0.5), width: 2),
+              border:
+              Border.all(color: accent.withOpacity(0.5), width: 2),
             ),
             child: CircleAvatar(
               radius: 24,
               backgroundColor: accent.withOpacity(0.1),
               child: Text(
                 friend['username'][0].toUpperCase(),
-                style: TextStyle(fontWeight: FontWeight.bold, color: accent, fontSize: 20),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: accent,
+                    fontSize: 20),
               ),
             ),
           ),
@@ -250,24 +255,25 @@ class _FriendListScreenState extends State<FriendListScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  friend['username'],
-                  style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                Text(
-                  friend['email'],
-                  style: TextStyle(color: text.withOpacity(0.5), fontSize: 12),
-                ),
+                Text(friend['username'],
+                    style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16)),
+                Text(friend['email'],
+                    style: TextStyle(
+                        color: text.withOpacity(0.5), fontSize: 12)),
               ],
             ),
           ),
-          Icon(Icons.chevron_right, color: text.withOpacity(0.3)), // Suggests it can be tapped
+          Icon(Icons.chevron_right, color: text.withOpacity(0.3)),
         ],
       ),
     );
   }
 
-  Widget _buildRequestCard(Map<String, dynamic> req, FriendViewModel vm, Color surface, Color text, Color accent) {
+  Widget _buildRequestCard(Map<String, dynamic> req, FriendViewModel vm,
+      Color surface, Color text, Color accent) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -283,21 +289,22 @@ class _FriendListScreenState extends State<FriendListScreen>
               color: Colors.orange.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.waving_hand, color: Colors.orange, size: 24),
+            child: const Icon(Icons.waving_hand,
+                color: Colors.orange, size: 24),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  req['username'],
-                  style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                Text(
-                  "Wants to connect",
-                  style: TextStyle(color: text.withOpacity(0.5), fontSize: 12),
-                ),
+                Text(req['username'],
+                    style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16)),
+                Text("Wants to connect",
+                    style: TextStyle(
+                        color: text.withOpacity(0.5), fontSize: 12)),
               ],
             ),
           ),
@@ -306,10 +313,18 @@ class _FriendListScreenState extends State<FriendListScreen>
               backgroundColor: accent,
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
-            onPressed: () => vm.acceptRequest(req['friendship_id']),
+            // ✅ FIXED: Read AchievementViewModel from context and pass it
+            // to acceptRequest so the Social Butterfly achievement is checked.
+            onPressed: () {
+              final achievementVM =
+              context.read<AchievementViewModel>();
+              vm.acceptRequest(req['friendship_id'], achievementVM);
+            },
             child: const Text("Accept"),
           ),
         ],
@@ -322,18 +337,20 @@ class _FriendListScreenState extends State<FriendListScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.people_outline, size: 64, color: text.withOpacity(0.1)),
+          Icon(Icons.people_outline,
+              size: 64, color: text.withOpacity(0.1)),
           const SizedBox(height: 16),
-          Text(
-            msg,
-            style: TextStyle(color: text.withOpacity(0.4), fontSize: 16),
-          ),
+          Text(msg,
+              style:
+              TextStyle(color: text.withOpacity(0.4), fontSize: 16)),
         ],
       ),
     );
   }
 
-  // --- DIALOGS ---
+  // ─────────────────────────────────────────────
+  // DIALOGS
+  // ─────────────────────────────────────────────
 
   void _showAddFriendDialog(
       BuildContext context,
@@ -341,8 +358,7 @@ class _FriendListScreenState extends State<FriendListScreen>
       Color bg,
       Color surface,
       Color text,
-      Color accent
-      ) {
+      Color accent) {
     final uidController = TextEditingController();
     viewModel.searchedUser = null;
     viewModel.errorMessage = null;
@@ -356,17 +372,20 @@ class _FriendListScreenState extends State<FriendListScreen>
             builder: (context, model, child) {
               return AlertDialog(
                 backgroundColor: surface,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                title: Text("Add Friend", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24)),
+                title: Text("Add Friend",
+                    style: TextStyle(
+                        color: text, fontWeight: FontWeight.bold)),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Styled Input
                     Container(
                       decoration: BoxDecoration(
                         color: bg,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: text.withOpacity(0.1)),
+                        border:
+                        Border.all(color: text.withOpacity(0.1)),
                       ),
                       child: TextField(
                         controller: uidController,
@@ -374,26 +393,30 @@ class _FriendListScreenState extends State<FriendListScreen>
                         style: TextStyle(color: text),
                         decoration: InputDecoration(
                           hintText: "Enter UID (e.g. 1234)",
-                          hintStyle: TextStyle(color: text.withOpacity(0.4)),
+                          hintStyle:
+                          TextStyle(color: text.withOpacity(0.4)),
                           prefixIcon: Padding(
                             padding: const EdgeInsets.all(12.0),
-                            child: Text("User#", style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 16)),
+                            child: Text("User#",
+                                style: TextStyle(
+                                    color: accent,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16)),
                           ),
-                          prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                          prefixIconConstraints: const BoxConstraints(
+                              minWidth: 0, minHeight: 0),
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
                     if (model.isLoading)
                       Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: CircularProgressIndicator(color: accent),
                       ),
-
                     if (model.errorMessage != null && !model.isLoading)
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -403,12 +426,11 @@ class _FriendListScreenState extends State<FriendListScreen>
                         ),
                         child: Text(
                           model.errorMessage!,
-                          style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                          style: const TextStyle(
+                              color: Colors.redAccent, fontSize: 12),
                           textAlign: TextAlign.center,
                         ),
                       ),
-
-                    // --- SEARCH RESULT CARD ---
                     if (model.searchedUser != null && !model.isLoading)
                       Container(
                         margin: const EdgeInsets.only(top: 8),
@@ -416,7 +438,8 @@ class _FriendListScreenState extends State<FriendListScreen>
                         decoration: BoxDecoration(
                           color: bg,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: accent.withOpacity(0.3)),
+                          border: Border.all(
+                              color: accent.withOpacity(0.3)),
                         ),
                         child: Column(
                           children: [
@@ -425,17 +448,22 @@ class _FriendListScreenState extends State<FriendListScreen>
                               leading: CircleAvatar(
                                 backgroundColor: accent,
                                 child: Text(
-                                  model.searchedUser!.username[0].toUpperCase(),
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  model.searchedUser!.username[0]
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ),
-                              title: Text(
-                                model.searchedUser!.username,
-                                style: TextStyle(color: text, fontWeight: FontWeight.bold),
-                              ),
+                              title: Text(model.searchedUser!.username,
+                                  style: TextStyle(
+                                      color: text,
+                                      fontWeight: FontWeight.bold)),
                               subtitle: Text(
                                 "UID: ${model.searchedUser!.uidText}",
-                                style: TextStyle(color: text.withOpacity(0.5), fontSize: 12),
+                                style: TextStyle(
+                                    color: text.withOpacity(0.5),
+                                    fontSize: 12),
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -443,17 +471,23 @@ class _FriendListScreenState extends State<FriendListScreen>
                               width: double.infinity,
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _getButtonColor(model.friendshipStatus, accent),
+                                  backgroundColor: _getButtonColor(
+                                      model.friendshipStatus, accent),
                                   foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                      BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
                                 ),
                                 onPressed: model.friendshipStatus == 'none'
                                     ? () async {
-                                  await model.sendFriendRequestToSearchedUser();
+                                  await model
+                                      .sendFriendRequestToSearchedUser();
                                 }
-                                    : null, // Disable if already friends/pending
-                                child: Text(_getButtonText(model.friendshipStatus)),
+                                    : null,
+                                child: Text(
+                                    _getButtonText(model.friendshipStatus)),
                               ),
                             ),
                           ],
@@ -464,14 +498,17 @@ class _FriendListScreenState extends State<FriendListScreen>
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: Text("Close", style: TextStyle(color: text.withOpacity(0.6))),
+                    child: Text("Close",
+                        style:
+                        TextStyle(color: text.withOpacity(0.6))),
                   ),
                   if (model.searchedUser == null)
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: accent,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () {
                         final inputNumber = uidController.text.trim();
@@ -489,7 +526,9 @@ class _FriendListScreenState extends State<FriendListScreen>
     );
   }
 
-  // --- Helpers ---
+  // ─────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────
 
   Color _getButtonColor(String? status, Color accent) {
     switch (status) {

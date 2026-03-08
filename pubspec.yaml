@@ -29,6 +29,16 @@ dependencies:
   fl_chart: ^1.1.1
   app_usage: ^4.0.1
   flutter_typeahead: ^5.2.0
+  # For local database storage
+  sqflite: ^2.3.0
+  path_provider: ^2.1.2
+
+  # For simple key-value caching
+  shared_preferences: ^2.2.2
+
+  # To detect internet connection status
+  connectivity_plus: ^5.0.2
+
 
 dev_dependencies:
   flutter_test:

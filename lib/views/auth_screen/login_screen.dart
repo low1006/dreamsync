@@ -38,9 +38,11 @@ class _LoginScreenState extends State<LoginScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24.0, vertical: 24.0),
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  constraints:
+                  BoxConstraints(minHeight: constraints.maxHeight),
                   child: IntrinsicHeight(
                     child: Consumer<AuthViewModel>(
                       builder: (context, viewModel, child) {
@@ -50,77 +52,96 @@ class _LoginScreenState extends State<LoginScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-
                               const SizedBox(height: 16),
                               Text(
                                 "Welcome Back",
-                                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor),
+                                style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor),
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 40),
 
-                              // --- Email Field (Using Custom Widget) ---
+                              // --- Email Field ---
                               CustomTextField(
                                 controller: _emailController,
                                 label: 'Email',
                                 keyboardType: TextInputType.emailAddress,
-                                // Use the same validation logic as Register Screen
-                                validator: (val) => viewModel.validateEmail(val),
+                                validator: (val) =>
+                                    viewModel.validateEmail(val),
                               ),
                               const SizedBox(height: 16),
 
-                              // --- Password Field (Using Custom Widget) ---
+                              // --- Password Field ---
                               CustomTextField(
                                 controller: _passwordController,
                                 label: 'Password',
                                 isObscure: true,
                                 validator: (val) {
-                                  if (val == null || val.isEmpty) return 'Please enter your password';
+                                  if (val == null || val.isEmpty) {
+                                    return 'Please enter your password';
+                                  }
                                   return null;
                                 },
                               ),
                               const SizedBox(height: 24),
 
+                              // --- Error Message ---
                               if (viewModel.errorMessage != null)
                                 Padding(
-                                  padding: const EdgeInsets.only(bottom: 16.0),
-                                  child: Text(viewModel.errorMessage!, style: const TextStyle(color: Color(0xFFEF4444), fontSize: 14), textAlign: TextAlign.center),
+                                  padding:
+                                  const EdgeInsets.only(bottom: 16.0),
+                                  child: Text(
+                                    viewModel.errorMessage!,
+                                    style: const TextStyle(
+                                        color: Color(0xFFEF4444),
+                                        fontSize: 14),
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ),
 
-                                CustomButton(
-                                  text: "Login",
-                                  isLoading: viewModel.isLoading,
-                                  onPressed: () {
-                                    if (_formKey.currentState!.validate()) {
-                                      viewModel.signIn(
-                                          _emailController.text,
-                                          _passwordController.text
-                                      );
-                                    }
-                                  },
-                                ),
+                              // --- Login Button ---
+                              CustomButton(
+                                text: "Login",
+                                isLoading: viewModel.isLoading,
+                                onPressed: () {
+                                  if (_formKey.currentState!.validate()) {
+                                    viewModel.signIn(
+                                      _emailController.text,
+                                      _passwordController.text,
+                                    );
+                                  }
+                                },
+                              ),
                               const SizedBox(height: 16),
 
-                              // --- Navigation ---
+                              // --- Navigation to Register ---
                               TextButton(
                                 onPressed: () {
                                   Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const RegisterScreen())
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                        const RegisterScreen()),
                                   );
                                 },
                                 child: RichText(
                                   text: TextSpan(
-                                    style: const TextStyle(fontFamily: 'Roboto', fontSize: 15),
+                                    style: const TextStyle(
+                                        fontFamily: 'Roboto', fontSize: 15),
                                     children: [
                                       TextSpan(
                                         text: "Don't have an account? ",
-                                        style: TextStyle(color: secondaryTextColor),
+                                        style: TextStyle(
+                                            color: secondaryTextColor),
                                       ),
                                       TextSpan(
                                         text: "Sign Up",
                                         style: TextStyle(
-                                          color: Theme.of(context).colorScheme.secondary,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .secondary,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -128,9 +149,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
-                              // Push content to center if screen is tall
                               const Spacer(),
-                            ]
+                            ],
                           ),
                         );
                       },
