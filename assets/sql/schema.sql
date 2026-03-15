@@ -90,3 +90,19 @@ CREATE TABLE IF NOT EXISTS friend_cache (
   friend_name TEXT,
   friend_avatar TEXT
 );
+
+-- 7. Sleep Recommendation Cache
+CREATE TABLE IF NOT EXISTS sleep_recommendation (
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  recommended_minutes INTEGER NOT NULL,
+  expected_score REAL NOT NULL,
+  sim_deep_minutes INTEGER NOT NULL,
+  sim_rem_minutes INTEGER NOT NULL,
+  sim_deep_pct REAL NOT NULL,
+  sim_rem_pct REAL NOT NULL,
+  explanation TEXT NOT NULL,
+  message TEXT,
+  generated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, date)
+);

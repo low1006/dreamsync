@@ -32,7 +32,6 @@ class UserRepository extends BaseRepository<UserModel> {
     await client.auth.signOut();
   }
 
-  // Safe profile fetching with real internet check + local caching
   Future<UserModel?> getProfileSafe(String userId) async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -78,7 +77,6 @@ class UserRepository extends BaseRepository<UserModel> {
     required String userId,
     required double weight,
     required double height,
-    required double sleepGoalHours,
   }) async {
     try {
       final isOnline = await NetworkHelper.isOnline();
@@ -93,12 +91,35 @@ class UserRepository extends BaseRepository<UserModel> {
           .update({
         'weight': weight,
         'height': height,
-        'sleep_goal_hours': sleepGoalHours,
       })
           .eq('user_id', userId)
           .timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint("❌ Failed to update profile data: $e");
+    }
+  }
+
+  Future<void> updateSleepGoal({
+    required String userId,
+    required double sleepGoalHours,
+  }) async {
+    try {
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (!isOnline) {
+        debugPrint("📴 Offline: Cannot update sleep goal right now.");
+        return;
+      }
+
+      await client
+          .from(tableName)
+          .update({
+        'sleep_goal_hours': sleepGoalHours,
+      })
+          .eq('user_id', userId)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint("❌ Failed to update sleep goal: $e");
     }
   }
 
@@ -125,5 +146,26 @@ class UserRepository extends BaseRepository<UserModel> {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return null;
     return getProfileSafe(userId);
+  }
+
+  Future<void> updateStreak(String userId, int streak) async {
+    try {
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (!isOnline) {
+        debugPrint('📴 Offline: Cannot update streak right now.');
+        return;
+      }
+
+      await client
+          .from(tableName)
+          .update({'streak': streak})
+          .eq('user_id', userId)
+          .timeout(const Duration(seconds: 5));
+
+      debugPrint('✅ Profile streak updated: $streak');
+    } catch (e) {
+      debugPrint('❌ Failed to update streak: $e');
+    }
   }
 }

@@ -1,4 +1,9 @@
 class SleepScoreService {
+  // Shared constants — used by recommendation_service.dart and notebook
+  static const double idealDeepRatio  = 0.18;
+  static const double idealRemRatio   = 0.22;
+  static const int    targetMinutes   = 480;   // 8h
+
   int calculateSleepScore({
     required int totalMinutes,
     required int deepMinutes,
@@ -29,8 +34,8 @@ class SleepScoreService {
       final double deepRatio = deepMinutes / totalMinutes;
       const double idealDeepRatio = 0.18;
       final double deepPart =
-          (20.0 - ((deepRatio - idealDeepRatio).abs() / idealDeepRatio) * 20.0)
-              .clamp(0.0, 20.0);
+      (20.0 - ((deepRatio - idealDeepRatio).abs() / idealDeepRatio) * 20.0)
+          .clamp(0.0, 20.0);
       weightedScore += deepPart;
       usedWeight += 20.0;
     }
@@ -39,8 +44,8 @@ class SleepScoreService {
       final double remRatio = remMinutes / totalMinutes;
       const double idealRemRatio = 0.22;
       final double remPart =
-          (20.0 - ((remRatio - idealRemRatio).abs() / idealRemRatio) * 20.0)
-              .clamp(0.0, 20.0);
+      (20.0 - ((remRatio - idealRemRatio).abs() / idealRemRatio) * 20.0)
+          .clamp(0.0, 20.0);
       weightedScore += remPart;
       usedWeight += 20.0;
     }

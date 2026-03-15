@@ -15,9 +15,6 @@ class LocalDatabase {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   static const String _keyName = 'dreamsync_db_key';
 
-  // ─────────────────────────────────────────────────────────────
-  // Known tables — used by the debug viewer
-  // ─────────────────────────────────────────────────────────────
   static const List<String> allTables = [
     'sleep_record',
     'daily_activity',
@@ -25,6 +22,7 @@ class LocalDatabase {
     'user_achievement',
     'achievement_definition',
     'friend_cache',
+    'sleep_recommendation',
   ];
 
   Future<Database> get database async {
@@ -54,7 +52,7 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       password: password,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
@@ -86,9 +84,15 @@ class LocalDatabase {
     debugPrint("✅ Database schema v$version initialized from assets.");
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Generic Helper Methods
-  // ─────────────────────────────────────────────────────────────
+  Map<String, dynamic> _sanitizeRecord(Map<String, dynamic> record) {
+    return record.map((key, value) {
+      if (value is bool) return MapEntry(key, value ? 1 : 0);
+      if (value is List || value is Map) {
+        return MapEntry(key, jsonEncode(value));
+      }
+      return MapEntry(key, value);
+    });
+  }
 
   Future<void> insertRecord(
       String table,
@@ -99,7 +103,6 @@ class LocalDatabase {
     final mutableRecord = Map<String, dynamic>.from(record);
     mutableRecord['is_synced'] = isSynced ? 1 : 0;
 
-    // ── VERIFICATION: row count before insert ──────────────────
     final beforeCount = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM $table'),
     ) ??
@@ -111,7 +114,6 @@ class LocalDatabase {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    // ── VERIFICATION: row count after insert ───────────────────
     final afterCount = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM $table'),
     ) ??
@@ -133,7 +135,6 @@ class LocalDatabase {
 
     final db = await instance.database;
 
-    // ── VERIFICATION: row count before batch ──────────────────
     final beforeCount = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM $table'),
     ) ??
@@ -152,7 +153,6 @@ class LocalDatabase {
       }
     });
 
-    // ── VERIFICATION: row count after batch ───────────────────
     final afterCount = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM $table'),
     ) ??
@@ -164,15 +164,6 @@ class LocalDatabase {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Debug / Inspection Helpers
-  // ─────────────────────────────────────────────────────────────
-
-  /// Prints every row of [table] to the debug console.
-  /// Call this right after an insert to confirm the data is there.
-  ///
-  /// Example:
-  ///   await LocalDatabase.instance.debugPrintTable('sleep_record');
   Future<void> debugPrintTable(String table, {int limit = 50}) async {
     final db = await instance.database;
     final rows = await db.query(table, limit: limit);
@@ -182,7 +173,6 @@ class LocalDatabase {
     }
   }
 
-  /// Returns the total row count for [table].
   Future<int> getRowCount(String table) async {
     final db = await instance.database;
     return Sqflite.firstIntValue(
@@ -191,7 +181,6 @@ class LocalDatabase {
         0;
   }
 
-  /// Prints a one-line summary of every table's row count.
   Future<void> debugPrintAllTableCounts() async {
     debugPrint("📊 DreamSync DB — table row counts:");
     for (final table in allTables) {
@@ -200,25 +189,12 @@ class LocalDatabase {
     }
   }
 
-  /// Returns all rows from [table] — used by [DatabaseDebugScreen].
   Future<List<Map<String, dynamic>>> getAllRows(
       String table, {
         int limit = 200,
       }) async {
     final db = await instance.database;
     return await db.query(table, limit: limit);
-  }
-
-  // Converts bool → int and List/Map → JSON String so SQLite never
-  // receives a type it cannot store.
-  Map<String, dynamic> _sanitizeRecord(Map<String, dynamic> record) {
-    return record.map((key, value) {
-      if (value is bool) return MapEntry(key, value ? 1 : 0);
-      if (value is List || value is Map) {
-        return MapEntry(key, jsonEncode(value));
-      }
-      return MapEntry(key, value);
-    });
   }
 
   Future<List<Map<String, dynamic>>> getUnsyncedRecords(String table) async {

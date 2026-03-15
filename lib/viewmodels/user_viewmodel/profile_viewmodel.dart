@@ -50,7 +50,6 @@ class UserViewModel extends ChangeNotifier {
         userId: userProfile!.userId,
         weight: weight,
         height: height,
-        sleepGoalHours: sleepGoal,
       );
       // Fetch again to update the local SharedPreferences cache
       await fetchProfile(userProfile!.userId);
