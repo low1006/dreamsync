@@ -23,6 +23,7 @@ import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
+import 'package:dreamsync/viewmodels/recommendation_viewmodel.dart';
 
 // Repositories for Syncing
 import 'package:dreamsync/repositories/sleep_repository.dart';
@@ -449,6 +450,7 @@ class _MyAppState extends State<MyApp> {
                 ChangeNotifierProvider(create: (_) => InventoryViewModel()),
                 ChangeNotifierProvider(create: (_) => FriendViewModel()),
                 ChangeNotifierProvider(create: (_) => DailyActivityViewModel()),
+                ChangeNotifierProvider(create: (_) => RecommendationViewModel()),
               ],
               child: const MainScreen(),
             );
