@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:dreamsync/models/inventory_model.dart'; // <--- Only this import needed
+import 'package:dreamsync/models/inventory_model.dart';
+import 'package:dreamsync/util/network_helper.dart';
 
 class InventoryRepository {
   final SupabaseClient _client = Supabase.instance.client;
@@ -7,6 +8,12 @@ class InventoryRepository {
   Future<List<InventoryItem>> fetchMyInventory() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return [];
+
+    // Offline check to prevent SocketException
+    if (!await NetworkHelper.isOnline()) {
+      print("📴 Offline: Skipping inventory fetch.");
+      return [];
+    }
 
     try {
       // JOIN QUERY: Get inventory AND the related store item details

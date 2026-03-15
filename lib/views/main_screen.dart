@@ -1,5 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // NEW: Imported provider
+import 'package:provider/provider.dart';
 
 // Screens
 import 'package:dreamsync/views/achievement_screen.dart';
@@ -12,8 +14,6 @@ import 'package:dreamsync/views/sleep_dashboard_screen/sleep_dashboard_screen_vi
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
-import 'package:dreamsync/viewmodels/schedule_viewmodel.dart';
-import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -24,19 +24,57 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 2;
-
-  // NEW: Flag to make sure we only fetch data ONCE when they log in
   bool _hasFetchedInitialData = false;
 
-  final List<Widget> _pages = [
-    const ScheduleScreen(),
-    const ChatScreen(),
-    const SleepDashboardScreen(),
-    const AchievementScreen(),
-    const UserScreen(),
+  final List<Widget> _pages = const [
+    ScheduleScreen(),
+    ChatScreen(),
+    SleepDashboardScreen(),
+    AchievementScreen(),
+    UserScreen(),
   ];
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_hasFetchedInitialData) return;
+
+    final profileVM = context.read<UserViewModel>();
+    final user = profileVM.userProfile;
+
+    if (user == null) return;
+
+    _hasFetchedInitialData = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prefetchInitialData(user.userId);
+    });
+  }
+
+  Future<void> _prefetchInitialData(String userId) async {
+    if (!mounted) return;
+
+    debugPrint("🚀 Background prefetch started...");
+
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      await context.read<AchievementViewModel>().fetchUserAchievements(userId);
+
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+      await context.read<FriendViewModel>().loadLeaderboard();
+
+      debugPrint("✅ Background prefetch completed.");
+    } catch (e) {
+      debugPrint("❌ Background prefetch error: $e");
+    }
+  }
+
   void _onItemTapped(int index) {
+    if (_selectedIndex == index) return;
+
     setState(() {
       _selectedIndex = index;
     });
@@ -44,25 +82,16 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // NEW: Watch for the user profile to finish loading
-    final profileVM = context.watch<UserViewModel>();
-    final user = profileVM.userProfile;
+    final user = context.select<UserViewModel, dynamic>(
+          (vm) => vm.userProfile,
+    );
 
-    // NEW: If user exists and we haven't fetched yet, trigger everything!
-    if (user != null && !_hasFetchedInitialData) {
-      _hasFetchedInitialData = true; // Lock it so it doesn't run again
-
+    if (!_hasFetchedInitialData && user != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        print("🚀 BACKGROUND FETCH: Loading all app data now...");
+        if (!mounted || _hasFetchedInitialData) return;
 
-        // 1. Fetch Achievements & Leaderboard in the background
-        context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
-        context.read<FriendViewModel>().loadLeaderboard();
-
-        // 2. You can also pre-fetch Schedule or Inventory here!
-        // (Uncomment these if you have fetch functions inside them)
-        // context.read<ScheduleViewModel>().fetchSchedule(user.userId);
-        // context.read<InventoryViewModel>().fetchInventory(user.userId);
+        _hasFetchedInitialData = true;
+        _prefetchInitialData(user.userId);
       });
     }
 

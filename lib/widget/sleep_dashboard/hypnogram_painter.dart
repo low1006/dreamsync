@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 // Note: Make sure this path correctly points to where SleepChartPoint is defined
-import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
+import 'package:dreamsync/models/sleep_model/sleep_chart_point.dart';
 
 class HypnogramPainter extends CustomPainter {
   final List<SleepChartPoint> data;

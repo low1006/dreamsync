@@ -1,132 +1,155 @@
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
+import 'package:dreamsync/models/sleep_model/sleep_chart_point.dart';
+import 'package:dreamsync/models/sleep_model/sleep_record_model.dart';
 import 'package:dreamsync/repositories/sleep_repository.dart';
-import 'package:dreamsync/models/sleep_record_model.dart';
+import 'package:dreamsync/services/health_connect_helper.dart';
+import 'package:dreamsync/services/sleep_achievement_service.dart';
+import 'package:dreamsync/services/sleep_health_service.dart';
+import 'package:dreamsync/services/sleep_summary_service.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
-
-class SleepChartPoint {
-  final double hour;
-  final double stage;
-
-  SleepChartPoint(this.hour, this.stage);
-}
 
 enum SleepFilter { daily, weekly }
 
 class SleepViewModel extends ChangeNotifier {
   bool isLoading = false;
-  String errorMessage = "";
+  String errorMessage = '';
   bool isDataPendingSync = false;
 
-  final health = Health();
-  final SleepRepository _repository = SleepRepository();
+  final SleepRepository _repository;
+  final SleepHealthService _healthService;
+  final SleepSummaryService _summaryService;
+  final SleepAchievementService _achievementService;
+
+  SleepViewModel({
+    SleepRepository? repository,
+    SleepHealthService? healthService,
+    SleepSummaryService? summaryService,
+    SleepAchievementService? achievementService,
+  })  : _repository = repository ?? SleepRepository(),
+        _healthService = healthService ?? SleepHealthService(),
+        _summaryService = summaryService ?? SleepSummaryService(),
+        _achievementService = achievementService ?? SleepAchievementService();
 
   SleepFilter currentFilter = SleepFilter.daily;
 
   List<HealthDataPoint> _rawHealthData = [];
+  Map<String, DateTime> _wakeTimeByDay = {};
 
-  // Daily-specific state
-  String dailyTotalSleepDuration = "0h 0m";
+  String? _lastLoadedUserId;
+  DateTime? _lastLoadedAt;
+  bool _isCurrentlyLoading = false;
+
+  String dailyTotalSleepDuration = '0h 0m';
   int dailySleepScore = 0;
-  String dailyDeepSleep = "0h 0m";
-  String dailyLightSleep = "0h 0m";
-  String dailyRemSleep = "0h 0m";
+  String dailyDeepSleep = '0h 0m';
+  String dailyLightSleep = '0h 0m';
+  String dailyRemSleep = '0h 0m';
   List<SleepChartPoint> hypnogramData = [];
 
-  // Weekly-specific state
-  String weeklyTotalSleepDuration = "0h 0m";
+  String weeklyTotalSleepDuration = '0h 0m';
   int weeklySleepScore = 0;
 
   List<SleepRecordModel> weeklyData = [];
 
-  final List<HealthDataType> _sleepDataTypes = [
-    HealthDataType.SLEEP_SESSION,
-    HealthDataType.SLEEP_LIGHT,
-    HealthDataType.SLEEP_DEEP,
-    HealthDataType.SLEEP_REM,
-    HealthDataType.SLEEP_AWAKE,
-    HealthDataType.SLEEP_ASLEEP,
-  ];
+  SleepRecordModel? latestSleepRecord;
+  String? pendingFeedbackDate;
+  bool showMoodFeedbackPrompt = false;
+  bool isSubmittingMoodFeedback = false;
 
-  // ─────────────────────────────────────────────────────────────
-  // MAIN LOAD — Fetches from Health Connect, syncs to DB, checks achievements
-  // ─────────────────────────────────────────────────────────────
   Future<void> loadSleepData({
     BuildContext? context,
     required String userId,
     required AchievementViewModel achievementVM,
+    bool forceRefresh = false,
   }) async {
+    if (!forceRefresh &&
+        _lastLoadedUserId == userId &&
+        _lastLoadedAt != null &&
+        DateTime.now().difference(_lastLoadedAt!) <
+            const Duration(seconds: 20)) {
+      debugPrint('⏭️ SleepViewModel: recent cache hit, skipping reload.');
+      if (isLoading) {
+        isLoading = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    if (_isCurrentlyLoading) {
+      debugPrint('⏳ SleepViewModel: already loading, skipping duplicate.');
+      return;
+    }
+
+    _isCurrentlyLoading = true;
     isLoading = true;
-    errorMessage = "";
+    errorMessage = '';
     notifyListeners();
 
     try {
-      health.configure();
-
-      final status = await health.getHealthConnectSdkStatus();
+      final status = await _healthService.getSdkStatus();
 
       if (status == HealthConnectSdkStatus.sdkUnavailable ||
-          status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
-        isLoading = false;
-        notifyListeners();
+          status ==
+              HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
         if (context != null && context.mounted) {
-          _showInstallHealthConnectDialog(context);
+          await HealthConnectHelper.showInstallDialog(context);
         } else {
-          debugPrint("⚠️ Background sync: Health Connect not available.");
+          debugPrint('⚠️ Background sync: Health Connect not available.');
         }
         return;
       }
 
-      final permissions =
-      _sleepDataTypes.map((e) => HealthDataAccess.READ).toList();
-
-      bool? hasPermissions = await health.hasPermissions(
-          _sleepDataTypes, permissions: permissions);
-
-      if (hasPermissions != true) {
-        if (context != null) {
-          bool authorized = await health.requestAuthorization(
-            _sleepDataTypes,
-            permissions: permissions,
-          );
-
-          if (!authorized) {
-            errorMessage = "Permission denied.";
-            isLoading = false;
-            notifyListeners();
-            return;
-          }
-        } else {
-          debugPrint("⚠️ Background sync aborted: Missing Health Connect permissions.");
-          isLoading = false;
-          notifyListeners();
-          return;
-        }
-      }
-
-      final now = DateTime.now();
-      final startTime = now.subtract(const Duration(days: 30));
-
-      List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
-        startTime: startTime,
-        endTime: now,
-        types: _sleepDataTypes,
+      final hasPermission = await _healthService.ensurePermissions(
+        requestIfNeeded: context != null && context.mounted,
       );
 
-      _rawHealthData = health.removeDuplicates(healthData);
+      if (!hasPermission) {
+        errorMessage = 'Permission denied.';
+        return;
+      }
 
-      _processSleepData(SleepFilter.daily);
-      _processSleepData(SleepFilter.weekly);
+      _rawHealthData = await _healthService.fetchLast30DaysSleepData();
 
-      await syncSleepDataToSupabase(userId);
+      final dashboard =
+      _summaryService.rebuildDashboardStateFromRawData(_rawHealthData);
+      _applyDashboardState(dashboard);
+
+      final existingRecords = await _repository.getAllSleepRecords(userId);
+      final existingByDate = <String, SleepRecordModel>{
+        for (final record in existingRecords)
+          _summaryService.normalizeDateKey(record.date): record,
+      };
+
+      final summaries = _summaryService.buildDailySummaries(
+        _rawHealthData,
+        userId,
+        existingByDate: existingByDate,
+      );
+
+      await _repository.saveDailySummaries(summaries);
+      await _repository.syncOfflineData();
+
       await fetchWeeklyDataFromDatabase(userId);
+      await _prepareMoodFeedbackPrompt(userId);
 
-      await _checkSleepAchievements(userId, achievementVM);
+      final allRecords = await _repository.getAllSleepRecords(userId);
+      await _achievementService.updateAchievements(
+        allRecords: allRecords,
+        wakeTimeByDay: _wakeTimeByDay,
+        dailySleepScore: dailySleepScore,
+        achievementVM: achievementVM,
+      );
+
+      _lastLoadedUserId = userId;
+      _lastLoadedAt = DateTime.now();
     } catch (e) {
-      debugPrint("Error fetching from Health Connect: $e");
-      errorMessage = "Failed to sync with Health Connect. Ensure data exists.";
+      debugPrint('❌ Error fetching from Health Connect: $e');
+      errorMessage = 'Failed to sync with Health Connect. Ensure data exists.';
     } finally {
+      _isCurrentlyLoading = false;
       isLoading = false;
       notifyListeners();
     }
@@ -138,190 +161,160 @@ class SleepViewModel extends ChangeNotifier {
     required AchievementViewModel achievementVM,
   }) async {
     await loadSleepData(
-        context: context,
-        userId: userId,
-        achievementVM: achievementVM
+      context: context,
+      userId: userId,
+      achievementVM: achievementVM,
+      forceRefresh: true,
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // ACHIEVEMENT CHECKS — Called after every successful sync
-  // ─────────────────────────────────────────────────────────────
-  Future<void> _checkSleepAchievements(
-      String userId, AchievementViewModel achievementVM) async {
+  Future<void> _prepareMoodFeedbackPrompt(String userId) async {
     try {
       final allRecords = await _repository.getAllSleepRecords(userId);
-
-      // ── 1. total_logs ──────────────────────────────────────────
-      final totalLogs = allRecords
-          .where((r) => r.totalMinutes > 0)
-          .length
-          .toDouble();
-
-      for (final a in achievementVM.getByType('total_logs')) {
-        await achievementVM.setProgress(a.userAchievementId, totalLogs);
+      if (allRecords.isEmpty) {
+        latestSleepRecord = null;
+        pendingFeedbackDate = null;
+        showMoodFeedbackPrompt = false;
+        return;
       }
 
-      // ── 2. streak_days ─────────────────────────────────────────
-      final currentStreak = _computeStreak(allRecords).toDouble();
+      final validRecords = allRecords.where((e) => e.totalMinutes > 0).toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
 
-      for (final a in achievementVM.getByType('streak_days')) {
-        await achievementVM.setProgress(a.userAchievementId, currentStreak);
+      if (validRecords.isEmpty) {
+        latestSleepRecord = null;
+        pendingFeedbackDate = null;
+        showMoodFeedbackPrompt = false;
+        return;
       }
 
-      // ── 3. sleep_score ─────────────────────────────────────────
-      final score = dailySleepScore.toDouble();
+      latestSleepRecord = validRecords.last;
+      final latestDate =
+      _summaryService.normalizeDateKey(latestSleepRecord!.date);
 
-      for (final a in achievementVM.getByType('sleep_score')) {
-        await achievementVM.setProgress(a.userAchievementId, score);
+      final parsedLatest = DateTime.tryParse(latestDate);
+      if (parsedLatest == null) {
+        pendingFeedbackDate = null;
+        showMoodFeedbackPrompt = false;
+        return;
       }
 
-      // ── 4. total_hours ─────────────────────────────────────────
-      // ✅ FIXED: Calculate true lifetime sleep hours across all records
-      final totalLifetimeMinutes = allRecords.fold<int>(
-          0, (sum, r) => sum + r.totalMinutes);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final latestMidnight =
+      DateTime(parsedLatest.year, parsedLatest.month, parsedLatest.day);
 
-      final totalLifetimeHours = totalLifetimeMinutes / 60.0;
+      final isRecent = latestMidnight == today || latestMidnight == yesterday;
 
-      debugPrint(
-          "🏆 total_hours: total accumulated ${totalLifetimeHours.toStringAsFixed(2)}h");
-
-      for (final a in achievementVM.getByType('total_hours')) {
-        await achievementVM.setProgress(a.userAchievementId, totalLifetimeHours);
+      if (isRecent &&
+          (latestSleepRecord!.moodFeedback == null ||
+              latestSleepRecord!.moodFeedback!.isEmpty)) {
+        pendingFeedbackDate = latestDate;
+        showMoodFeedbackPrompt = true;
+      } else {
+        pendingFeedbackDate = null;
+        showMoodFeedbackPrompt = false;
       }
-
-      // ── 5. early_wake_streak ───────────────────────────────────
-      final earlyWakeStreak = _computeEarlyWakeStreak().toDouble();
-
-      for (final a in achievementVM.getByType('early_wake_streak')) {
-        await achievementVM.setProgress(a.userAchievementId, earlyWakeStreak);
-      }
-
     } catch (e) {
-      debugPrint("❌ Error checking sleep achievements: $e");
+      debugPrint('❌ Error preparing mood feedback prompt: $e');
+      latestSleepRecord = null;
+      pendingFeedbackDate = null;
+      showMoodFeedbackPrompt = false;
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // HELPER — Streak: consecutive days with sleep > 0 (newest first)
-  // ─────────────────────────────────────────────────────────────
-  int _computeStreak(List<SleepRecordModel> allRecords) {
-    if (allRecords.isEmpty) return 0;
+  Future<void> submitMoodFeedback(MoodFeedback mood) async {
+    if (_lastLoadedUserId == null || pendingFeedbackDate == null) return;
 
-    int streak = 0;
-    final now = DateTime.now();
+    try {
+      isSubmittingMoodFeedback = true;
+      notifyListeners();
 
-    for (int i = 0; i < 365; i++) {
-      final day = now.subtract(Duration(days: i));
-      final dayStr =
-          "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
+      final userId = _lastLoadedUserId!;
+      final date = pendingFeedbackDate!;
 
-      final record = allRecords
-          .where((r) => r.date.startsWith(dayStr) && r.totalMinutes > 0)
-          .firstOrNull;
+      final allRecords = await _repository.getAllSleepRecords(userId);
+      final existing = allRecords.where((e) {
+        return _summaryService.normalizeDateKey(e.date) == date;
+      }).toList();
 
-      if (record != null) {
-        streak++;
-      } else {
-        if (i == 0) continue;
-        break;
+      if (existing.isEmpty) {
+        debugPrint('⚠️ No matching sleep record found for feedback date $date');
+        return;
       }
-    }
 
-    return streak;
+      final updated = existing.first.copyWith(
+        moodFeedback: mood.name,
+      );
+
+      await _repository.saveDailySummaries([updated]);
+
+      latestSleepRecord = updated;
+      showMoodFeedbackPrompt = false;
+      pendingFeedbackDate = null;
+
+      await fetchWeeklyDataFromDatabase(userId);
+    } catch (e) {
+      debugPrint('❌ Error submitting mood feedback: $e');
+    } finally {
+      isSubmittingMoodFeedback = false;
+      notifyListeners();
+    }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // HELPER — Early wake streak
-  // ─────────────────────────────────────────────────────────────
-  int _computeEarlyWakeStreak() {
-    if (_rawHealthData.isEmpty) return 0;
-
-    final Map<String, DateTime> wakeTimeByDay = {};
-
-    for (final point in _rawHealthData) {
-      if (point.type != HealthDataType.SLEEP_SESSION &&
-          point.type != HealthDataType.SLEEP_ASLEEP) continue;
-
-      final dayStr =
-          "${point.dateTo.year}-${point.dateTo.month.toString().padLeft(2, '0')}-${point.dateTo.day.toString().padLeft(2, '0')}";
-
-      if (!wakeTimeByDay.containsKey(dayStr) ||
-          point.dateTo.isAfter(wakeTimeByDay[dayStr]!)) {
-        wakeTimeByDay[dayStr] = point.dateTo;
-      }
-    }
-
-    int streak = 0;
-    final now = DateTime.now();
-
-    for (int i = 0; i < 30; i++) {
-      final day = now.subtract(Duration(days: i));
-      final dayStr =
-          "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
-
-      final wakeTime = wakeTimeByDay[dayStr];
-
-      if (wakeTime != null && wakeTime.hour < 7) {
-        streak++;
-      } else {
-        if (i == 0) continue;
-        break;
-      }
-    }
-
-    return streak;
+  void dismissMoodFeedbackPrompt() {
+    showMoodFeedbackPrompt = false;
+    notifyListeners();
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // WEEKLY DB FETCH
-  // ─────────────────────────────────────────────────────────────
   Future<void> fetchWeeklyDataFromDatabase(String userId) async {
     try {
       final now = DateTime.now();
       final weekStart = now.subtract(const Duration(days: 6));
 
-      final startDateStr =
-          "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
-      final endDateStr =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      final endDateQuery = "$endDateStr 23:59:59";
+      final startDateStr = _summaryService.dateKey(weekStart);
+      final endDateStr = '${_summaryService.dateKey(now)} 23:59:59';
 
       final records = await _repository.getSleepRecordsByDateRange(
-          userId, startDateStr, endDateQuery);
+        userId,
+        startDateStr,
+        endDateStr,
+      );
 
-      List<SleepRecordModel> filledRecords = [];
+      final Map<String, SleepRecordModel> byDate = {
+        for (final record in records)
+          _summaryService.normalizeDateKey(record.date): record,
+      };
+
+      final List<SleepRecordModel> filledRecords = [];
 
       for (int i = 6; i >= 0; i--) {
         final targetDate = now.subtract(Duration(days: i));
-        final targetDateStr =
-            "${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}";
+        final targetKey = _summaryService.dateKey(targetDate);
 
-        final existingRecord =
-            records.where((r) => r.date.startsWith(targetDateStr)).firstOrNull;
-
-        if (existingRecord != null) {
-          filledRecords.add(existingRecord);
+        final existing = byDate[targetKey];
+        if (existing != null) {
+          filledRecords.add(existing);
         } else {
-          filledRecords.add(SleepRecordModel(
-            userId: userId,
-            date: targetDateStr,
-            totalMinutes: 0,
-            sleepScore: 0,
-          ));
+          filledRecords.add(
+            SleepRecordModel(
+              userId: userId,
+              date: targetKey,
+              totalMinutes: 0,
+              sleepScore: 0,
+            ),
+          );
         }
       }
 
       weeklyData = filledRecords;
       notifyListeners();
     } catch (e) {
-      debugPrint("Error fetching weekly data from DB: $e");
+      debugPrint('❌ Error fetching weekly data from DB: $e');
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FILTER
-  // ─────────────────────────────────────────────────────────────
   void changeFilter(SleepFilter newFilter) {
     if (currentFilter != newFilter) {
       currentFilter = newFilter;
@@ -329,246 +322,16 @@ class SleepViewModel extends ChangeNotifier {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // PROCESS
-  // ─────────────────────────────────────────────────────────────
-  void _processSleepData(SleepFilter filter) {
-    if (filter == SleepFilter.daily) {
-      isDataPendingSync = false;
-    }
-
-    if (_rawHealthData.isEmpty) {
-      _resetDisplayData(filter);
-      return;
-    }
-
-    final now = DateTime.now();
-    final todayMidnight = DateTime(now.year, now.month, now.day);
-    List<HealthDataPoint> filteredData = [];
-
-    switch (filter) {
-      case SleepFilter.daily:
-        DateTime latestDate = _rawHealthData
-            .reduce((a, b) => a.dateTo.isAfter(b.dateTo) ? a : b)
-            .dateTo;
-
-        DateTime latestMidnight =
-        DateTime(latestDate.year, latestDate.month, latestDate.day);
-        DateTime yesterdayMidnight =
-        todayMidnight.subtract(const Duration(days: 1));
-
-        if (now.hour < 12) {
-          if (latestMidnight.isBefore(yesterdayMidnight)) {
-            isDataPendingSync = true;
-          }
-        } else {
-          if (latestMidnight.isBefore(todayMidnight)) {
-            isDataPendingSync = true;
-          }
-        }
-
-        filteredData = _rawHealthData
-            .where((p) =>
-        p.dateTo.year == latestDate.year &&
-            p.dateTo.month == latestDate.month &&
-            p.dateTo.day == latestDate.day)
-            .toList();
-        break;
-
-      case SleepFilter.weekly:
-        final weekStart = todayMidnight.subtract(const Duration(days: 7));
-        filteredData =
-            _rawHealthData.where((p) => p.dateTo.isAfter(weekStart)).toList();
-        break;
-    }
-
-    if (filteredData.isEmpty) {
-      _resetDisplayData(filter);
-      return;
-    }
-
-    int totalMinutes = 0;
-    int deepMin = 0;
-    int lightMin = 0;
-    int remMin = 0;
-
-    bool hasSessions =
-    filteredData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
-    Set<String> uniqueDays = {};
-    List<SleepChartPoint> newHypnogramData = [];
-
-    for (var point in filteredData) {
-      final duration = point.dateTo.difference(point.dateFrom).inMinutes;
-      uniqueDays.add(
-          "${point.dateTo.year}-${point.dateTo.month}-${point.dateTo.day}");
-
-      if (point.type == HealthDataType.SLEEP_DEEP) {
-        deepMin += duration;
-      } else if (point.type == HealthDataType.SLEEP_LIGHT ||
-          point.type == HealthDataType.SLEEP_ASLEEP) {
-        lightMin += duration;
-      } else if (point.type == HealthDataType.SLEEP_REM) {
-        remMin += duration;
-      }
-
-      if (hasSessions) {
-        if (point.type == HealthDataType.SLEEP_SESSION) totalMinutes += duration;
-      } else {
-        if (point.type != HealthDataType.SLEEP_AWAKE &&
-            point.type != HealthDataType.SLEEP_SESSION) {
-          totalMinutes += duration;
-        }
-      }
-
-      if (filter == SleepFilter.daily &&
-          point.type != HealthDataType.SLEEP_SESSION) {
-        double stageVal = 0;
-        if (point.type == HealthDataType.SLEEP_REM) stageVal = 1;
-        else if (point.type == HealthDataType.SLEEP_LIGHT ||
-            point.type == HealthDataType.SLEEP_ASLEEP) stageVal = 2;
-        else if (point.type == HealthDataType.SLEEP_DEEP) stageVal = 3;
-
-        double hour = point.dateFrom.hour + (point.dateFrom.minute / 60.0);
-        if (hour > 12) hour -= 24;
-
-        newHypnogramData.add(SleepChartPoint(hour, stageVal));
-      }
-    }
-
-    if (filter == SleepFilter.daily) {
-      newHypnogramData.sort((a, b) => a.hour.compareTo(b.hour));
-      hypnogramData = newHypnogramData;
-    }
-
-    if (filter != SleepFilter.daily) {
-      int daysCount = uniqueDays.isNotEmpty ? uniqueDays.length : 1;
-      totalMinutes = totalMinutes ~/ daysCount;
-      deepMin = deepMin ~/ daysCount;
-      lightMin = lightMin ~/ daysCount;
-      remMin = remMin ~/ daysCount;
-    }
-
-    if (filter == SleepFilter.daily) {
-      dailyTotalSleepDuration = _formatMinutes(totalMinutes);
-      dailyDeepSleep = _formatMinutes(deepMin);
-      dailyLightSleep = _formatMinutes(lightMin);
-      dailyRemSleep = _formatMinutes(remMin);
-      dailySleepScore = totalMinutes > 0
-          ? ((totalMinutes / 480) * 100).clamp(0, 100).toInt()
-          : 0;
-    } else {
-      weeklyTotalSleepDuration = _formatMinutes(totalMinutes);
-      weeklySleepScore = totalMinutes > 0
-          ? ((totalMinutes / 480) * 100).clamp(0, 100).toInt()
-          : 0;
-    }
-  }
-
-  void _resetDisplayData(SleepFilter filter) {
-    if (filter == SleepFilter.daily) {
-      dailyTotalSleepDuration = "0h 0m";
-      dailySleepScore = 0;
-      dailyDeepSleep = "0h 0m";
-      dailyLightSleep = "0h 0m";
-      dailyRemSleep = "0h 0m";
-      hypnogramData = [];
-    } else {
-      weeklyTotalSleepDuration = "0h 0m";
-      weeklySleepScore = 0;
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // SYNC
-  // ─────────────────────────────────────────────────────────────
-  Future<void> syncSleepDataToSupabase(String userId) async {
-    try {
-      Map<String, int> dailyTotals = {};
-      bool hasSessions =
-      _rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
-
-      for (var point in _rawHealthData) {
-        final dateStr =
-            "${point.dateTo.year}-${point.dateTo.month.toString().padLeft(2, '0')}-${point.dateTo.day.toString().padLeft(2, '0')}";
-        int duration = point.dateTo.difference(point.dateFrom).inMinutes;
-
-        if (hasSessions) {
-          if (point.type == HealthDataType.SLEEP_SESSION) {
-            dailyTotals[dateStr] = (dailyTotals[dateStr] ?? 0) + duration;
-          }
-        } else {
-          if (point.type != HealthDataType.SLEEP_AWAKE) {
-            dailyTotals[dateStr] = (dailyTotals[dateStr] ?? 0) + duration;
-          }
-        }
-      }
-
-      for (var entry in dailyTotals.entries) {
-        final totalMins = entry.value;
-        if (totalMins > 0) {
-          int dailyScore = ((totalMins / 480) * 100).clamp(0, 100).toInt();
-          await _repository.saveDailySummary(SleepRecordModel(
-            userId: userId,
-            date: entry.key,
-            totalMinutes: totalMins,
-            sleepScore: dailyScore,
-          ));
-        }
-      }
-    } catch (e) {
-      debugPrint("❌ Error syncing sleep data: $e");
-    }
-  }
-
-  String _formatMinutes(int totalMinutes) {
-    if (totalMinutes == 0) return "0h 0m";
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    return "${hours}h ${minutes}m";
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // DIALOG
-  // ─────────────────────────────────────────────────────────────
-  void _showInstallHealthConnectDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.health_and_safety, color: Colors.blueAccent),
-            SizedBox(width: 10),
-            Text("Health Connect Required", style: TextStyle(fontSize: 18)),
-          ],
-        ),
-        content: const Text(
-          "To sync your sleep data, DreamSync requires the official Google Health Connect app. "
-              "Would you like to install it from the Play Store now?",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Later", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blueAccent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              Navigator.pop(context);
-              final Uri playStoreUri = Uri.parse(
-                  "https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata");
-              if (await canLaunchUrl(playStoreUri)) {
-                await launchUrl(playStoreUri,
-                    mode: LaunchMode.externalApplication);
-              }
-            },
-            child: const Text("Install"),
-          ),
-        ],
-      ),
-    );
+  void _applyDashboardState(SleepSummaryResult dashboard) {
+    isDataPendingSync = dashboard.isDataPendingSync;
+    dailyTotalSleepDuration = dashboard.dailyTotalSleepDuration;
+    dailySleepScore = dashboard.dailySleepScore;
+    dailyDeepSleep = dashboard.dailyDeepSleep;
+    dailyLightSleep = dashboard.dailyLightSleep;
+    dailyRemSleep = dashboard.dailyRemSleep;
+    hypnogramData = dashboard.hypnogramData;
+    weeklyTotalSleepDuration = dashboard.weeklyTotalSleepDuration;
+    weeklySleepScore = dashboard.weeklySleepScore;
+    _wakeTimeByDay = dashboard.wakeTimeByDay;
   }
 }

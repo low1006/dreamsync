@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
 
 class AuthViewModel extends ChangeNotifier {

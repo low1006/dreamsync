@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dreamsync/models/user_model.dart';
+import 'package:dreamsync/util/network_helper.dart';
 import 'base_repository.dart';
 
 class UserRepository extends BaseRepository<UserModel> {
@@ -19,7 +19,6 @@ class UserRepository extends BaseRepository<UserModel> {
     if (userId == null) return;
 
     try {
-      // Soft delete — marks deleted_at, real deletion after 30 days
       await client.rpc('delete_user_account');
       await client.auth.signOut();
     } catch (e) {
@@ -33,24 +32,25 @@ class UserRepository extends BaseRepository<UserModel> {
     await client.auth.signOut();
   }
 
-  // 🔥 NEW: Safe profile fetching with strict timeouts and local caching
+  // Safe profile fetching with real internet check + local caching
   Future<UserModel?> getProfileSafe(String userId) async {
     final prefs = await SharedPreferences.getInstance();
 
     try {
-      // 2-second strict timeout for connectivity check
-      final result = await Connectivity().checkConnectivity().timeout(const Duration(seconds: 2));
-      bool isOnline = result == ConnectivityResult.mobile || result == ConnectivityResult.wifi;
+      final isOnline = await NetworkHelper.isOnline();
 
       if (isOnline) {
         debugPrint("🌐 Online: Fetching profile from Supabase...");
-        // 5-second strict timeout for Supabase fetch to prevent UI hanging
+
         final user = await getById(userId).timeout(const Duration(seconds: 5));
 
         if (user != null) {
-          // Cache it locally so it's ready for the next offline session
-          await prefs.setString('cached_user_profile_$userId', jsonEncode(user.toJson()));
+          await prefs.setString(
+            'cached_user_profile_$userId',
+            jsonEncode(user.toJson()),
+          );
         }
+
         return user;
       } else {
         debugPrint("📴 Offline: Attempting to load profile from cache...");
@@ -62,13 +62,14 @@ class UserRepository extends BaseRepository<UserModel> {
     }
   }
 
-  // Helper method to read the cached user profile
   UserModel? _getCachedProfile(String userId, SharedPreferences prefs) {
     final cachedString = prefs.getString('cached_user_profile_$userId');
+
     if (cachedString != null) {
       debugPrint("✅ Loaded profile from local cache.");
       return UserModel.fromJson(jsonDecode(cachedString));
     }
+
     debugPrint("❌ No cached profile found.");
     return null;
   }
@@ -80,17 +81,22 @@ class UserRepository extends BaseRepository<UserModel> {
     required double sleepGoalHours,
   }) async {
     try {
-      final result = await Connectivity().checkConnectivity().timeout(const Duration(seconds: 2));
-      if (result == ConnectivityResult.none) {
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (!isOnline) {
         debugPrint("📴 Offline: Cannot update profile to Supabase right now.");
         return;
       }
 
-      await client.from(tableName).update({
+      await client
+          .from(tableName)
+          .update({
         'weight': weight,
         'height': height,
         'sleep_goal_hours': sleepGoalHours,
-      }).eq('user_id', userId).timeout(const Duration(seconds: 5));
+      })
+          .eq('user_id', userId)
+          .timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint("❌ Failed to update profile data: $e");
     }
@@ -98,8 +104,12 @@ class UserRepository extends BaseRepository<UserModel> {
 
   Future<void> updatePoints(String userId, int newPoints) async {
     try {
-      final result = await Connectivity().checkConnectivity().timeout(const Duration(seconds: 2));
-      if (result == ConnectivityResult.none) return;
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (!isOnline) {
+        debugPrint("📴 Offline: Cannot update points right now.");
+        return;
+      }
 
       await client
           .from(tableName)
@@ -114,6 +124,6 @@ class UserRepository extends BaseRepository<UserModel> {
   Future<UserModel?> getCurrentUser() async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return null;
-    return getProfileSafe(userId); // Now uses the safe offline fetch
+    return getProfileSafe(userId);
   }
 }

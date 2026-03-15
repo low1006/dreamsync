@@ -49,36 +49,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // --- Huawei Health Authorization Dialog ---
-  Future<bool> _showHuaweiAuthDialog() async {
-    return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.health_and_safety, color: Colors.redAccent),
-            SizedBox(width: 10),
-            Text("Huawei Health"),
-          ],
-        ),
-        content: const Text(
-            "Allow DreamSync to access your Huawei Health data for better sleep tracking analysis?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Skip"),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Authorize"),
-          ),
-        ],
-      ),
-    ) ??
-        false;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -118,11 +88,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     label: 'Confirm Password',
                     isObscure: true,
                     validator: (val) => viewModel.validateConfirmPassword(
-                        val, _passwordController.text),
+                      val,
+                      _passwordController.text,
+                    ),
                   ),
                   const SizedBox(height: 16),
 
-                  // Gender & Date of Birth Row
                   Row(
                     children: [
                       Expanded(
@@ -130,8 +101,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           label: "Gender",
                           value: _gender,
                           items: const ["Male", "Female"],
-                          onChanged: (val) =>
-                              setState(() => _gender = val),
+                          onChanged: (val) => setState(() => _gender = val),
                           validator: viewModel.validateGender,
                         ),
                       ),
@@ -152,7 +122,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Sliders
                   CustomSlider(
                     label: "Weight",
                     value: viewModel.weight,
@@ -182,7 +151,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Error Message
                   if (viewModel.errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16.0),
@@ -198,16 +166,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     isLoading: viewModel.isLoading,
                     onPressed: () async {
                       if (_formKey.currentState!.validate()) {
-                        // 1. Show Huawei Dialog
-                        await _showHuaweiAuthDialog();
-
-                        // 2. Send OTP only — no signup yet
-                        final otpSent =
-                        await viewModel.sendVerificationOtp(
+                        final otpSent = await viewModel.sendVerificationOtp(
                           _emailController.text.trim(),
                         );
 
-                        // 3. Navigate to OTP Screen with ALL data
                         if (otpSent && context.mounted) {
                           Navigator.push(
                             context,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/util/network_helper.dart';
 
 class FriendViewModel extends ChangeNotifier {
   final _client = Supabase.instance.client;
@@ -25,6 +26,13 @@ class FriendViewModel extends ChangeNotifier {
   Future<void> loadFriendListData() async {
     isLoading = true;
     notifyListeners();
+
+    if (!await NetworkHelper.isOnline()) {
+      debugPrint("📴 Offline: Skipping friend list fetch.");
+      isLoading = false;
+      notifyListeners();
+      return;
+    }
 
     final myId = _client.auth.currentUser!.id;
 
@@ -74,6 +82,11 @@ class FriendViewModel extends ChangeNotifier {
     final currentUser = _client.auth.currentUser;
     if (currentUser == null) return;
 
+    if (!await NetworkHelper.isOnline()) {
+      debugPrint("📴 Offline: Skipping leaderboard fetch.");
+      return;
+    }
+
     try {
       final response = await _client
           .from('friendships')
@@ -117,6 +130,13 @@ class FriendViewModel extends ChangeNotifier {
     errorMessage = null;
     searchedUser = null;
     notifyListeners();
+
+    if (!await NetworkHelper.isOnline()) {
+      errorMessage = "You must be online to search for users.";
+      isLoading = false;
+      notifyListeners();
+      return false;
+    }
 
     try {
       final myId = _client.auth.currentUser!.id;
@@ -170,6 +190,12 @@ class FriendViewModel extends ChangeNotifier {
   Future<void> sendFriendRequestToSearchedUser() async {
     if (searchedUser == null) return;
 
+    if (!await NetworkHelper.isOnline()) {
+      errorMessage = "You must be online to send friend requests.";
+      notifyListeners();
+      return;
+    }
+
     final myId = _client.auth.currentUser!.id;
 
     try {
@@ -190,14 +216,18 @@ class FriendViewModel extends ChangeNotifier {
 
   // =========================================================
   // 5. ACCEPT FRIEND REQUEST
-  // ✅ UPDATED: Now accepts AchievementViewModel to trigger
-  // the Social Butterfly (friends_count) achievement check
-  // immediately after the friendship is confirmed.
   // =========================================================
   Future<void> acceptRequest(
       String friendshipId,
       AchievementViewModel achievementVM,
       ) async {
+
+    if (!await NetworkHelper.isOnline()) {
+      errorMessage = "You must be online to accept friend requests.";
+      notifyListeners();
+      return;
+    }
+
     try {
       await _client
           .from('friendships')

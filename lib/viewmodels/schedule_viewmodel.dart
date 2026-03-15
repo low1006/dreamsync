@@ -30,15 +30,27 @@ class ScheduleViewModel extends ChangeNotifier {
   Future<void> _createDefaultSchedule() async {
     try {
       final userId = _supabase.auth.currentUser!.id;
-      final defaultToneData = await _supabase
-          .from('store_items')
-          .select().eq('cost', 0).eq('type', 'TONE').limit(1).maybeSingle();
-      final int defaultId = defaultToneData != null ? defaultToneData['item_id'] : 1;
+      int defaultId = 1; // Fallback ID if offline
 
-      await _supabase.from('user_inventory').upsert({
-        'user_id': userId, 'item_id': defaultId,
-      }, onConflict: 'user_id, item_id');
+      // 1. Isolate the network calls in their own try/catch
+      try {
+        final defaultToneData = await _supabase
+            .from('store_items')
+            .select().eq('cost', 0).eq('type', 'TONE').limit(1).maybeSingle();
 
+        if (defaultToneData != null) {
+          defaultId = defaultToneData['item_id'];
+        }
+
+        await _supabase.from('user_inventory').upsert({
+          'user_id': userId, 'item_id': defaultId,
+        }, onConflict: 'user_id, item_id');
+
+      } catch (networkError) {
+        debugPrint("Network unavailable, using default tone ID $defaultId: $networkError");
+      }
+
+      // 2. Always create the schedule (Repository handles offline caching)
       await _repository.createSchedule(
         bedtime: const TimeOfDay(hour: 22, minute: 30),
         wakeTime: const TimeOfDay(hour: 7, minute: 0),
@@ -87,6 +99,9 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> toggleSnooze(String id, bool isSnoozeOn) async {
     try {
+      // NOTE: For consistency with your repository pattern, you might eventually
+      // want to move this direct Supabase call into the repository as well so it
+      // can be queued for offline syncing!
       await _supabase.from('sleep_schedules').update({'is_snooze_on': isSnoozeOn}).eq('schedule_id', id);
       await loadSchedules(); // Reload to refresh state
     } catch (e) {

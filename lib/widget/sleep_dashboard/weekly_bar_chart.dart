@@ -20,9 +20,9 @@ class WeeklyBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Find the highest value to scale the chart dynamically
-    double calculatedMax = values.fold(maxY, (prev, element) => element > prev ? element : prev);
-    // Prevent division by zero if all data is 0
+    double calculatedMax =
+    values.fold(maxY, (prev, element) => element > prev ? element : prev);
+
     if (calculatedMax == 0) calculatedMax = 1;
 
     return Container(
@@ -41,33 +41,38 @@ class WeeklyBarChart extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- Y-AXIS LABELS ---
           SizedBox(
-            width: 32, // Fixed width so chart doesn't jump
-            height: 130, // Match the chart height
+            width: 32,
+            height: 130,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(_formatValue(calculatedMax) + unit, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                Text(_formatValue(calculatedMax / 2) + unit, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                Text("0$unit", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(
+                  _formatValue(calculatedMax) + unit,
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                Text(
+                  _formatValue(calculatedMax / 2) + unit,
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                Text(
+                  "0$unit",
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-
-          // --- CHART AREA & X-AXIS ---
           Expanded(
             child: Column(
               children: [
-                // Bars Area (with Axes Lines)
                 Container(
                   height: 130,
                   decoration: const BoxDecoration(
                     border: Border(
-                      left: BorderSide(color: Colors.black26, width: 2), // Y-Axis Line
-                      bottom: BorderSide(color: Colors.black26, width: 2), // X-Axis Line
+                      left: BorderSide(color: Colors.black26, width: 2),
+                      bottom: BorderSide(color: Colors.black26, width: 2),
                     ),
                   ),
                   child: Row(
@@ -75,15 +80,15 @@ class WeeklyBarChart extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: List.generate(values.length, (index) {
                       double heightFactor = values[index] / calculatedMax;
-                      bool isToday = index == values.length - 1; // Assuming the last item is always 'Today'
+                      bool isToday = index == values.length - 1;
 
                       return SizedBox(
-                        width: 32, // 🔥 FIXED: Wider footprint so labels align perfectly below
+                        width: 32,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             Text(
-                              values[index] > 0 ? _formatValue(values[index]) : "-",
+                              values[index] > 0 ? _formatValue(values[index]) : "0",
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
@@ -92,11 +97,11 @@ class WeeklyBarChart extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Container(
-                              height: 110 * heightFactor,
-                              width: 20, // The visual bar itself is 20
+                              height: values[index] == 0 ? 2 : 110 * heightFactor,
+                              width: 20,
                               decoration: BoxDecoration(
                                 color: values[index] == 0
-                                    ? Colors.transparent
+                                    ? Colors.grey.shade300
                                     : (isToday ? color : color.withOpacity(0.4)),
                                 borderRadius: const BorderRadius.only(
                                   topLeft: Radius.circular(4),
@@ -111,22 +116,23 @@ class WeeklyBarChart extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // --- X-AXIS LABELS ---
                 Padding(
-                  padding: const EdgeInsets.only(left: 2), // Offset slightly to account for Y-Axis border width
+                  padding: const EdgeInsets.only(left: 2),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: List.generate(labels.length, (index) {
                       bool isToday = index == labels.length - 1;
                       return SizedBox(
-                        width: 32, // 🔥 FIXED: Matches the width of the bar columns above!
+                        width: 32,
                         child: Center(
                           child: Text(
                             labels[index],
                             style: TextStyle(
                               fontSize: 11,
-                              fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
-                              color: isToday ? Colors.black87 : Colors.grey.shade600,
+                              fontWeight:
+                              isToday ? FontWeight.bold : FontWeight.w500,
+                              color:
+                              isToday ? Colors.black87 : Colors.grey.shade600,
                             ),
                             softWrap: false,
                             overflow: TextOverflow.visible,
