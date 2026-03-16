@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class TimeFormatter {
   static String formatHours(double hours) {
     if (hours <= 0) return "0h 0m";
@@ -29,6 +31,13 @@ class TimeFormatter {
     if (h < 0) h += 24;
 
     return "${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}";
+  }
+
+  static String formatTimeOfDay(TimeOfDay time) {
+    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$hour:$minute $period';
   }
 
   static String formatByUnit(double value, String unit) {

@@ -37,10 +37,11 @@ class UserViewModel extends ChangeNotifier {
       height: height,
     );
 
-    _userProfile = _userProfile?.copyWith(
-      weight: weight,
-      height: height,
-    );
+    // Directly update the mutable properties instead of using copyWith
+    if (_userProfile != null) {
+      _userProfile!.weight = weight;
+      _userProfile!.height = height;
+    }
 
     notifyListeners();
   }
@@ -54,9 +55,10 @@ class UserViewModel extends ChangeNotifier {
       sleepGoalHours: hours,
     );
 
-    _userProfile = _userProfile?.copyWith(
-      sleepGoalHours: hours,
-    );
+    // Directly update the mutable property instead of using copyWith
+    if (_userProfile != null) {
+      _userProfile!.sleepGoalHours = hours;
+    }
 
     notifyListeners();
   }

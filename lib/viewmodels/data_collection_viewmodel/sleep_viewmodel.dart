@@ -31,7 +31,13 @@ class SleepViewModel extends ChangeNotifier {
 
   bool isLoading = false;
   String errorMessage = '';
+
+  /// final banner state
   bool isDataPendingSync = false;
+
+  /// only show banner after local DB checking is done
+  bool hasCheckedSyncStatus = false;
+
   bool _isCurrentlyLoading = false;
 
   String? _lastLoadedUserId;
@@ -61,6 +67,9 @@ class SleepViewModel extends ChangeNotifier {
   }) async {
     isLoading = true;
     errorMessage = '';
+
+    // important: reset banner visibility until local DB finishes checking
+    hasCheckedSyncStatus = false;
     notifyListeners();
 
     try {
@@ -70,6 +79,7 @@ class SleepViewModel extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ SleepViewModel.loadFromDatabase: $e');
       errorMessage = 'Failed to load local sleep data.';
+      hasCheckedSyncStatus = true;
     } finally {
       isLoading = false;
       notifyListeners();
@@ -140,7 +150,8 @@ class SleepViewModel extends ChangeNotifier {
     try {
       final status = await _healthService.getSdkStatus();
       if (status == HealthConnectSdkStatus.sdkUnavailable ||
-          status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
+          status == HealthConnectSdkStatus
+              .sdkUnavailableProviderUpdateRequired) {
         if (context != null && context.mounted) {
           await HealthConnectHelper.showInstallDialog(context);
         } else {
@@ -165,7 +176,8 @@ class SleepViewModel extends ChangeNotifier {
       final rawData = await _healthService.fetchLast30DaysSleepData();
 
       final result = _summaryService.rebuildDashboardStateFromRawData(rawData);
-      isDataPendingSync = result.isDataPendingSync;
+
+      // temporary UI values from fresh health data
       dailyTotalSleepDuration = result.dailyTotalSleepDuration;
       dailySleepScore = result.dailySleepScore;
       dailyDeepSleep = result.dailyDeepSleep;
@@ -184,6 +196,7 @@ class SleepViewModel extends ChangeNotifier {
       final existingByDate = {
         for (final r in existing) _normalizeDateKey(r.date): r,
       };
+
       final summaries = _summaryService.buildDailySummaries(
         rawData,
         userId,
@@ -191,6 +204,10 @@ class SleepViewModel extends ChangeNotifier {
       );
       await _repository.saveDailySummaries(summaries);
 
+      // IMPORTANT:
+      // after saving summaries, re-read from local DB so the banner status
+      // always reflects the actual stored latest record, not an intermediate value
+      await _loadDailyFromDatabase(userId);
       await _fetchWeeklyDataFromDatabase(userId);
 
       final allRecords = await _repository.getAllSleepRecords(userId);
@@ -259,6 +276,7 @@ class SleepViewModel extends ChangeNotifier {
       dailyRemSleep = '0h 0m';
       hypnogramData = [];
       isDataPendingSync = false;
+      hasCheckedSyncStatus = true;
       return;
     }
 
@@ -275,7 +293,10 @@ class SleepViewModel extends ChangeNotifier {
     dailyDeepSleep = _formatMinutes(deepMinutes);
     dailyLightSleep = _formatMinutes(lightMinutes);
     dailyRemSleep = _formatMinutes(remMinutes);
+
+    // only final DB-backed banner state
     isDataPendingSync = !isSynced;
+    hasCheckedSyncStatus = true;
 
     final hypnogramJson = row['hypnogram_json'] as String?;
     hypnogramData = _parseHypnogram(hypnogramJson);
@@ -310,9 +331,11 @@ class SleepViewModel extends ChangeNotifier {
       ];
 
       if (weeklyData.isNotEmpty) {
-        final total = weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
+        final total =
+        weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
         final avgMinutes = (total / weeklyData.length).round();
-        final avgScore = (weeklyData.fold<int>(0, (sum, e) => sum + e.sleepScore) /
+        final avgScore = (weeklyData.fold<int>(
+            0, (sum, e) => sum + e.sleepScore) /
             weeklyData.length)
             .round();
 

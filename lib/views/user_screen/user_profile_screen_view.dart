@@ -5,6 +5,7 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/views/user_screen/friend_list_screen.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/util/time_formatter.dart';
+import 'package:dreamsync/models/user_model.dart'; // Make sure this is imported for _syncTempFromUser
 
 class UserScreen extends StatefulWidget {
   const UserScreen({super.key});
@@ -13,9 +14,11 @@ class UserScreen extends StatefulWidget {
   State<UserScreen> createState() => _UserScreenState();
 }
 
-class _UserScreenState extends State<UserScreen> {
+class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
   bool _isEditing = false;
   bool _isInit = true;
+  bool _isRefreshingProfile = false;
+  String? _lastRefreshedUserId;
 
   late double _tempWeight;
   late double _tempHeight;
@@ -26,26 +29,78 @@ class _UserScreenState extends State<UserScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkHealthStatus();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final viewModel = context.read<UserViewModel>();
+      final userId = viewModel.userProfile?.userId;
+      if (userId != null) {
+        await _refreshProfileSilently(userId, force: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final viewModel = context.read<UserViewModel>();
+      final userId = viewModel.userProfile?.userId;
+      if (userId != null) {
+        _refreshProfileSilently(userId, force: true);
+      }
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    if (_isInit) {
-      final user =
-          Provider.of<UserViewModel>(context, listen: false).userProfile;
+    final user = Provider.of<UserViewModel>(context, listen: false).userProfile;
 
+    if (_isInit) {
       if (user != null) {
-        _tempWeight = user.weight;
-        _tempHeight = user.height;
+        _syncTempFromUser(user);
+        _lastRefreshedUserId = user.userId;
       } else {
         _tempWeight = 70.0;
         _tempHeight = 170.0;
       }
 
       _isInit = false;
+    } else if (!_isEditing && user != null) {
+      _syncTempFromUser(user);
+    }
+  }
+
+  // ADDED: The missing method to sync local state with the user model
+  void _syncTempFromUser(UserModel user) {
+    _tempWeight = user.weight;
+    _tempHeight = user.height;
+  }
+
+  Future<void> _refreshProfileSilently(
+      String userId, {
+        bool force = false,
+      }) async {
+    if (_isRefreshingProfile) return;
+    if (!force && _lastRefreshedUserId == userId) return;
+
+    _isRefreshingProfile = true;
+    try {
+      await context.read<UserViewModel>().fetchProfile(userId);
+      _lastRefreshedUserId = userId;
+    } catch (e) {
+      debugPrint("❌ Failed to refresh profile: $e");
+    } finally {
+      _isRefreshingProfile = false;
     }
   }
 
@@ -111,10 +166,14 @@ class _UserScreenState extends State<UserScreen> {
   Future<void> _saveProfile() async {
     final viewModel = Provider.of<UserViewModel>(context, listen: false);
 
+    // This updates Supabase, caches it, and mutates the local state immediately
     await viewModel.updateProfileData(
       weight: _tempWeight,
       height: _tempHeight,
     );
+
+    // REMOVED: Redundant _refreshProfileSilently call.
+    // The ViewModel already has the latest data.
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -138,9 +197,12 @@ class _UserScreenState extends State<UserScreen> {
     final accent = const Color(0xFF3B82F6);
     final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
+    // Ensures sliders sync to the latest database values if not currently editing
     if (!_isEditing && user != null) {
-      _tempWeight = user.weight;
-      _tempHeight = user.height;
+      _syncTempFromUser(user);
+
+      // REMOVED: The problematic code block that forced a refresh inside build()
+      // which often causes infinite rebuild loops in Flutter.
     }
 
     return Scaffold(
@@ -178,195 +240,198 @@ class _UserScreenState extends State<UserScreen> {
           style: TextStyle(color: text),
         ),
       )
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: accent.withOpacity(0.5),
-                  width: 2,
+          : RefreshIndicator(
+        onRefresh: () async {
+          await _refreshProfileSilently(user.userId, force: true);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: accent.withOpacity(0.5),
+                    width: 2,
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: surface,
+                  child: Icon(Icons.person, size: 50, color: accent),
                 ),
               ),
-              child: CircleAvatar(
-                radius: 50,
-                backgroundColor: surface,
-                child: Icon(Icons.person, size: 50, color: accent),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              user.username,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: text,
-              ),
-            ),
-            Text(
-              user.email,
-              style: TextStyle(
-                fontSize: 14,
-                color: text.withOpacity(0.6),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: accent.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: accent.withOpacity(0.2)),
-              ),
-              child: SelectableText(
-                "UID: ${user.uidText}",
+              const SizedBox(height: 16),
+              Text(
+                user.username,
                 style: TextStyle(
-                  color: accent,
+                  fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  color: text,
                 ),
               ),
-            ),
-            const SizedBox(height: 30),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _isEditing
-                      ? accent.withOpacity(0.5)
-                      : text.withOpacity(0.05),
-                  width: _isEditing ? 1.5 : 1.0,
+              Text(
+                user.email,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: text.withOpacity(0.6),
                 ),
               ),
-              child: Column(
-                children: [
-                  _buildTile(
-                    context,
-                    'Gender',
-                    user.gender,
-                    text,
-                    accent,
-                  ),
-                  _divider(text),
-                  _buildTile(
-                    context,
-                    'Age',
-                    '${user.age} years',
-                    text,
-                    accent,
-                  ),
-                  _divider(text),
-                  _buildTile(
-                    context,
-                    'Birth Date',
-                    user.dateBirth,
-                    text,
-                    accent,
-                  ),
-                  _divider(text),
-                  _buildHealthConnectTile(text, accent),
-                  _divider(text),
-                  _buildEditableRow(
-                    label: "Height",
-                    value: _tempHeight,
-                    unit: "cm",
-                    min: 100,
-                    max: 220,
-                    text: text,
-                    accent: accent,
-                    onChanged: (val) =>
-                        setState(() => _tempHeight = val),
-                  ),
-                  _divider(text),
-                  _buildEditableRow(
-                    label: "Weight",
-                    value: _tempWeight,
-                    unit: "kg",
-                    min: 30,
-                    max: 150,
-                    text: text,
-                    accent: accent,
-                    onChanged: (val) =>
-                        setState(() => _tempWeight = val),
-                  ),
-                  _divider(text),
-
-                  // Sleep Goal is display only now
-                  _buildTile(
-                    context,
-                    'Sleep Goal',
-                    TimeFormatter.formatHours(user.sleepGoalHours),
-                    text,
-                    accent,
-                    isHighlight: true,
-                  ),
-
-                  _divider(text),
-                  _buildTile(
-                    context,
-                    'Points',
-                    '${user.currentPoints} pts',
-                    text,
-                    accent,
-                    isHighlight: true,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            if (_isEditing)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 30.0),
-                child: Text(
-                  "Tap the checkmark above to save changes.",
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: accent.withOpacity(0.2)),
+                ),
+                child: SelectableText(
+                  "UID: ${user.uidText}",
                   style: TextStyle(
-                    color: text.withOpacity(0.5),
-                    fontStyle: FontStyle.italic,
+                    color: accent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
                   ),
                 ),
               ),
-            _buildActionButton(
-              context,
-              "My Friends",
-              Icons.people,
-              accent,
-                  () => Navigator.push(
+              const SizedBox(height: 30),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _isEditing
+                        ? accent.withOpacity(0.5)
+                        : text.withOpacity(0.05),
+                    width: _isEditing ? 1.5 : 1.0,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    _buildTile(
+                      context,
+                      'Gender',
+                      user.gender,
+                      text,
+                      accent,
+                    ),
+                    _divider(text),
+                    _buildTile(
+                      context,
+                      'Age',
+                      '${user.age} years',
+                      text,
+                      accent,
+                    ),
+                    _divider(text),
+                    _buildTile(
+                      context,
+                      'Birth Date',
+                      user.dateBirth,
+                      text,
+                      accent,
+                    ),
+                    _divider(text),
+                    _buildHealthConnectTile(text, accent),
+                    _divider(text),
+                    _buildEditableRow(
+                      label: "Height",
+                      value: _tempHeight,
+                      unit: "cm",
+                      min: 100,
+                      max: 220,
+                      text: text,
+                      accent: accent,
+                      onChanged: (val) =>
+                          setState(() => _tempHeight = val),
+                    ),
+                    _divider(text),
+                    _buildEditableRow(
+                      label: "Weight",
+                      value: _tempWeight,
+                      unit: "kg",
+                      min: 30,
+                      max: 150,
+                      text: text,
+                      accent: accent,
+                      onChanged: (val) =>
+                          setState(() => _tempWeight = val),
+                    ),
+                    _divider(text),
+                    _buildTile(
+                      context,
+                      'Sleep Goal',
+                      TimeFormatter.formatHours(user.sleepGoalHours),
+                      text,
+                      accent,
+                      isHighlight: true,
+                    ),
+                    _divider(text),
+                    _buildTile(
+                      context,
+                      'Points',
+                      '${user.currentPoints} pts',
+                      text,
+                      accent,
+                      isHighlight: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+              if (_isEditing)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 30.0),
+                  child: Text(
+                    "Tap the checkmark above to save changes.",
+                    style: TextStyle(
+                      color: text.withOpacity(0.5),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              _buildActionButton(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => ChangeNotifierProvider(
-                    create: (_) => FriendViewModel(),
-                    child: const FriendListScreen(),
+                "My Friends",
+                Icons.people,
+                accent,
+                    () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChangeNotifierProvider(
+                      create: (_) => FriendViewModel(),
+                      child: const FriendListScreen(),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _buildActionButton(
-              context,
-              "Logout",
-              Icons.logout,
-              text.withOpacity(0.7),
-                  () async => await viewModel.signOut(),
-            ),
-            const SizedBox(height: 12),
-            _buildActionButton(
-              context,
-              "Delete Account",
-              Icons.delete_forever,
-              const Color(0xFFEF4444),
-                  () => _showDeleteConfirm(context, viewModel),
-              isDestructive: true,
-            ),
-            const SizedBox(height: 40),
-          ],
+              const SizedBox(height: 12),
+              _buildActionButton(
+                context,
+                "Logout",
+                Icons.logout,
+                text.withOpacity(0.7),
+                    () async => await viewModel.signOut(),
+              ),
+              const SizedBox(height: 12),
+              _buildActionButton(
+                context,
+                "Delete Account",
+                Icons.delete_forever,
+                const Color(0xFFEF4444),
+                    () => _showDeleteConfirm(context, viewModel),
+                isDestructive: true,
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );
@@ -519,12 +584,15 @@ class _UserScreenState extends State<UserScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              color: isHighlight ? accent : text,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: isHighlight ? accent : text,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -595,7 +663,7 @@ class _UserScreenState extends State<UserScreen> {
           style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
         ),
         content: Text(
-          "This is permanent. All sleep logs and points will be erased.",
+          "This is permanent. All sleep logs and points will be erased after 30 days of inactivity.",
           style: TextStyle(
             color: isDark ? Colors.white70 : Colors.black54,
           ),

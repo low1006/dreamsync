@@ -4,11 +4,11 @@ class UserModel {
   final String email;
   final String gender;
   final String dateBirth;
-  final double weight;
-  final double height;
+  double weight;          // Removed 'final'
+  double height;          // Removed 'final'
   final String uidText;
   final int currentPoints;
-  final double sleepGoalHours;
+  double sleepGoalHours;  // Removed 'final'
   final int streak;
 
   UserModel({
@@ -75,33 +75,5 @@ class UserModel {
       'sleep_goal_hours': sleepGoalHours,
       'streak': streak,
     };
-  }
-
-  UserModel copyWith({
-    String? userId,
-    String? username,
-    String? email,
-    String? gender,
-    String? dateBirth,
-    double? weight,
-    double? height,
-    String? uidText,
-    int? currentPoints,
-    double? sleepGoalHours,
-    int? streak,
-  }) {
-    return UserModel(
-      userId: userId ?? this.userId,
-      username: username ?? this.username,
-      email: email ?? this.email,
-      gender: gender ?? this.gender,
-      dateBirth: dateBirth ?? this.dateBirth,
-      weight: weight ?? this.weight,
-      height: height ?? this.height,
-      uidText: uidText ?? this.uidText,
-      currentPoints: currentPoints ?? this.currentPoints,
-      sleepGoalHours: sleepGoalHours ?? this.sleepGoalHours,
-      streak: streak ?? this.streak,
-    );
   }
 }

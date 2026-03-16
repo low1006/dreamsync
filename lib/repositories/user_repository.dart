@@ -11,12 +11,13 @@ class UserRepository extends BaseRepository<UserModel> {
       : super(client, 'profile', 'user_id', (json) => UserModel.fromJson(json));
 
   Future<void> createUser(UserModel user) async {
-    final userWithDefaultGoal = user.copyWith(
-      sleepGoalHours: user.sleepGoalHours <= 0 ? 8.0 : user.sleepGoalHours,
-    );
+    // Directly modify the mutable property if needed
+    if (user.sleepGoalHours <= 0) {
+      user.sleepGoalHours = 8.0;
+    }
 
-    await create(userWithDefaultGoal.toJson());
-    await _cacheProfile(userWithDefaultGoal);
+    await create(user.toJson());
+    await _cacheProfile(user);
   }
 
   Future<void> deleteAccount() async {
@@ -102,10 +103,9 @@ class UserRepository extends BaseRepository<UserModel> {
         return;
       }
 
-      final updated = current.copyWith(
-        weight: weight,
-        height: height,
-      );
+      // Directly update the mutable properties
+      current.weight = weight;
+      current.height = height;
 
       final isOnline = await NetworkHelper.isOnline();
 
@@ -124,7 +124,7 @@ class UserRepository extends BaseRepository<UserModel> {
         debugPrint("📴 Offline: Supabase not updated, caching profile locally.");
       }
 
-      await _cacheProfile(updated);
+      await _cacheProfile(current);
       debugPrint("✅ Profile updated in local cache.");
     } catch (e) {
       debugPrint("❌ Failed to update profile data: $e");
@@ -144,9 +144,8 @@ class UserRepository extends BaseRepository<UserModel> {
         return;
       }
 
-      final updated = current.copyWith(
-        sleepGoalHours: sleepGoalHours,
-      );
+      // Directly update the mutable property
+      current.sleepGoalHours = sleepGoalHours;
 
       final isOnline = await NetworkHelper.isOnline();
 
@@ -164,7 +163,7 @@ class UserRepository extends BaseRepository<UserModel> {
         debugPrint("📴 Offline: Supabase not updated, caching sleep goal locally.");
       }
 
-      await _cacheProfile(updated);
+      await _cacheProfile(current);
       debugPrint("✅ Sleep goal updated in local cache.");
     } catch (e) {
       debugPrint("❌ Failed to update sleep goal: $e");

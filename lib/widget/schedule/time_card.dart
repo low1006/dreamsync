@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dreamsync/util/time_formatter.dart';
 
 class TimeCard extends StatelessWidget {
   final String title;
@@ -24,7 +25,6 @@ class TimeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Dimmed if not editing
     final opacity = isEditing ? 1.0 : 0.8;
 
     return InkWell(
@@ -49,13 +49,24 @@ class TimeCard extends StatelessWidget {
                 children: [
                   Icon(icon, size: 18, color: accent),
                   const SizedBox(width: 8),
-                  Text(title, style: TextStyle(color: text.withOpacity(0.5), fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: text.withOpacity(0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
               Text(
-                time.format(context),
-                style: TextStyle(color: text, fontSize: 28, fontWeight: FontWeight.bold),
+                TimeFormatter.formatTimeOfDay(time),
+                style: TextStyle(
+                  color: text,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
