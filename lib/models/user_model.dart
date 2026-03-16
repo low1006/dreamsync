@@ -21,7 +21,7 @@ class UserModel {
     required this.height,
     required this.uidText,
     required this.currentPoints,
-    required this.sleepGoalHours,
+    this.sleepGoalHours = 8.0,
     this.streak = 0,
   });
 
@@ -56,7 +56,7 @@ class UserModel {
       height: (json['height'] ?? 0).toDouble(),
       uidText: json['uid_text'] ?? '',
       currentPoints: json['current_points'] ?? 0,
-      sleepGoalHours: (json['sleep_goal_hours'] ?? 8).toDouble(),
+      sleepGoalHours: (json['sleep_goal_hours'] ?? 8.0).toDouble(),
       streak: json['streak'] ?? 0,
     );
   }

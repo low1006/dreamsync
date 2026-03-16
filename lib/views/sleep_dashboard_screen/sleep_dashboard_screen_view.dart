@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -26,6 +27,9 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
   String _screenTime = "Fetching...";
   bool _hasFetchedData = false;
   bool _isInitialLoadDone = false;
+  bool _hasStartedBackgroundSync = false;
+  bool _isBackgroundSyncRunning = false;
+  DateTime? _lastBackgroundSyncAt;
 
   @override
   void initState() {
@@ -49,38 +53,14 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     super.dispose();
   }
 
-  Future<void> fetchScreenTime() async {
-    final user = context.read<UserViewModel>().userProfile;
-    if (user == null) return;
-
-    final achievementVM = context.read<AchievementViewModel>();
-
-    final String result = await context
-        .read<DailyActivityViewModel>()
-        .fetchAndSaveScreenTime(user.userId, achievementVM);
-
-    if (mounted) {
-      setState(() {
-        _screenTime = result;
-      });
-    }
-  }
-
   Future<void> _bootstrap(String userId) async {
     final sleepVM = context.read<SleepViewModel>();
     final dailyVM = context.read<DailyActivityViewModel>();
-    final achievementVM = context.read<AchievementViewModel>();
 
     try {
-      await sleepVM.loadSleepData(
-        context: context,
-        userId: userId,
-        achievementVM: achievementVM,
-      );
-
+      // 1) Load cached/local data first for instant UI
+      await sleepVM.loadFromDatabase(userId: userId);
       await dailyVM.loadTodayData(userId);
-      await dailyVM.fetchAndSaveExerciseFromHealthConnect(userId);
-      await dailyVM.fetchAndSaveScreenTime(userId, achievementVM);
       await dailyVM.loadWeeklyData(userId);
 
       if (!mounted) return;
@@ -88,12 +68,58 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
         _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
         _isInitialLoadDone = true;
       });
+
+      // 2) Background sync only once
+      if (!_hasStartedBackgroundSync) {
+        _hasStartedBackgroundSync = true;
+        unawaited(_backgroundRefresh(userId));
+      }
     } catch (e) {
       debugPrint("❌ Sleep dashboard bootstrap error: $e");
       if (!mounted) return;
       setState(() {
         _isInitialLoadDone = true;
       });
+    }
+  }
+
+  Future<void> _backgroundRefresh(String userId) async {
+    if (_isBackgroundSyncRunning) return;
+
+    final now = DateTime.now();
+    if (_lastBackgroundSyncAt != null &&
+        now.difference(_lastBackgroundSyncAt!) < const Duration(minutes: 5)) {
+      debugPrint('⏭️ Background sync skipped: recently synced.');
+      return;
+    }
+
+    _isBackgroundSyncRunning = true;
+    _lastBackgroundSyncAt = now;
+
+    final sleepVM = context.read<SleepViewModel>();
+    final dailyVM = context.read<DailyActivityViewModel>();
+    final achievementVM = context.read<AchievementViewModel>();
+
+    try {
+      // Keep background work minimal
+      await sleepVM.syncInBackground(
+        context: context,
+        userId: userId,
+        achievementVM: achievementVM,
+      );
+
+      // Only reload cached/local daily data after sleep sync
+      await dailyVM.loadTodayData(userId);
+      await dailyVM.loadWeeklyData(userId);
+
+      if (!mounted) return;
+      setState(() {
+        _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
+      });
+    } catch (e) {
+      debugPrint("❌ Sleep dashboard background refresh error: $e");
+    } finally {
+      _isBackgroundSyncRunning = false;
     }
   }
 
@@ -134,6 +160,31 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _fullRefresh() async {
+    final user = context.read<UserViewModel>().userProfile;
+    if (user == null) return;
+
+    final sleepVM = context.read<SleepViewModel>();
+    final dailyVM = context.read<DailyActivityViewModel>();
+    final achievementVM = context.read<AchievementViewModel>();
+
+    await sleepVM.refreshData(
+      context: context,
+      userId: user.userId,
+      achievementVM: achievementVM,
+    );
+
+    // Full refresh should be manual only
+    await dailyVM.loadTodayData(user.userId);
+    await dailyVM.loadWeeklyData(user.userId);
+
+    if (!mounted) return;
+    setState(() {
+      _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
+      _lastBackgroundSyncAt = DateTime.now();
+    });
   }
 
   @override
@@ -197,6 +248,8 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
                 setState(() {
                   _isInitialLoadDone = false;
+                  _hasFetchedData = false;
+                  _hasStartedBackgroundSync = false;
                 });
 
                 await _bootstrap(u.userId);
@@ -213,35 +266,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
                 text: text,
                 accent: accent,
                 screenTime: _screenTime,
-                onRefresh: () async {
-                  final user = context.read<UserViewModel>().userProfile;
-                  if (user == null) return;
-
-                  final achievementVM =
-                  context.read<AchievementViewModel>();
-
-                  await viewModel.refreshData(
-                    context: context,
-                    userId: user.userId,
-                    achievementVM: achievementVM,
-                  );
-
-                  await dailyVM.loadTodayData(user.userId);
-                  await dailyVM.fetchAndSaveExerciseFromHealthConnect(
-                    user.userId,
-                  );
-                  await dailyVM.fetchAndSaveScreenTime(
-                    user.userId,
-                    achievementVM,
-                  );
-                  await dailyVM.loadWeeklyData(user.userId);
-
-                  if (!mounted) return;
-                  setState(() {
-                    _screenTime =
-                        dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
-                  });
-                },
+                onRefresh: _fullRefresh,
                 onSubmitMood: _submitMood,
               ),
               SleepDashboardWeeklyTab(
@@ -250,35 +275,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
                 text: text,
                 accent: accent,
                 last7DaysLabels: _getLast7DaysLabels(),
-                onRefresh: () async {
-                  final user = context.read<UserViewModel>().userProfile;
-                  if (user == null) return;
-
-                  final achievementVM =
-                  context.read<AchievementViewModel>();
-
-                  await viewModel.refreshData(
-                    context: context,
-                    userId: user.userId,
-                    achievementVM: achievementVM,
-                  );
-
-                  await dailyVM.loadTodayData(user.userId);
-                  await dailyVM.fetchAndSaveExerciseFromHealthConnect(
-                    user.userId,
-                  );
-                  await dailyVM.fetchAndSaveScreenTime(
-                    user.userId,
-                    achievementVM,
-                  );
-                  await dailyVM.loadWeeklyData(user.userId);
-
-                  if (!mounted) return;
-                  setState(() {
-                    _screenTime =
-                        dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
-                  });
-                },
+                onRefresh: _fullRefresh,
               ),
             ],
           );

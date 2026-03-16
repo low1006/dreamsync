@@ -178,7 +178,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                   .toList(),
               labels: last7DaysLabels,
               color: Colors.orange,
-              unit: "m",
+              unit: "h",
             ),
 
             const SizedBox(height: 24),

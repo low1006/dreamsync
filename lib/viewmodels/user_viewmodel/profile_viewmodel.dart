@@ -4,80 +4,86 @@ import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
 
 class UserViewModel extends ChangeNotifier {
-  final _client = Supabase.instance.client;
-  late final UserRepository _repository = UserRepository(_client);
-  UserModel? userProfile;
-  bool isLoading = false;
-  bool _isDisposed = false;
+  final UserRepository _repository =
+  UserRepository(Supabase.instance.client);
 
-  @override
-  void dispose() {
-    _isDisposed = true;
-    super.dispose();
-  }
+  UserModel? _userProfile;
+  bool _isLoading = false;
 
-  void _safeNotify() {
-    if (!_isDisposed) notifyListeners();
-  }
+  UserModel? get userProfile => _userProfile;
+  bool get isLoading => _isLoading;
+  double get sleepGoalHours => _userProfile?.sleepGoalHours ?? 8.0;
 
   Future<void> fetchProfile(String userId) async {
-    isLoading = true;
-    _safeNotify();
+    _isLoading = true;
+    notifyListeners();
 
-    try {
-      // 🔥 Now uses the safe fetch method that won't hang without internet
-      userProfile = await _repository.getProfileSafe(userId);
-    } catch (e) {
-      debugPrint("❌ ViewModel Error fetching profile: $e");
-    } finally {
-      // 🔥 The finally block GUARANTEES the loading spinner stops no matter what
-      isLoading = false;
-      _safeNotify();
-    }
+    _userProfile = await _repository.getProfileSafe(userId);
+
+    _isLoading = false;
+    notifyListeners();
   }
 
-  Future<void> updateUserProfile({
+  Future<void> updateProfileData({
     required double weight,
     required double height,
-    required double sleepGoal,
   }) async {
-    if (userProfile == null) return;
+    final userId = _userProfile?.userId;
+    if (userId == null) return;
 
-    isLoading = true;
-    _safeNotify();
+    await _repository.updateProfileData(
+      userId: userId,
+      weight: weight,
+      height: height,
+    );
+
+    _userProfile = _userProfile?.copyWith(
+      weight: weight,
+      height: height,
+    );
+
+    notifyListeners();
+  }
+
+  Future<void> updateSleepGoal(double hours) async {
+    final userId = _userProfile?.userId;
+    if (userId == null) return;
+
+    await _repository.updateSleepGoal(
+      userId: userId,
+      sleepGoalHours: hours,
+    );
+
+    _userProfile = _userProfile?.copyWith(
+      sleepGoalHours: hours,
+    );
+
+    notifyListeners();
+  }
+
+  Future<void> deleteUserAccount() async {
+    _isLoading = true;
+    notifyListeners();
+
     try {
-      await _repository.updateProfileData(
-        userId: userProfile!.userId,
-        weight: weight,
-        height: height,
-      );
-      // Fetch again to update the local SharedPreferences cache
-      await fetchProfile(userProfile!.userId);
-    } catch (e) {
-      debugPrint("Error updating profile: $e");
+      await _repository.deleteAccount();
+      _userProfile = null;
     } finally {
-      isLoading = false;
-      _safeNotify();
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
   Future<void> signOut() async {
-    await _repository.signOut();
-  }
+    _isLoading = true;
+    notifyListeners();
 
-  Future<void> deleteUserAccount() async {
-    isLoading = true;
-    _safeNotify();
     try {
-      // This calls delete_user_account() SQL function
-      // which deletes auth.users row → CASCADE deletes profile
-      await _repository.deleteAccount();
-    } catch (e) {
-      debugPrint("Error deleting account: $e");
+      await _repository.signOut();
+      _userProfile = null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-    // ← No finally notifyListeners here — ViewModel is
-    //   already disposed after signOut, so we use _safeNotify
-    isLoading = false;
-    _safeNotify();
   }
 }

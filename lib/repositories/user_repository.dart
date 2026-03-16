@@ -11,7 +11,12 @@ class UserRepository extends BaseRepository<UserModel> {
       : super(client, 'profile', 'user_id', (json) => UserModel.fromJson(json));
 
   Future<void> createUser(UserModel user) async {
-    await create(user.toJson());
+    final userWithDefaultGoal = user.copyWith(
+      sleepGoalHours: user.sleepGoalHours <= 0 ? 8.0 : user.sleepGoalHours,
+    );
+
+    await create(userWithDefaultGoal.toJson());
+    await _cacheProfile(userWithDefaultGoal);
   }
 
   Future<void> deleteAccount() async {
@@ -44,10 +49,7 @@ class UserRepository extends BaseRepository<UserModel> {
         final user = await getById(userId).timeout(const Duration(seconds: 5));
 
         if (user != null) {
-          await prefs.setString(
-            'cached_user_profile_$userId',
-            jsonEncode(user.toJson()),
-          );
+          await _cacheProfile(user);
         }
 
         return user;
@@ -73,27 +75,57 @@ class UserRepository extends BaseRepository<UserModel> {
     return null;
   }
 
+  Future<void> _cacheProfile(UserModel user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'cached_user_profile_${user.userId}',
+      jsonEncode(user.toJson()),
+    );
+  }
+
+  Future<UserModel?> getCachedProfileOnly(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return _getCachedProfile(userId, prefs);
+  }
+
   Future<void> updateProfileData({
     required String userId,
     required double weight,
     required double height,
   }) async {
     try {
-      final isOnline = await NetworkHelper.isOnline();
+      UserModel? current = await getCachedProfileOnly(userId);
+      current ??= await getProfileSafe(userId);
 
-      if (!isOnline) {
-        debugPrint("📴 Offline: Cannot update profile to Supabase right now.");
+      if (current == null) {
+        debugPrint("❌ Cannot update profile cache: user not found.");
         return;
       }
 
-      await client
-          .from(tableName)
-          .update({
-        'weight': weight,
-        'height': height,
-      })
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
+      final updated = current.copyWith(
+        weight: weight,
+        height: height,
+      );
+
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (isOnline) {
+        await client
+            .from(tableName)
+            .update({
+          'weight': weight,
+          'height': height,
+        })
+            .eq('user_id', userId)
+            .timeout(const Duration(seconds: 5));
+
+        debugPrint("✅ Profile updated in Supabase.");
+      } else {
+        debugPrint("📴 Offline: Supabase not updated, caching profile locally.");
+      }
+
+      await _cacheProfile(updated);
+      debugPrint("✅ Profile updated in local cache.");
     } catch (e) {
       debugPrint("❌ Failed to update profile data: $e");
     }
@@ -104,20 +136,36 @@ class UserRepository extends BaseRepository<UserModel> {
     required double sleepGoalHours,
   }) async {
     try {
-      final isOnline = await NetworkHelper.isOnline();
+      UserModel? current = await getCachedProfileOnly(userId);
+      current ??= await getProfileSafe(userId);
 
-      if (!isOnline) {
-        debugPrint("📴 Offline: Cannot update sleep goal right now.");
+      if (current == null) {
+        debugPrint("❌ Cannot update sleep goal cache: user not found.");
         return;
       }
 
-      await client
-          .from(tableName)
-          .update({
-        'sleep_goal_hours': sleepGoalHours,
-      })
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
+      final updated = current.copyWith(
+        sleepGoalHours: sleepGoalHours,
+      );
+
+      final isOnline = await NetworkHelper.isOnline();
+
+      if (isOnline) {
+        await client
+            .from(tableName)
+            .update({
+          'sleep_goal_hours': sleepGoalHours,
+        })
+            .eq('user_id', userId)
+            .timeout(const Duration(seconds: 5));
+
+        debugPrint("✅ Sleep goal updated in Supabase.");
+      } else {
+        debugPrint("📴 Offline: Supabase not updated, caching sleep goal locally.");
+      }
+
+      await _cacheProfile(updated);
+      debugPrint("✅ Sleep goal updated in local cache.");
     } catch (e) {
       debugPrint("❌ Failed to update sleep goal: $e");
     }

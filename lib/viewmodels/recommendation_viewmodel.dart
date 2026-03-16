@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/services/recommendation_service.dart';
+import 'package:dreamsync/repositories/user_repository.dart';
 
 class RecommendationViewModel extends ChangeNotifier {
   bool isLoading = false;
   String errorMessage = '';
   SleepRecommendation? currentRecommendation;
+
+  final UserRepository _userRepository =
+  UserRepository(Supabase.instance.client);
 
   DateTime? _lastLoadedAt;
   String? _lastUserId;
@@ -41,6 +46,7 @@ class RecommendationViewModel extends ChangeNotifier {
         exerciseMinutes: exerciseMinutes,
         foodCalories: foodCalories,
         screenMinutes: screenMinutes,
+        forceRefresh: forceRefresh,
       );
 
       if (rec == null) {
@@ -51,10 +57,15 @@ class RecommendationViewModel extends ChangeNotifier {
         _lastLoadedAt = DateTime.now();
         _lastUserId = userId;
         errorMessage = '';
+
+        await _userRepository.updateSleepGoal(
+          userId: userId,
+          sleepGoalHours: rec.recommendedHours,
+        );
       }
     } catch (e) {
       currentRecommendation = null;
-      errorMessage = 'Failed to load recommendation.';
+      errorMessage = 'Failed to load recommendation: $e';
       debugPrint('❌ RecommendationViewModel error: $e');
     } finally {
       isLoading = false;

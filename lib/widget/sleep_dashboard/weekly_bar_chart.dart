@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dreamsync/util/time_formatter.dart';
 
 class WeeklyBarChart extends StatelessWidget {
   final List<double> values;
@@ -26,7 +27,7 @@ class WeeklyBarChart extends StatelessWidget {
     if (calculatedMax == 0) calculatedMax = 1;
 
     return Container(
-      padding: const EdgeInsets.only(top: 20, right: 8, left: 8, bottom: 12),
+      padding: const EdgeInsets.fromLTRB(6, 16, 6, 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -42,105 +43,130 @@ class WeeklyBarChart extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 32,
-            height: 130,
+            width: 42,
+            height: 126,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  _formatValue(calculatedMax) + unit,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _formatAxisValue(calculatedMax),
+                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    maxLines: 1,
+                  ),
                 ),
-                Text(
-                  _formatValue(calculatedMax / 2) + unit,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _formatAxisValue(calculatedMax / 2),
+                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    maxLines: 1,
+                  ),
                 ),
-                Text(
-                  "0$unit",
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _formatAxisValue(0),
+                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    maxLines: 1,
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
           Expanded(
             child: Column(
               children: [
                 Container(
-                  height: 130,
+                  height: 126,
                   decoration: const BoxDecoration(
                     border: Border(
-                      left: BorderSide(color: Colors.black26, width: 2),
-                      bottom: BorderSide(color: Colors.black26, width: 2),
+                      left: BorderSide(color: Colors.black26, width: 1.5),
+                      bottom: BorderSide(color: Colors.black26, width: 1.5),
                     ),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: List.generate(values.length, (index) {
-                      double heightFactor = values[index] / calculatedMax;
-                      bool isToday = index == values.length - 1;
+                      final double heightFactor =
+                      (values[index] / calculatedMax).clamp(0.0, 1.0);
+                      final bool isToday = index == values.length - 1;
 
-                      return SizedBox(
-                        width: 32,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Text(
-                              values[index] > 0 ? _formatValue(values[index]) : "0",
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: isToday ? color : Colors.grey.shade600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              height: values[index] == 0 ? 2 : 110 * heightFactor,
-                              width: 20,
-                              decoration: BoxDecoration(
-                                color: values[index] == 0
-                                    ? Colors.grey.shade300
-                                    : (isToday ? color : color.withOpacity(0.4)),
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(4),
-                                  topRight: Radius.circular(4),
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 1),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              SizedBox(
+                                height: 24,
+                                child: Center(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      values[index] > 0
+                                          ? _formatBarValue(values[index])
+                                          : TimeFormatter.formatZeroByUnit(unit),
+                                      maxLines: 1,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w600,
+                                        color: isToday
+                                            ? color
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 2),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(labels.length, (index) {
-                      bool isToday = index == labels.length - 1;
-                      return SizedBox(
-                        width: 32,
-                        child: Center(
-                          child: Text(
-                            labels[index],
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight:
-                              isToday ? FontWeight.bold : FontWeight.w500,
-                              color:
-                              isToday ? Colors.black87 : Colors.grey.shade600,
-                            ),
-                            softWrap: false,
-                            overflow: TextOverflow.visible,
+                              const SizedBox(height: 4),
+                              Container(
+                                height:
+                                values[index] == 0 ? 2 : 94 * heightFactor,
+                                width: 14,
+                                decoration: BoxDecoration(
+                                  color: values[index] == 0
+                                      ? Colors.grey.shade300
+                                      : (isToday
+                                      ? color
+                                      : color.withOpacity(0.4)),
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(4),
+                                    topRight: Radius.circular(4),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       );
                     }),
                   ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: List.generate(labels.length, (index) {
+                    final bool isToday = index == labels.length - 1;
+                    return Expanded(
+                      child: Text(
+                        labels[index],
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight:
+                          isToday ? FontWeight.bold : FontWeight.w500,
+                          color:
+                          isToday ? Colors.black87 : Colors.grey.shade600,
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ],
             ),
@@ -150,9 +176,11 @@ class WeeklyBarChart extends StatelessWidget {
     );
   }
 
-  String _formatValue(double val) {
-    if (val == 0) return "0";
-    if (isDecimal) return val.toStringAsFixed(1);
-    return val.toInt().toString();
+  String _formatAxisValue(double val) {
+    return TimeFormatter.formatByUnit(val, unit);
+  }
+
+  String _formatBarValue(double val) {
+    return TimeFormatter.formatByUnit(val, unit);
   }
 }
