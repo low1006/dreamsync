@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
+import 'package:dreamsync/util/local_database.dart';
 
 class UserViewModel extends ChangeNotifier {
-  final UserRepository _repository =
-  UserRepository(Supabase.instance.client);
+  final UserRepository _repository = UserRepository();
 
   UserModel? _userProfile;
   bool _isLoading = false;
+
+  // ✅ FIX: Disposed guard — prevents "used after disposed" crash.
+  // signOut() triggers widget-tree teardown while the async call is still
+  // in-flight. By the time the finally block runs, the VM is already disposed,
+  // so every bare notifyListeners() throws. _safeNotify() silently no-ops instead.
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _safeNotify() {
+    if (!_disposed) notifyListeners();
+  }
 
   UserModel? get userProfile => _userProfile;
   bool get isLoading => _isLoading;
@@ -16,12 +31,12 @@ class UserViewModel extends ChangeNotifier {
 
   Future<void> fetchProfile(String userId) async {
     _isLoading = true;
-    notifyListeners();
+    _safeNotify();
 
     _userProfile = await _repository.getProfileSafe(userId);
 
     _isLoading = false;
-    notifyListeners();
+    _safeNotify();
   }
 
   Future<void> updateProfileData({
@@ -37,13 +52,12 @@ class UserViewModel extends ChangeNotifier {
       height: height,
     );
 
-    // Directly update the mutable properties instead of using copyWith
     if (_userProfile != null) {
       _userProfile!.weight = weight;
       _userProfile!.height = height;
     }
 
-    notifyListeners();
+    _safeNotify();
   }
 
   Future<void> updateSleepGoal(double hours) async {
@@ -55,37 +69,55 @@ class UserViewModel extends ChangeNotifier {
       sleepGoalHours: hours,
     );
 
-    // Directly update the mutable property instead of using copyWith
     if (_userProfile != null) {
       _userProfile!.sleepGoalHours = hours;
     }
 
-    notifyListeners();
+    _safeNotify();
   }
 
   Future<void> deleteUserAccount() async {
     _isLoading = true;
-    notifyListeners();
+    _safeNotify();
 
     try {
+      await LocalDatabase.instance.closeDatabase();
       await _repository.deleteAccount();
       _userProfile = null;
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
   Future<void> signOut() async {
     _isLoading = true;
-    notifyListeners();
+    _safeNotify();
 
     try {
+      // Close DB first so the static singleton is cleared before Supabase
+      // tears down the session and Flutter disposes the widget tree.
+      await LocalDatabase.instance.closeDatabase();
       await _repository.signOut();
       _userProfile = null;
     } finally {
       _isLoading = false;
-      notifyListeners();
+      // _safeNotify() is a no-op if Flutter already disposed this VM
+      // during the await above — which is exactly what was crashing.
+      _safeNotify();
     }
+  }
+
+  Future<void> updatePoints(int newPoints) async {
+    final userId = _userProfile?.userId;
+    if (userId == null) return;
+
+    await _repository.updatePoints(userId, newPoints);
+
+    if (_userProfile != null) {
+      _userProfile!.currentPoints = newPoints;
+    }
+
+    _safeNotify();
   }
 }

@@ -4,11 +4,11 @@ class UserModel {
   final String email;
   final String gender;
   final String dateBirth;
-  double weight;          // Removed 'final'
-  double height;          // Removed 'final'
+  double weight;
+  double height;
   final String uidText;
-  final int currentPoints;
-  double sleepGoalHours;  // Removed 'final'
+  int currentPoints;
+  double sleepGoalHours;
   final int streak;
 
   UserModel({

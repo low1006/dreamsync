@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/models/user_model.dart';
+import 'package:dreamsync/views/reward_store_screen.dart';
 
 class AchievementScreen extends StatefulWidget {
   const AchievementScreen({super.key});
@@ -20,17 +22,10 @@ class _AchievementScreenState extends State<AchievementScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-
-    // ✅ FIX: Re-fetch achievements and leaderboard every time this screen
-    // opens. This ensures progress updated by sleep/friend syncs (which write
-    // to Supabase and update the local list) is always reflected here, even
-    // if the user navigates away and comes back.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = context.read<UserViewModel>().userProfile;
       if (user != null) {
-        context
-            .read<AchievementViewModel>()
-            .fetchUserAchievements(user.userId);
+        context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
       }
       context.read<FriendViewModel>().loadLeaderboard();
     });
@@ -55,24 +50,29 @@ class _AchievementScreenState extends State<AchievementScreen>
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
-        title: Text(
-          "Achievements",
-          style: TextStyle(color: text, fontWeight: FontWeight.bold),
-        ),
-        iconTheme: IconThemeData(color: text),
+        title: Text("Achievements", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: accent,
           labelColor: accent,
           unselectedLabelColor: text.withOpacity(0.5),
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          dividerColor: text.withOpacity(0.1),
-          tabs: const [
-            Tab(text: "Badges"),
-            Tab(text: "Leaderboard"),
-          ],
+          tabs: const [Tab(text: "Badges"), Tab(text: "Leaderboard")],
         ),
       ),
+
+      // ✅ STICKY STORE BUTTON (Bottom-Left)
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const RewardStoreScreen()),
+        ),
+        backgroundColor: Colors.amber,
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.shopping_bag_outlined),
+        label: const Text("Store", style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -82,9 +82,8 @@ class _AchievementScreenState extends State<AchievementScreen>
       ),
     );
   }
-
   // ─────────────────────────────────────────────
-  // BADGES TAB
+  // BADGES TAB (WITH CLEAR SEPARATION)
   // ─────────────────────────────────────────────
   Widget _buildBadgesTab(BuildContext context, Color text, Color accent) {
     return Consumer<AchievementViewModel>(
@@ -102,116 +101,200 @@ class _AchievementScreenState extends State<AchievementScreen>
           );
         }
 
-        return ListView.separated(
+        // ✅ 1. Separate the achievements based on their category
+        final dailyTasks = vm.userAchievements
+            .where((ua) => ua.achievement?.category == 'Daily')
+            .toList();
+
+        final permanentMilestones = vm.userAchievements
+            .where((ua) => ua.achievement?.category != 'Daily')
+            .toList();
+
+        return ListView(
           padding: const EdgeInsets.all(20),
-          itemCount: vm.userAchievements.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final userAchievement = vm.userAchievements[index];
-            final badge = userAchievement.achievement;
+          children: [
+            // ✅ 2. Build Daily Section
+            if (dailyTasks.isNotEmpty) ...[
+              _buildSectionHeader("Daily Tasks", Icons.today, text, accent),
+              const SizedBox(height: 12),
+              ...dailyTasks.map((ua) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildBadgeCard(ua, context, text, accent),
+              )),
+              const SizedBox(height: 20),
+            ],
 
-            if (badge == null) return const SizedBox.shrink();
-
-            final progress =
-            (userAchievement.currentProgress / badge.criteriaValue)
-                .clamp(0.0, 1.0);
-
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  // Highlight unlocked badges with a subtle gold border
-                  color: userAchievement.isUnlocked
-                      ? Colors.amber.withOpacity(0.4)
-                      : text.withOpacity(0.05),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Badge icon
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: userAchievement.isUnlocked
-                          ? Colors.amber.withOpacity(0.1)
-                          : text.withOpacity(0.05),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.emoji_events,
-                      color: userAchievement.isUnlocked
-                          ? Colors.amber
-                          : text.withOpacity(0.3),
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-
-                  // Title, description, progress bar
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          badge.title,
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: text),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          badge.description,
-                          style: TextStyle(
-                              color: text.withOpacity(0.6), fontSize: 13),
-                        ),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            backgroundColor: text.withOpacity(0.1),
-                            color: userAchievement.isUnlocked
-                                ? Colors.green
-                                : accent,
-                            minHeight: 6,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: text.withOpacity(0.5),
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Unlocked tick
-                  if (userAchievement.isUnlocked)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 8.0),
-                      child: Icon(Icons.check_circle,
-                          color: Colors.green, size: 20),
-                    ),
-                ],
-              ),
-            );
-          },
+            // ✅ 3. Build Permanent Milestones Section
+            if (permanentMilestones.isNotEmpty) ...[
+              _buildSectionHeader("Milestones", Icons.military_tech, text, accent),
+              const SizedBox(height: 12),
+              ...permanentMilestones.map((ua) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildBadgeCard(ua, context, text, accent),
+              )),
+            ],
+          ],
         );
       },
+    );
+  }
+
+  // Helper Widget for Headers
+  Widget _buildSectionHeader(String title, IconData icon, Color text, Color accent) {
+    return Row(
+      children: [
+        Icon(icon, color: accent, size: 22),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: text,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Extracted Badge Card Widget to keep the ListView clean
+  Widget _buildBadgeCard(
+      UserAchievementModel userAchievement, BuildContext context, Color text, Color accent) {
+    final badge = userAchievement.achievement;
+    if (badge == null) return const SizedBox.shrink();
+
+    final progress =
+    (userAchievement.currentProgress / badge.criteriaValue).clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: userAchievement.isUnlocked
+              ? Colors.amber.withOpacity(0.4)
+              : text.withOpacity(0.05),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Badge icon
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: userAchievement.isUnlocked
+                  ? Colors.amber.withOpacity(0.1)
+                  : text.withOpacity(0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.emoji_events,
+              color: userAchievement.isUnlocked
+                  ? Colors.amber
+                  : text.withOpacity(0.3),
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+
+          // Title, description, progress bar
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  badge.title,
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16, color: text),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  badge.description,
+                  style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: text.withOpacity(0.1),
+                    color: userAchievement.isUnlocked ? Colors.green : accent,
+                    minHeight: 6,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: text.withOpacity(0.5),
+                      fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+
+          // Claim Button or Claimed Text
+          if (userAchievement.isUnlocked)
+            Padding(
+              padding: const EdgeInsets.only(left: 12.0),
+              child: userAchievement.isClaimed
+                  ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle,
+                      color: Colors.green, size: 28),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Claimed",
+                    style: TextStyle(
+                        color: Colors.green.shade600,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ],
+              )
+                  : ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () {
+                  final userVM = context.read<UserViewModel>();
+                  context.read<AchievementViewModel>().claimReward(
+                    userAchievement.userAchievementId,
+                    userVM,
+                  );
+                },
+                child: Text(
+                  "Claim\n+${badge.xpReward.toInt()}",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      height: 1.2),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

@@ -12,6 +12,19 @@ class RecommendationCacheRepository {
     );
   }
 
+  Future<SleepRecommendationCacheModel?> getLatestRecommendation(String userId) async {
+    final db = await LocalDatabase.instance.database;
+    final rows = await db.query(
+      'sleep_recommendation',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC', // Gets the most recent recommendation
+      limit: 1,
+    );
+
+    if (rows.isEmpty) return null;
+    return SleepRecommendationCacheModel.fromMap(rows.first);
+  }
   Future<SleepRecommendationCacheModel?> getToday({
     required String userId,
     required String date,

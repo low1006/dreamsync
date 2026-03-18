@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS user_achievement (
   achievement_id TEXT NOT NULL,
   progress REAL DEFAULT 0,
   is_unlocked INTEGER DEFAULT 0,
+  is_claimed INTEGER DEFAULT 0,
+  date_claimed TEXT,
   is_synced INTEGER DEFAULT 0
 );
 
@@ -106,3 +108,4 @@ CREATE TABLE IF NOT EXISTS sleep_recommendation (
   generated_at TEXT NOT NULL,
   PRIMARY KEY (user_id, date)
 );
+

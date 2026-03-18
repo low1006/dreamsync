@@ -1,6 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import 'package:dreamsync/models/sleep_model/sleep_record_model.dart';
 import 'package:dreamsync/util/local_database.dart';
@@ -22,6 +23,105 @@ class SleepRepository {
     }
   }
 
+  /// Columns that exist locally (SQLite) but are NOT in the Supabase schema.
+  /// Supabase sleep_record only has:
+  ///   record_id, date, total_minutes, sleep_score, created_at, user_id, mood_feedback
+  ///
+  /// Everything else is local-only and must be stripped before any upsert.
+  static const List<String> _localOnlyColumns = [
+    'is_synced',
+    'deep_minutes',
+    'light_minutes',
+    'rem_minutes',
+    'awake_minutes',
+    'hypnogram_json',
+  ];
+
+  /// Strips all local-only columns from a record map before upserting to Supabase.
+  Map<String, dynamic> _toSupabaseJson(Map<String, dynamic> json) {
+    final copy = Map<String, dynamic>.from(json);
+    for (final col in _localOnlyColumns) {
+      copy.remove(col);
+    }
+    return copy;
+  }
+
+  // ─── Queries ────────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>?> getLatestDailyRecord(String userId) async {
+    try {
+      final db = await LocalDatabase.instance.database;
+      final rows = await db.rawQuery('''
+        SELECT *
+        FROM sleep_record
+        WHERE user_id = ? AND total_minutes > 0
+        ORDER BY date DESC
+        LIMIT 1
+      ''', [userId]);
+
+      if (rows.isNotEmpty) return rows.first;
+    } catch (e) {
+      debugPrint('❌ getLatestDailyRecord error: $e');
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> getLatestRecordForMoodCheck(
+      String userId, String cutoffDate) async {
+    try {
+      final db = await LocalDatabase.instance.database;
+      final rows = await db.rawQuery('''
+        SELECT date, mood_feedback
+        FROM sleep_record
+        WHERE user_id = ? AND date >= ? AND total_minutes > 0
+        ORDER BY date DESC
+        LIMIT 1
+      ''', [userId, cutoffDate]);
+
+      if (rows.isNotEmpty) return rows.first;
+    } catch (e) {
+      debugPrint('❌ getLatestRecordForMoodCheck error: $e');
+    }
+    return null;
+  }
+
+  Future<List<SleepRecordModel>> getAllSleepRecords(String userId) async {
+    try {
+      final db = await LocalDatabase.instance.database;
+      final rows = await db.query(
+        'sleep_record',
+        where: 'user_id = ?',
+        whereArgs: [userId],
+        orderBy: 'date ASC',
+      );
+      return rows.map((e) => SleepRecordModel.fromJson(e)).toList();
+    } catch (e) {
+      debugPrint('❌ Error getting all sleep records: $e');
+      return [];
+    }
+  }
+
+  Future<List<SleepRecordModel>> getSleepRecordsByDateRange(
+      String userId, String startDateStr, String endDateStr) async {
+    try {
+      final db = await LocalDatabase.instance.database;
+      final rows = await db.query(
+        'sleep_record',
+        where: 'user_id = ? AND date >= ? AND date <= ?',
+        whereArgs: [userId, startDateStr, endDateStr],
+        orderBy: 'date DESC',
+      );
+      return rows
+          .map((e) => SleepRecordModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      debugPrint('❌ Error fetching sleep data range: $e');
+      return [];
+    }
+  }
+
+  // ─── Writes ─────────────────────────────────────────────────────────────────
+
   Future<void> saveDailySummary(SleepRecordModel record) async {
     await saveDailySummaries([record]);
   }
@@ -30,160 +130,88 @@ class SleepRepository {
     if (records.isEmpty) return;
 
     final online = await _isOnline();
-    final db     = await LocalDatabase.instance.database;
+    final db = await LocalDatabase.instance.database;
 
     for (final record in records) {
       try {
-        // Check if a record already exists for this date to preserve mood_feedback
+        // Preserve any existing mood feedback so a sync never wipes it
         final existing = await db.query(
           'sleep_record',
-          columns  : ['mood_feedback'],
-          where    : 'user_id = ? AND date = ?',
+          columns: ['mood_feedback'],
+          where: 'user_id = ? AND date = ?',
           whereArgs: [record.userId, record.date],
-          limit    : 1,
         );
 
-        // Keep existing mood_feedback if present — never overwrite with null
-        final existingMood = existing.isNotEmpty
-            ? existing.first['mood_feedback'] as String?
-            : null;
-
-        final json = record.toLocalJson();
-        if (existingMood != null && existingMood.isNotEmpty) {
-          json['mood_feedback'] = existingMood;
+        String? preservedMood;
+        if (existing.isNotEmpty) {
+          preservedMood = existing.first['mood_feedback'] as String?;
+        }
+        if (preservedMood == null || preservedMood.isEmpty) {
+          preservedMood = record.moodFeedback;
         }
 
-        await LocalDatabase.instance.insertRecord(
+        final toInsert = record.toJson();
+        toInsert['mood_feedback'] = preservedMood;
+        toInsert['is_synced'] = online ? 1 : 0;
+
+        await db.insert(
           'sleep_record',
-          json,
-          isSynced: false,
+          toInsert,
+          conflictAlgorithm: ConflictAlgorithm.replace,
         );
-
-        if (online) {
-          await _client.from('sleep_record').upsert(
-            record.toSupabaseSummaryJson(),
-            onConflict: 'user_id,date',
-          );
-
-          if (record.id != null) {
-            await LocalDatabase.instance.markAsSynced(
-              'sleep_record',
-              record.id,
-            );
-          }
-
-          debugPrint('✅ Sleep summary synced: ${record.date}');
-        } else {
-          debugPrint('💾 Sleep detail saved locally only: ${record.date}');
-        }
       } catch (e) {
-        debugPrint('❌ Failed saving sleep record ${record.date}: $e');
+        debugPrint('❌ Failed to save local daily summary: $e');
       }
     }
-  }
 
-  Future<void> syncOfflineData() async {
-    final unsyncedRecords =
-    await LocalDatabase.instance.getUnsyncedRecords('sleep_record');
-
-    if (unsyncedRecords.isEmpty) return;
-    if (!await _isOnline()) return;
-
-    debugPrint('🔄 Syncing ${unsyncedRecords.length} offline sleep records...');
-
-    for (final recordJson in unsyncedRecords) {
+    if (online) {
       try {
-        final record = SleepRecordModel.fromLocalJson(
-          Map<String, dynamic>.from(recordJson),
-        );
+        // ✅ FIX 2: Strip awake_minutes (and is_synced) before sending to Supabase
+        final toUpsert =
+        records.map((r) => _toSupabaseJson(r.toJson())).toList();
 
-        await _client.from('sleep_record').upsert(
-          record.toSupabaseSummaryJson(),
-          onConflict: 'user_id,date',
-        );
+        // ✅ FIX: specify onConflict so Supabase updates on (user_id, date)
+        // instead of defaulting to primary key and throwing a duplicate error.
+        await _client
+            .from('sleep_record')
+            .upsert(toUpsert, onConflict: 'user_id,date');
 
-        if (record.id != null) {
-          await LocalDatabase.instance.markAsSynced(
+        // Mark all records as synced locally
+        for (final r in records) {
+          await db.update(
             'sleep_record',
-            record.id,
+            {'is_synced': 1},
+            where: 'user_id = ? AND date = ?',
+            whereArgs: [r.userId, r.date],
           );
         }
-
-        debugPrint('✅ Synced record: ${record.id ?? record.date}');
       } catch (e) {
-        debugPrint(
-          '❌ Failed to sync record ${recordJson['id'] ?? recordJson['date']}: $e',
-        );
+        debugPrint('❌ Failed to upsert to Supabase: $e');
       }
+    } else {
+      debugPrint('📴 Offline: skipped Supabase upsert for daily summaries.');
     }
   }
 
-  Future<List<SleepRecordModel>> getAllSleepRecords(String userId) async {
-    try {
-      final localRecords =
-      await LocalDatabase.instance.getAllByUser('sleep_record', userId);
-
-      return localRecords
-          .map(
-            (json) => SleepRecordModel.fromLocalJson(
-          Map<String, dynamic>.from(json),
-        ),
-      )
-          .toList();
-    } catch (e) {
-      debugPrint('❌ Error fetching all sleep records: $e');
-      return [];
-    }
-  }
-
-  Future<List<SleepRecordModel>> getSleepRecordsByDateRange(
-      String userId,
-      String startDate,
-      String endDate,
-      ) async {
-    try {
-      final localRecords = await LocalDatabase.instance.getRecordsByDateRange(
-        userId,
-        startDate,
-        endDate,
-      );
-
-      return localRecords
-          .map(
-            (json) => SleepRecordModel.fromLocalJson(
-          Map<String, dynamic>.from(json),
-        ),
-      )
-          .toList();
-    } catch (e) {
-      debugPrint('❌ Error fetching sleep data range: $e');
-      return [];
-    }
-  }
-
-  /// Save mood feedback for a sleep record.
-  /// Updates local SQLite first, then syncs to Supabase if online.
   Future<void> saveMoodFeedback({
     required String userId,
     required String date,
-    required String mood,   // 'sad' | 'neutral' | 'happy'
+    required String mood,
   }) async {
     try {
       final db = await LocalDatabase.instance.database;
 
-      // 1. Update local SQLite
       await db.update(
         'sleep_record',
         {
-          'mood_feedback' : mood,
-          'is_synced'     : 0,
+          'mood_feedback': mood,
+          'is_synced': 0,
         },
-        where     : 'user_id = ? AND date = ?',
-        whereArgs : [userId, date],
+        where: 'user_id = ? AND date = ?',
+        whereArgs: [userId, date],
       );
       debugPrint('✅ Mood saved locally: $mood for $date');
 
-      // 2. Sync to Supabase if online
       if (await _isOnline()) {
         await _client
             .from('sleep_record')
@@ -194,15 +222,60 @@ class SleepRepository {
         await db.update(
           'sleep_record',
           {'is_synced': 1},
-          where     : 'user_id = ? AND date = ?',
-          whereArgs : [userId, date],
+          where: 'user_id = ? AND date = ?',
+          whereArgs: [userId, date],
         );
-        debugPrint('✅ Mood synced to Supabase: $mood for $date');
-      } else {
-        debugPrint('📴 Mood queued for sync: $mood for $date');
+        debugPrint('✅ Mood synced to Supabase.');
       }
     } catch (e) {
-      debugPrint('❌ saveMoodFeedback: $e');
+      debugPrint('❌ Failed to save mood feedback: $e');
+      rethrow;
+    }
+  }
+
+  // ─── Offline sync ────────────────────────────────────────────────────────────
+
+  Future<void> syncOfflineData() async {
+    try {
+      if (!await _isOnline()) return;
+
+      final db = await LocalDatabase.instance.database;
+
+      final unsyncedRows = await db.query(
+        'sleep_record',
+        where: 'is_synced = ?',
+        whereArgs: [0],
+      );
+
+      if (unsyncedRows.isEmpty) {
+        debugPrint('✅ All sleep records are already synced.');
+        return;
+      }
+
+      debugPrint(
+          '🔄 Syncing ${unsyncedRows.length} offline sleep records to Supabase...');
+
+      // ✅ FIX 2 (also here): Strip awake_minutes and is_synced from offline batch
+      final List<Map<String, dynamic>> toUpsert = unsyncedRows
+          .map((row) => _toSupabaseJson(Map<String, dynamic>.from(row)))
+          .toList();
+
+      await _client
+          .from('sleep_record')
+          .upsert(toUpsert, onConflict: 'user_id,date');
+
+      for (final row in unsyncedRows) {
+        await db.update(
+          'sleep_record',
+          {'is_synced': 1},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+
+      debugPrint('✅ Offline sleep records synced successfully.');
+    } catch (e) {
+      debugPrint('❌ syncOfflineData error: $e');
     }
   }
 }

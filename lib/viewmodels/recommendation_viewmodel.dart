@@ -8,8 +8,7 @@ class RecommendationViewModel extends ChangeNotifier {
   String errorMessage = '';
   SleepRecommendation? currentRecommendation;
 
-  final UserRepository _userRepository =
-  UserRepository(Supabase.instance.client);
+  final UserRepository _userRepository = UserRepository();
 
   DateTime? _lastLoadedAt;
   String? _lastUserId;

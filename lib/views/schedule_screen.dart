@@ -8,9 +8,12 @@ import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/models/inventory_model.dart';
-import 'package:dreamsync/widget/schedule/day_selector.dart';
-import 'package:dreamsync/widget/tone_selector.dart';
-import 'package:dreamsync/widget/schedule/time_card.dart';
+import 'package:dreamsync/widget/schedule/tone_selector.dart';
+import 'package:dreamsync/widget/schedule/schedule_recommendation_card.dart';
+import 'package:dreamsync/widget/schedule/schedule_time_section.dart';
+import 'package:dreamsync/widget/schedule/schedule_settings_section.dart';
+import 'package:dreamsync/widget/schedule/schedule_tone_card.dart';
+import 'package:dreamsync/util/time_formatter.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -22,6 +25,7 @@ class ScheduleScreen extends StatefulWidget {
 class _ScheduleScreenState extends State<ScheduleScreen> {
   bool _isEditing = false;
   bool _isInit = true;
+  bool _isBootstrapping = false;
   String? _existingId;
 
   late TimeOfDay _bedTime;
@@ -39,6 +43,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   void initState() {
     super.initState();
+
     _bedTime = const TimeOfDay(hour: 22, minute: 30);
     _wakeTime = const TimeOfDay(hour: 7, minute: 0);
     _selectedDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -47,7 +52,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isAlarmOn = true;
     _isSnoozeOn = true;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bootstrap();
+    });
+  }
+
+  Future<void> _bootstrap() async {
+    if (_isBootstrapping) return;
+    _isBootstrapping = true;
+
+    try {
       final scheduleVM = context.read<ScheduleViewModel>();
       final inventoryVM = context.read<InventoryViewModel>();
       final dailyVM = context.read<DailyActivityViewModel>();
@@ -61,34 +75,34 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         await dailyVM.loadTodayData(userId);
         await _loadRecommendation(forceRefresh: true);
       }
-    });
+
+      _syncFromViewModel(scheduleVM);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInit = false;
+        });
+      }
+      _isBootstrapping = false;
+    }
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void _syncFromViewModel(ScheduleViewModel vm) {
+    if (vm.schedules.isEmpty) return;
 
-    if (_isInit) {
-      final vm = context.watch<ScheduleViewModel>();
-      if (!vm.isLoading && vm.schedules.isNotEmpty) {
-        final schedule = vm.schedules.first;
+    final schedule = vm.schedules.first;
 
-        _existingId = schedule.id;
-        _bedTime = schedule.bedtime;
-        _wakeTime = schedule.wakeTime;
-        _selectedDays = List<String>.from(schedule.days);
-        _isAlarmOn = schedule.isActive;
-        _isSmartAlarm = schedule.isSmartAlarm;
-        _isSnoozeOn = schedule.isSnoozeOn;
-        _currentToneId = schedule.toneId;
-        _currentToneName = schedule.toneName;
-        _currentToneFile = schedule.toneFile;
-        _isSmartNotification = schedule.isSmartNotification;
-        _isInit = false;
-      } else if (!vm.isLoading) {
-        _isInit = false;
-      }
-    }
+    _existingId = schedule.id;
+    _bedTime = schedule.bedtime;
+    _wakeTime = schedule.wakeTime;
+    _selectedDays = List<String>.from(schedule.days);
+    _isAlarmOn = schedule.isActive;
+    _isSmartAlarm = schedule.isSmartAlarm;
+    _isSnoozeOn = schedule.isSnoozeOn;
+    _currentToneId = schedule.toneId;
+    _currentToneName = schedule.toneName;
+    _currentToneFile = schedule.toneFile;
+    _isSmartNotification = schedule.isSmartNotification;
   }
 
   Future<void> _loadRecommendation({bool forceRefresh = false}) async {
@@ -116,21 +130,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return hash;
   }
 
-  Future<void> _quickUpdate(bool isAlarmActive) async {
-    if (_existingId == null) return;
-
-    await context.read<ScheduleViewModel>().toggleSchedule(_existingId!, isAlarmActive);
+  Future<void> _rescheduleAlarm() async {
+    if (_existingId == null || _existingId!.isEmpty) return;
 
     final notificationId = _getStableId(_existingId!);
 
-    if (isAlarmActive || _isSmartNotification) {
+    if (_isAlarmOn || _isSmartNotification) {
       await NotificationService().scheduleAlarm(
         id: notificationId,
         title: "Wake Up",
         time: _wakeTime,
         bedTime: _bedTime,
         days: _selectedDays,
-        isAlarmEnabled: isAlarmActive,
+        isAlarmEnabled: _isAlarmOn,
         isSnoozeOn: _isSnoozeOn,
         isSmartNotification: _isSmartNotification,
         isSmartAlarm: _isSmartAlarm,
@@ -139,9 +151,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     } else {
       await NotificationService().cancelAlarm(notificationId);
     }
+  }
+
+  Future<void> _quickUpdate(bool isAlarmActive) async {
+    if (_existingId == null || _existingId!.isEmpty) return;
+
+    await context.read<ScheduleViewModel>().toggleSchedule(
+      _existingId!,
+      isAlarmActive,
+    );
+
+    await _rescheduleAlarm();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isAlarmActive ? "Alarm Enabled" : "Alarm Disabled"),
@@ -152,42 +174,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Future<void> _quickUpdateNotification(bool isSmartNotif) async {
-    if (_existingId == null) return;
+    if (_existingId == null || _existingId!.isEmpty) return;
 
-    await context
-        .read<ScheduleViewModel>()
-        .toggleSmartNotification(_existingId!, isSmartNotif);
+    await context.read<ScheduleViewModel>().toggleSmartNotification(
+      _existingId!,
+      isSmartNotif,
+    );
 
-    if (isSmartNotif) {
-      final hasAccess = await NotificationService().hasDndAccess();
-      if (!hasAccess && mounted) {
-        setState(() => _isSmartNotification = false);
-        _showPermissionDialog();
-        return;
-      }
-    }
-
-    final notificationId = _getStableId(_existingId!);
-
-    if (_isAlarmOn || isSmartNotif) {
-      await NotificationService().scheduleAlarm(
-        id: notificationId,
-        title: "Wake Up",
-        time: _wakeTime,
-        bedTime: _bedTime,
-        days: _selectedDays,
-        isAlarmEnabled: _isAlarmOn,
-        isSnoozeOn: _isSnoozeOn,
-        isSmartNotification: isSmartNotif,
-        isSmartAlarm: _isSmartAlarm,
-        soundFile: _currentToneFile,
-      );
-    } else {
-      await NotificationService().cancelAlarm(notificationId);
-    }
+    await _rescheduleAlarm();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -202,89 +198,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Future<void> _quickUpdateSnooze(bool isSnooze) async {
-    if (_existingId == null) return;
+    if (_existingId == null || _existingId!.isEmpty) return;
 
     await context.read<ScheduleViewModel>().toggleSnooze(_existingId!, isSnooze);
 
-    final notificationId = _getStableId(_existingId!);
-
-    if (_isAlarmOn || _isSmartNotification) {
-      await NotificationService().scheduleAlarm(
-        id: notificationId,
-        title: "Wake Up",
-        time: _wakeTime,
-        bedTime: _bedTime,
-        days: _selectedDays,
-        isAlarmEnabled: _isAlarmOn,
-        isSnoozeOn: isSnooze,
-        isSmartNotification: _isSmartNotification,
-        isSmartAlarm: _isSmartAlarm,
-        soundFile: _currentToneFile,
-      );
-    }
+    await _rescheduleAlarm();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isSnooze ? "Snooze Enabled" : "Snooze Disabled"),
         duration: const Duration(seconds: 1),
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _showPermissionDialog() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.do_not_disturb_on, color: Colors.blueAccent),
-            const SizedBox(width: 10),
-            Text(
-              "Permission Needed",
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          "To automatically silence calls and notifications during your bedtime, DreamSync needs 'Do Not Disturb' access.\n\nPlease enable it for DreamSync on the next screen.",
-          style: TextStyle(
-            color: isDark ? Colors.white70 : Colors.black87,
-            height: 1.5,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blueAccent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            onPressed: () async {
-              Navigator.pop(context);
-              await NotificationService().openDndSettings();
-            },
-            child: const Text(
-              "Grant Access",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -300,18 +225,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _pickTime(bool isBedtime) async {
     if (!_isEditing) return;
 
-    final initial = isBedtime ? _bedTime : _wakeTime;
-
     final picked = await showTimePicker(
       context: context,
-      initialTime: initial,
+      initialTime: isBedtime ? _bedTime : _wakeTime,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
         child: child!,
       ),
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         if (isBedtime) {
           _bedTime = picked;
@@ -385,33 +308,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
 
     await scheduleVM.saveSchedule(scheduleToSave);
+    await scheduleVM.loadSchedules();
 
-    final notificationSeed = _existingId?.isNotEmpty == true
-        ? _existingId!
-        : scheduleToSave.id;
-    final notificationId = _getStableId(notificationSeed);
-
-    if (_isAlarmOn || _isSmartNotification) {
-      await NotificationService().scheduleAlarm(
-        id: notificationId,
-        title: "Wake Up",
-        time: _wakeTime,
-        bedTime: _bedTime,
-        days: _selectedDays,
-        isAlarmEnabled: _isAlarmOn,
-        isSnoozeOn: _isSnoozeOn,
-        isSmartNotification: _isSmartNotification,
-        isSmartAlarm: _isSmartAlarm,
-        soundFile: _currentToneFile,
-      );
-    } else {
-      await NotificationService().cancelAlarm(notificationId);
-    }
+    _syncFromViewModel(scheduleVM);
+    await _rescheduleAlarm();
 
     if (!mounted) return;
     setState(() => _isEditing = false);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Schedule saved successfully")),
+      const SnackBar(
+        content: Text("Schedule saved successfully"),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -420,8 +329,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     final inventoryVM = context.read<InventoryViewModel>();
     final allItems = inventoryVM.myItems;
-    final audioItems =
-    allItems.where((i) => i.details.type == StoreItemType.AUDIO).toList();
+
+    final audioItems = allItems
+        .where((i) => i.details.type == StoreItemType.AUDIO)
+        .toList();
 
     showModalBottomSheet(
       context: context,
@@ -431,6 +342,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         currentToneId: _currentToneId,
         unlockedTones: audioItems,
         onToneSelected: (id, name, file) {
+          if (!mounted) return;
           setState(() {
             _currentToneId = id;
             _currentToneName = name;
@@ -474,335 +386,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          "Recommendation applied. Bedtime updated to ${_formatTimeOfDay(newBedTime)}",
+          "Recommendation applied. Bedtime updated to ${TimeFormatter.formatTimeOfDay(newBedTime)}",
         ),
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  String _formatTimeOfDay(TimeOfDay time) {
-    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
-    final minute = time.minute.toString().padLeft(2, '0');
-    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
-    return '$hour:$minute $period';
-  }
-
-  Widget _buildAiRecommendationCard(
-      bool isDark,
-      Color text,
-      Color accent,
-      ) {
-    final recommendationVM = context.watch<RecommendationViewModel>();
-    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
-    final subText = isDark ? Colors.white70 : Colors.grey.shade600;
-    final shadowColor = Colors.black.withOpacity(isDark ? 0.20 : 0.06);
-
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.auto_awesome, color: accent),
-              const SizedBox(width: 10),
-              Text(
-                "Tonight Recommendation",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: text,
-                ),
-              ),
-              const Spacer(),
-              IconButton(
-                onPressed: () => _loadRecommendation(forceRefresh: true),
-                icon: Icon(Icons.refresh, color: accent),
-                tooltip: "Refresh recommendation",
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          if (recommendationVM.isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (recommendationVM.currentRecommendation == null)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  recommendationVM.errorMessage.isNotEmpty
-                      ? recommendationVM.errorMessage
-                      : "No recommendation available yet.",
-                  style: TextStyle(color: subText, height: 1.4),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  "Sync more sleep history to get a personalised recommendation.",
-                  style: TextStyle(color: subText, fontSize: 13),
-                ),
-              ],
-            )
-          else ...[
-              Builder(
-                builder: (_) {
-                  final rec = recommendationVM.currentRecommendation!;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _metricBox(
-                              label: "Recommended Sleep",
-                              value: rec.recommendedLabel,
-                              text: text,
-                              subText: subText,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _metricBox(
-                              label: "Expected Score",
-                              value: "${rec.scoreInt}",
-                              text: text,
-                              subText: subText,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _metricBox(
-                              label: "Deep Sleep",
-                              value: rec.deepLabel,
-                              text: text,
-                              subText: subText,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _metricBox(
-                              label: "REM Sleep",
-                              value: rec.remLabel,
-                              text: text,
-                              subText: subText,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        rec.explanation,
-                        style: TextStyle(
-                          color: subText,
-                          fontSize: 13.5,
-                          height: 1.45,
-                        ),
-                      ),
-                      if ((rec.message ?? '').isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          rec.message!,
-                          style: TextStyle(
-                            color: accent,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _applyRecommendation,
-                          icon: const Icon(Icons.bedtime),
-                          label: const Text("Apply Recommendation"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: accent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-        ],
-      ),
-    );
-  }
-
-  Widget _metricBox({
-    required String label,
-    required String value,
-    required Color text,
-    required Color subText,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(color: subText, fontSize: 12)),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: text,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingTile({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    required bool enabled,
-    required Color text,
-    required Color subText,
-    required IconData icon,
-    required Color iconColor,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.65,
-      child: IgnorePointer(
-        ignoring: !enabled,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF1E293B)
-                : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: iconColor.withOpacity(0.12),
-                child: Icon(icon, color: iconColor),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: text,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(color: subText, fontSize: 12.5),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: value,
-                onChanged: onChanged,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToneCard(Color text, Color subText, Color surface, Color accent) {
-    return InkWell(
-      onTap: _openToneSelector,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: accent.withOpacity(0.12),
-              child: Icon(Icons.music_note, color: accent),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Alarm Tone",
-                    style: TextStyle(
-                      color: text,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _currentToneName,
-                    style: TextStyle(color: subText, fontSize: 12.5),
-                  ),
-                ],
-              ),
-            ),
-            if (_isEditing)
-              Icon(Icons.chevron_right, color: accent)
-            else
-              Text(
-                _currentToneName,
-                style: TextStyle(color: text, fontWeight: FontWeight.w600),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final recommendationVM = context.watch<RecommendationViewModel>();
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
@@ -828,7 +422,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             child: IconButton(
               onPressed: _toggleEditMode,
               icon: Icon(
-                _isEditing ? Icons.check_circle : Icons.edit,
+                _isEditing ? Icons.save : Icons.edit,
                 color: accent,
                 size: 28,
               ),
@@ -844,72 +438,38 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildAiRecommendationCard(isDark, text, accent),
+            ScheduleRecommendationCard(
+              recommendationVM: recommendationVM,
+              isDark: isDark,
+              text: text,
+              accent: accent,
+              onRefresh: () => _loadRecommendation(forceRefresh: true),
+              onApply: _applyRecommendation,
+            ),
             const SizedBox(height: 24),
-
-            Row(
-              children: [
-                Expanded(
-                  child: TimeCard(
-                    title: "BEDTIME",
-                    time: _bedTime,
-                    icon: Icons.bed,
-                    bg: surface,
-                    text: text,
-                    accent: accent,
-                    isEditing: _isEditing,
-                    onTap: () => _pickTime(true),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TimeCard(
-                    title: "WAKE UP",
-                    time: _wakeTime,
-                    icon: Icons.wb_sunny,
-                    bg: surface,
-                    text: text,
-                    accent: Colors.orange,
-                    isEditing: _isEditing,
-                    onTap: () => _pickTime(false),
-                  ),
-                ),
-              ],
+            ScheduleTimeSection(
+              bedTime: _bedTime,
+              wakeTime: _wakeTime,
+              selectedDays: _selectedDays,
+              isEditing: _isEditing,
+              bg: surface,
+              text: text,
+              accent: accent,
+              wakeAccent: Colors.orange,
+              onPickBedTime: () => _pickTime(true),
+              onPickWakeTime: () => _pickTime(false),
+              onToggleDay: (day) {
+                if (!_isEditing) return;
+                setState(() {
+                  if (_selectedDays.contains(day)) {
+                    _selectedDays.remove(day);
+                  } else {
+                    _selectedDays.add(day);
+                  }
+                });
+              },
             ),
             const SizedBox(height: 30),
-
-            Center(
-              child: Column(
-                children: [
-                  Text(
-                    "REPEAT ON",
-                    style: TextStyle(
-                      color: text.withOpacity(0.5),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DaySelector(
-                    selectedDays: _selectedDays,
-                    activeColor: accent,
-                    textColor: text,
-                    isEditing: _isEditing,
-                    onToggle: (day) {
-                      if (!_isEditing) return;
-                      setState(() {
-                        _selectedDays.contains(day)
-                            ? _selectedDays.remove(day)
-                            : _selectedDays.add(day);
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-
             Text(
               "Alarm Settings",
               style: TextStyle(
@@ -919,88 +479,42 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            _buildSettingTile(
-              title: "Alarm Enabled",
-              subtitle: "Turn your main wake-up alarm on or off",
-              value: _isAlarmOn,
-              onChanged: (v) {
-                setState(() => _isAlarmOn = v);
-                _quickUpdate(v);
-              },
-              enabled: true,
+            ScheduleSettingsSection(
+              isEditing: _isEditing,
+              isAlarmOn: _isAlarmOn,
+              isSmartAlarm: _isSmartAlarm,
+              isSmartNotification: _isSmartNotification,
+              isSnoozeOn: _isSnoozeOn,
               text: text,
               subText: subText,
-              icon: Icons.alarm,
-              iconColor: Colors.redAccent,
-            ),
-
-            _buildSettingTile(
-              title: "Smart Alarm",
-              subtitle: "Enable smart wake behaviour",
-              value: _isSmartAlarm,
-              onChanged: (v) {
+              onAlarmChanged: (v) async {
+                setState(() => _isAlarmOn = v);
+                await _quickUpdate(v);
+              },
+              onSmartAlarmChanged: (v) {
                 if (!_isEditing) return;
                 setState(() => _isSmartAlarm = v);
               },
-              enabled: _isEditing,
-              text: text,
-              subText: subText,
-              icon: Icons.auto_mode,
-              iconColor: Colors.indigo,
-            ),
-
-            _buildSettingTile(
-              title: "Do Not Disturb",
-              subtitle: "Silence calls and notifications during bedtime",
-              value: _isSmartNotification,
-              onChanged: (v) {
+              onSmartNotificationChanged: (v) async {
                 setState(() => _isSmartNotification = v);
-                _quickUpdateNotification(v);
+                await _quickUpdateNotification(v);
               },
-              enabled: true,
-              text: text,
-              subText: subText,
-              icon: Icons.do_not_disturb_on,
-              iconColor: Colors.blueAccent,
-            ),
-
-            _buildSettingTile(
-              title: "Snooze",
-              subtitle: "Allow alarm snoozing",
-              value: _isSnoozeOn,
-              onChanged: (v) {
+              onSnoozeChanged: (v) async {
                 setState(() => _isSnoozeOn = v);
-                _quickUpdateSnooze(v);
+                await _quickUpdateSnooze(v);
               },
-              enabled: true,
+            ),
+            const SizedBox(height: 4),
+            ScheduleToneCard(
+              toneName: _currentToneName,
+              isEditing: _isEditing,
+              onTap: _openToneSelector,
               text: text,
               subText: subText,
-              icon: Icons.snooze,
-              iconColor: Colors.orange,
+              surface: surface,
+              accent: accent,
             ),
-
-            const SizedBox(height: 4),
-            _buildToneCard(text, subText, surface, accent),
             const SizedBox(height: 30),
-
-            if (_isEditing)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _saveSchedule,
-                  icon: const Icon(Icons.save),
-                  label: const Text("Save Schedule"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),

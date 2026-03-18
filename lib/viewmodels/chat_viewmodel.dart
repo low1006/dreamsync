@@ -1,25 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:dreamsync/models/chat_message_model.dart';
-import 'package:dreamsync/repositories/chat_repository.dart';
 import 'dart:math';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'package:dreamsync/models/chat_message_model.dart';
+import 'package:dreamsync/repositories/chat_repository.dart';
+import 'package:dreamsync/repositories/sleep_repository.dart';
+import 'package:dreamsync/repositories/daily_activity_repository.dart';
+import 'package:dreamsync/repositories/recommendation_cache_repository.dart';
 
 class ChatViewModel extends ChangeNotifier {
-
-  static final List<String> _apiKeys =
-  (dotenv.env['GEMINI_API_KEYS'] ?? '')
+  static final List<String> _apiKeys = (dotenv.env['GEMINI_API_KEYS'] ?? '')
       .split(',')
       .map((key) => key.trim())
       .toList();
 
-  // 1. Use the Repository instead of raw Supabase calls
   final ChatRepository _repository = ChatRepository(Supabase.instance.client);
+  final SleepRepository _sleepRepo = SleepRepository();
+  final DailyActivityRepository _activityRepo = DailyActivityRepository();
+  final RecommendationCacheRepository _recommendationRepo = RecommendationCacheRepository();
 
-  late final GenerativeModel _model;
-  late ChatSession _chatSession;
+  GenerativeModel? _model;
+  ChatSession? _chatSession;
 
   String? currentSessionId;
   List<Map<String, dynamic>> sessions = [];
@@ -27,101 +30,128 @@ class ChatViewModel extends ChangeNotifier {
   bool isLoading = false;
   final ScrollController scrollController = ScrollController();
 
+  // --- NEW FIELDS ---
+  String? currentSuggestion;
+
   ChatViewModel() {
-    _initModel();
-    loadChatSessions();
+    _initializeViewModel();
   }
 
-  void _initModel() {
-    final randomKey = _apiKeys[Random().nextInt(_apiKeys.length)];
-    _model = GenerativeModel(
-      model: 'gemini-2.0-flash',
-      apiKey: randomKey,
-      systemInstruction: Content.system(
-          "You are DreamSync, an expert Sleep Health Assistant. "
-              "Your only job is to help users improve their sleep quality, analyze dreams, "
-              "and discuss sleep disorders. "
-              "If a user asks about anything NOT related to sleep, dreams, or health, "
-              "politely refuse and guide them back to sleep topics."
-      ),
-    );
-    _chatSession = _model.startChat();
-  }
-
-  // --- ACTIONS ---
-
-  Future<void> loadChatSessions() async {
-    // Use Repository to fetch sessions
-    sessions = await _repository.fetchUserSessions();
-    notifyListeners();
-  }
-
-  Future<void> startNewSession() async {
+  Future<void> _initializeViewModel() async {
     isLoading = true;
     notifyListeners();
 
-    // Use Repository to create session
-    final newId = await _repository.createNewSession();
+    await _initModelWithContext();
+    await loadChatSessions();
 
-    if (newId != null) {
-      currentSessionId = newId;
-      messages.clear();
-      _chatSession = _model.startChat(); // Reset AI memory
-      await loadChatSessions(); // Refresh sidebar list
-    }
+    // Trigger initial greeting and suggestion generation
+    await _generateInitialGreetingAndSuggestion();
 
     isLoading = false;
     notifyListeners();
   }
 
-  Future<void> openSession(String sessionId) async {
-    currentSessionId = sessionId;
+  Future<void> _generateInitialGreetingAndSuggestion() async {
+    final userId = _repository.currentUserId;
+    if (userId == null) return;
+
+    // 1. Add Greeting if session is empty
+    if (messages.isEmpty) {
+      messages.add(ChatMessageModel(
+        text: "Hello! I'm DreamSync, your AI Sleep Advisor. How can I help you improve your rest today?",
+        isUser: false,
+      ));
+    }
+
+    // 2. Build suggestion based on ML Recommendation Cache
+    try {
+      final mlData = await _recommendationRepo.getLatestRecommendation(userId);
+      if (mlData != null) {
+        final hours = (mlData.recommendedMinutes / 60).toStringAsFixed(1);
+        currentSuggestion = "How can I hit my $hours hour sleep goal?";
+      } else {
+        currentSuggestion = "Give me tips to improve my sleep quality.";
+      }
+    } catch (e) {
+      currentSuggestion = "How can I sleep better tonight?";
+    }
     notifyListeners();
-    await _loadChatHistory();
   }
 
-  Future<void> _loadChatHistory() async {
-    if (currentSessionId == null) return;
-
-    try {
-      isLoading = true;
-      notifyListeners();
-
-      // Use Repository to get messages (Sorted by DB)
-      messages = await _repository.fetchMessagesBySession(currentSessionId!);
-
-      _scrollToBottom();
-    } catch (e) {
-      print("Error loading history: $e");
-    } finally {
-      isLoading = false;
+  void selectSuggestion() {
+    if (currentSuggestion != null) {
+      sendMessage(currentSuggestion!);
+      currentSuggestion = null; // Hide after use
       notifyListeners();
     }
+  }
+
+  Future<void> _initModelWithContext() async {
+    final randomKey = _apiKeys[Random().nextInt(_apiKeys.length)];
+    final userId = _repository.currentUserId;
+
+    String userContext = "No personal data available right now.";
+    if (userId != null) {
+      userContext = await _buildUserContextString(userId);
+    }
+
+    _model = GenerativeModel(
+      model: 'gemini-2.0-flash',
+      apiKey: randomKey,
+      systemInstruction: Content.system(
+          "You are DreamSync, a proactive and expert Sleep Health Advisor. "
+              "Analyze the user's sleep data, activities, and Machine Learning (ML) recommended target. "
+              "Provide empathetic, actionable advice to help them hit their ML target.\n\n"
+              "$userContext"
+      ),
+    );
+    _chatSession = _model!.startChat();
+  }
+
+  Future<String> _buildUserContextString(String userId) async {
+    final todayStr = DateTime.now().toIso8601String().split('T')[0];
+    final yesterdayStr = DateTime.now().subtract(const Duration(days: 1)).toIso8601String().split('T')[0];
+
+    String contextString = "CURRENT USER DATA:\n";
+
+    try {
+      final mlData = await _recommendationRepo.getLatestRecommendation(userId);
+      if (mlData != null) {
+        final hours = (mlData.recommendedMinutes / 60).toStringAsFixed(1);
+        contextString += "- ML Recommended Sleep Target: $hours hours\n";
+        contextString += "- ML Explanation: ${mlData.explanation}\n";
+      }
+    } catch (_) {}
+
+    try {
+      final sleepRecords = await _sleepRepo.getSleepRecordsByDateRange(userId, yesterdayStr, todayStr);
+      if (sleepRecords.isNotEmpty) {
+        contextString += "- Last Logged Sleep Date: ${sleepRecords.last.date}\n";
+      }
+    } catch (_) {}
+
+    try {
+      final activity = await _activityRepo.getTodayActivity(userId, todayStr);
+      if (activity != null) {
+        contextString += "- Today's Exercise: ${activity.exerciseMinutes} mins\n";
+        contextString += "- Today's Screen Time: ${activity.screenTimeMinutes} mins\n";
+      }
+    } catch (_) {}
+
+    return contextString;
   }
 
   Future<void> sendMessage(String text) async {
-    if (text.trim().isEmpty) return;
+    if (text.trim().isEmpty || _chatSession == null) return;
 
-    bool isFirstMessage = messages.isEmpty;
-
-    // A. Ensure Session Exists
-    if (currentSessionId == null) {
-      await startNewSession();
-    }
-
-    final userId = _repository.currentUserId; // Use getter from repo
+    if (currentSessionId == null) await startNewSession();
+    final userId = _repository.currentUserId;
     if (userId == null) return;
 
-    // B. Add User Message to UI (Instant Feedback)
-    messages.add(ChatMessageModel(
-      text: text,
-      isUser: true,
-    ));
+    messages.add(ChatMessageModel(text: text, isUser: true));
     notifyListeners();
     _scrollToBottom();
 
-    // C. Save User Message to DB using Repository
-    // BaseRepository.create takes a Map
     await _repository.create({
       'user_id': userId,
       'session_id': currentSessionId,
@@ -133,84 +163,45 @@ class ChatViewModel extends ChangeNotifier {
       isLoading = true;
       notifyListeners();
 
-      // D. Get AI Response
-      final response = await _chatSession.sendMessage(Content.text(text));
+      final response = await _chatSession!.sendMessage(Content.text(text));
       final aiText = response.text ?? "I couldn't understand that.";
 
-      // E. Add AI Message to UI
-      messages.add(ChatMessageModel(
-        text: aiText,
-        isUser: false,
-      ));
+      messages.add(ChatMessageModel(text: aiText, isUser: false));
 
-      // F. Save AI Message to DB using Repository
       await _repository.create({
         'user_id': userId,
         'session_id': currentSessionId,
         'text': aiText,
         'is_user': false,
       });
-
     } catch (e) {
-      messages.add(ChatMessageModel(
-        text: "Error: ${e.toString()}",
-        isUser: false,
-      ));
+      messages.add(ChatMessageModel(text: "Error: $e", isUser: false));
     } finally {
       isLoading = false;
       notifyListeners();
       _scrollToBottom();
     }
-
-    if (isFirstMessage && currentSessionId != null) {
-      _generateSessionTitle(text);
-    }
   }
 
-  Future<void> _generateSessionTitle(String firstMessage) async {
-    try {
-      final titleResponse = await _model.generateContent([
-        Content.text(
-            "Analyze this message: '$firstMessage'. "
-                "Generate a short title (max 4 words) for this chat session. "
-
-                "Rules:"
-                "1. If the message is just a greeting (like 'Hi', 'Hello', 'Good Morning') or too short to have a topic, return exactly 'KEEP_DEFAULT'."
-                "2. Do not use quotes, bold, markdown, or special characters."
-                "3. If it is a real topic, return just the title."
-        )
-      ]);
-
-      final newTitle = titleResponse.text?.trim() ?? "Sleep Chat";
-      final cleanTitle = newTitle.replaceAll('*', '').replaceAll('#', '').trim();
-
-      if (currentSessionId != null) {
-        await _repository.updateSessionTitle(currentSessionId!, cleanTitle);
-      }
-
-      await loadChatSessions();
-
-    } catch (e) {
-      print("Error generating title: $e");
-    }
+  // --- STANDARD ACTIONS ---
+  Future<void> loadChatSessions() async {
+    sessions = await _repository.fetchUserSessions();
+    notifyListeners();
   }
 
-  Future<void> deleteSession(String sessionId) async {
-    try {
-      await _repository.deleteSession(sessionId);
-
-      // Logic: If we deleted the CURRENTLY open chat, reset the UI
-      if (currentSessionId == sessionId) {
-        messages.clear();
-        currentSessionId = null;
-        _chatSession = _model.startChat();
-      }
-
+  Future<void> startNewSession() async {
+    isLoading = true;
+    notifyListeners();
+    final newId = await _repository.createNewSession();
+    if (newId != null) {
+      currentSessionId = newId;
+      messages.clear();
+      await _initModelWithContext();
+      await _generateInitialGreetingAndSuggestion();
       await loadChatSessions();
-
-    } catch (e) {
-      print("Error deleting session in VM: $e");
     }
+    isLoading = false;
+    notifyListeners();
   }
 
   void _scrollToBottom() {
@@ -223,5 +214,34 @@ class ChatViewModel extends ChangeNotifier {
         );
       }
     });
+  }
+
+  Future<void> openSession(String sessionId) async {
+    currentSessionId = sessionId;
+    notifyListeners();
+    await _loadChatHistory();
+  }
+
+  Future<void> _loadChatHistory() async {
+    if (currentSessionId == null) return;
+    try {
+      isLoading = true;
+      notifyListeners();
+      messages = await _repository.fetchMessagesBySession(currentSessionId!);
+      _scrollToBottom();
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    await _repository.deleteSession(sessionId);
+    if (currentSessionId == sessionId) {
+      messages.clear();
+      currentSessionId = null;
+      if (_model != null) _chatSession = _model!.startChat();
+    }
+    await loadChatSessions();
   }
 }

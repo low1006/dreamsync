@@ -56,9 +56,10 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
   Future<void> _bootstrap(String userId) async {
     final sleepVM = context.read<SleepViewModel>();
     final dailyVM = context.read<DailyActivityViewModel>();
+    final achievementVM = context.read<AchievementViewModel>();
 
     try {
-      // 1) Load cached/local data first for instant UI
+      // 1) Load cached/local data first for an instant UI
       await sleepVM.loadFromDatabase(userId: userId);
       await dailyVM.loadTodayData(userId);
       await dailyVM.loadWeeklyData(userId);
@@ -69,7 +70,15 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
         _isInitialLoadDone = true;
       });
 
-      // 2) Background sync only once
+      // 2) Fetch live screen time from native Android UsageStatsManager
+      //    This is fast (native call) and safe to await here.
+      final liveScreenTime =
+      await dailyVM.fetchAndSaveScreenTime(userId, achievementVM);
+
+      if (!mounted) return;
+      setState(() => _screenTime = liveScreenTime);
+
+      // 3) Background sync only once per session
       if (!_hasStartedBackgroundSync) {
         _hasStartedBackgroundSync = true;
         unawaited(_backgroundRefresh(userId));
@@ -77,9 +86,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     } catch (e) {
       debugPrint("❌ Sleep dashboard bootstrap error: $e");
       if (!mounted) return;
-      setState(() {
-        _isInitialLoadDone = true;
-      });
+      setState(() => _isInitialLoadDone = true);
     }
   }
 
@@ -101,14 +108,12 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     final achievementVM = context.read<AchievementViewModel>();
 
     try {
-      // Keep background work minimal
       await sleepVM.syncInBackground(
         context: context,
         userId: userId,
         achievementVM: achievementVM,
       );
 
-      // Only reload cached/local daily data after sleep sync
       await dailyVM.loadTodayData(userId);
       await dailyVM.loadWeeklyData(userId);
 
@@ -153,7 +158,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     await vm.submitMoodFeedback(mood);
 
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text("Mood feedback saved."),
@@ -176,13 +180,16 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
       achievementVM: achievementVM,
     );
 
-    // Full refresh should be manual only
     await dailyVM.loadTodayData(user.userId);
     await dailyVM.loadWeeklyData(user.userId);
 
+    // Always re-fetch live screen time on a manual pull-to-refresh
+    final liveScreenTime =
+    await dailyVM.fetchAndSaveScreenTime(user.userId, achievementVM);
+
     if (!mounted) return;
     setState(() {
-      _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
+      _screenTime = liveScreenTime;
       _lastBackgroundSyncAt = DateTime.now();
     });
   }

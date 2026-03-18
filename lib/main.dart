@@ -24,11 +24,14 @@ import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.d
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/recommendation_viewmodel.dart';
+import 'package:dreamsync/viewmodels/reward_store_viewmodel.dart';
 
-// Repositories for Syncing
+// Repositories
 import 'package:dreamsync/repositories/sleep_repository.dart';
 import 'package:dreamsync/repositories/schedule_repository.dart';
 import 'package:dreamsync/repositories/achievement_repository.dart';
+import 'package:dreamsync/repositories/inventory_repository.dart';
+import 'package:dreamsync/repositories/user_repository.dart';
 
 // Screens
 import 'package:dreamsync/views/auth_screen/login_screen.dart';
@@ -59,8 +62,24 @@ Future<void> main() async {
   await NotificationService().init();
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AuthViewModel(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthViewModel()),
+        ChangeNotifierProvider(create: (_) => UserViewModel()),
+        ChangeNotifierProvider(create: (_) => AchievementViewModel()),
+        ChangeNotifierProvider(create: (_) => SleepViewModel()),
+        ChangeNotifierProvider(create: (_) => ScheduleViewModel()),
+        ChangeNotifierProvider(create: (_) => InventoryViewModel()),
+        ChangeNotifierProvider(create: (_) => FriendViewModel()),
+        ChangeNotifierProvider(create: (_) => DailyActivityViewModel()),
+        ChangeNotifierProvider(create: (_) => RecommendationViewModel()),
+        ChangeNotifierProvider(
+          create: (_) => RewardStoreViewModel(
+            inventoryRepository: InventoryRepository(),
+            userRepository: UserRepository(),
+          ),
+        ),
+      ],
       child: const MyApp(),
     ),
   );
@@ -79,6 +98,7 @@ class _MyAppState extends State<MyApp> {
 
   bool _isOffline = false;
   bool _isSyncing = false;
+  String? _lastFetchedUserId;
 
   @override
   void initState() {
@@ -90,7 +110,6 @@ class _MyAppState extends State<MyApp> {
       _navigateToAlarm(payload);
     });
 
-    // Restore the original startup permission flow
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestAllPermissions();
     });
@@ -189,7 +208,6 @@ class _MyAppState extends State<MyApp> {
 
     final health = Health();
 
-    // Request the sleep types your app actually uses
     final types = <HealthDataType>[
       HealthDataType.SLEEP_SESSION,
       HealthDataType.SLEEP_LIGHT,
@@ -398,6 +416,16 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  void _ensureProfileLoaded(String userId) {
+    if (_lastFetchedUserId == userId) return;
+    _lastFetchedUserId = userId;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<UserViewModel>().fetchProfile(userId);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -439,21 +467,8 @@ class _MyAppState extends State<MyApp> {
           final session = snapshot.data?.session;
 
           if (session != null) {
-            return MultiProvider(
-              providers: [
-                ChangeNotifierProvider(
-                  create: (_) => UserViewModel()..fetchProfile(session.user.id),
-                ),
-                ChangeNotifierProvider(create: (_) => AchievementViewModel()),
-                ChangeNotifierProvider(create: (_) => SleepViewModel()),
-                ChangeNotifierProvider(create: (_) => ScheduleViewModel()),
-                ChangeNotifierProvider(create: (_) => InventoryViewModel()),
-                ChangeNotifierProvider(create: (_) => FriendViewModel()),
-                ChangeNotifierProvider(create: (_) => DailyActivityViewModel()),
-                ChangeNotifierProvider(create: (_) => RecommendationViewModel()),
-              ],
-              child: const MainScreen(),
-            );
+            _ensureProfileLoaded(session.user.id);
+            return const MainScreen();
           } else {
             return const LoginScreen();
           }

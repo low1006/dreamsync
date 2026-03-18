@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/repositories/schedule_repository.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ScheduleViewModel extends ChangeNotifier {
   final ScheduleRepository _repository = ScheduleRepository();
-  final _supabase = Supabase.instance.client;
 
   List<ScheduleModel> schedules = [];
   bool isLoading = false;
@@ -29,28 +27,10 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> _createDefaultSchedule() async {
     try {
-      final userId = _supabase.auth.currentUser!.id;
-      int defaultId = 1; // Fallback ID if offline
+      // ✅ 1. Ask repository to handle database logic and return the ID
+      final defaultId = await _repository.assignDefaultTone();
 
-      // 1. Isolate the network calls in their own try/catch
-      try {
-        final defaultToneData = await _supabase
-            .from('store_items')
-            .select().eq('cost', 0).eq('type', 'TONE').limit(1).maybeSingle();
-
-        if (defaultToneData != null) {
-          defaultId = defaultToneData['item_id'];
-        }
-
-        await _supabase.from('user_inventory').upsert({
-          'user_id': userId, 'item_id': defaultId,
-        }, onConflict: 'user_id, item_id');
-
-      } catch (networkError) {
-        debugPrint("Network unavailable, using default tone ID $defaultId: $networkError");
-      }
-
-      // 2. Always create the schedule (Repository handles offline caching)
+      // ✅ 2. Always create the schedule (Repository handles offline caching)
       await _repository.createSchedule(
         bedtime: const TimeOfDay(hour: 22, minute: 30),
         wakeTime: const TimeOfDay(hour: 7, minute: 0),
@@ -69,8 +49,12 @@ class ScheduleViewModel extends ChangeNotifier {
     try {
       if (schedule.id.isEmpty) {
         await _repository.createSchedule(
-          bedtime: schedule.bedtime, wakeTime: schedule.wakeTime, days: schedule.days,
-          isSmartAlarm: schedule.isSmartAlarm, isSmartNotification: schedule.isSmartNotification, itemId: schedule.toneId,
+          bedtime: schedule.bedtime,
+          wakeTime: schedule.wakeTime,
+          days: schedule.days,
+          isSmartAlarm: schedule.isSmartAlarm,
+          isSmartNotification: schedule.isSmartNotification,
+          itemId: schedule.toneId,
         );
       } else {
         await _repository.updateSchedule(schedule);
@@ -91,7 +75,6 @@ class ScheduleViewModel extends ChangeNotifier {
     await loadSchedules();
   }
 
-  // --- ADDED ---
   Future<void> toggleSmartAlarm(String id, bool currentStatus) async {
     await _repository.toggleSmartAlarm(id, currentStatus);
     await loadSchedules();
@@ -99,11 +82,9 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> toggleSnooze(String id, bool isSnoozeOn) async {
     try {
-      // NOTE: For consistency with your repository pattern, you might eventually
-      // want to move this direct Supabase call into the repository as well so it
-      // can be queued for offline syncing!
-      await _supabase.from('sleep_schedules').update({'is_snooze_on': isSnoozeOn}).eq('schedule_id', id);
-      await loadSchedules(); // Reload to refresh state
+      // ✅ Now it correctly delegates to the repository!
+      await _repository.toggleSnooze(id, isSnoozeOn);
+      await loadSchedules();
     } catch (e) {
       debugPrint("Error toggling snooze: $e");
     }
@@ -115,20 +96,31 @@ class ScheduleViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 1. HARD ERRORS (Blocks the user from saving)
   String? validateBlockingIssues({required TimeOfDay bedtime, required TimeOfDay wakeTime, required List<String> days}) {
     if (days.isEmpty) return "Please select at least one day";
-    if (bedtime.hour == wakeTime.hour && bedtime.minute == wakeTime.minute) return "Bedtime and wake time cannot be the same";
+
+    if (bedtime.hour == wakeTime.hour && bedtime.minute == wakeTime.minute) {
+      return "Bedtime and wake time cannot be the same";
+    }
+
     double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
     double duration = toDouble(wakeTime) - toDouble(bedtime);
+
     if (duration <= 0) duration += 24;
     if (duration < 1.0) return "Sleep duration must be at least 1 hour.";
+    if (duration > 12.0) return "Sleep duration cannot exceed 12 hours.";
+
     return null;
   }
 
+  // 2. SOFT WARNINGS (Triggers the "Are you sure?" dialog in the View)
   bool isSleepDurationShort({required TimeOfDay bedtime, required TimeOfDay wakeTime, required double sleepGoal}) {
     double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
     double duration = toDouble(wakeTime) - toDouble(bedtime);
+
     if (duration <= 0) duration += 24;
+
     return duration < sleepGoal;
   }
 }

@@ -5,7 +5,7 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/views/user_screen/friend_list_screen.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/util/time_formatter.dart';
-import 'package:dreamsync/models/user_model.dart'; // Make sure this is imported for _syncTempFromUser
+import 'package:dreamsync/models/user_model.dart';
 
 class UserScreen extends StatefulWidget {
   const UserScreen({super.key});
@@ -222,7 +222,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
               child: IconButton(
                 onPressed: _toggleEditMode,
                 icon: Icon(
-                  _isEditing ? Icons.check_circle : Icons.edit,
+                  _isEditing ? Icons.save : Icons.edit,
                   color: accent,
                   size: 28,
                 ),

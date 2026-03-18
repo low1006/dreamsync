@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dreamsync/util/network_helper.dart';
 import 'package:dreamsync/util/local_database.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
@@ -11,6 +12,77 @@ class AchievementRepository {
   final SupabaseClient _client = Supabase.instance.client;
   late final UserAchievementRepository _userAchievementRepository =
   UserAchievementRepository(_client);
+
+  // ─────────────────────────────────────────────────────────────
+  // DAILY RESET & CLAIMING LOGIC
+  // ─────────────────────────────────────────────────────────────
+  Future<void> resetDailyAchievementsIfNeeded(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+    final lastResetStr = prefs.getString('last_daily_reset_$userId');
+
+    // If already reset today, stop
+    if (lastResetStr == todayStr) return;
+
+    try {
+      if (!await NetworkHelper.isOnline()) return;
+
+      final allAchievements = await _client.from('achievement').select('achievement_id, category');
+      final dailyIds = allAchievements
+          .where((a) => a['category'] == 'Daily')
+          .map((a) => a['achievement_id'])
+          .toList();
+
+      if (dailyIds.isEmpty) return;
+
+      // Wipe progress in Supabase
+      await _client.from('user_achievement').update({
+        'current_progress': 0,
+        'is_unlocked': false,
+        'is_claimed': false,
+        'date_claimed': null,
+      }).eq('user_id', userId).inFilter('achievement_id', dailyIds);
+
+      // Wipe progress in SQLite
+      final db = await LocalDatabase.instance.database;
+      for (var id in dailyIds) {
+        await db.update(
+          'user_achievement',
+          {'progress': 0, 'is_unlocked': 0, 'is_claimed': 0, 'is_synced': 1},
+          where: 'user_id = ? AND achievement_id = ?',
+          whereArgs: [userId, id],
+        );
+      }
+
+      await prefs.setString('last_daily_reset_$userId', todayStr);
+      debugPrint("✅ Daily achievements successfully refreshed for $todayStr!");
+    } catch (e) {
+      debugPrint("❌ Failed to reset daily achievements: $e");
+    }
+  }
+
+  Future<void> claimAchievement(String userAchievementId) async {
+    try {
+      if (!await NetworkHelper.isOnline()) return;
+
+      final nowStr = DateTime.now().toIso8601String();
+
+      await _client.from('user_achievement').update({
+        'is_claimed': true,
+        'date_claimed': nowStr,
+      }).eq('user_achievement_id', userAchievementId);
+
+      final db = await LocalDatabase.instance.database;
+      await db.update(
+        'user_achievement',
+        {'is_claimed': 1, 'is_synced': 1},
+        where: 'id = ?',
+        whereArgs: [userAchievementId],
+      );
+    } catch (e) {
+      debugPrint("❌ Failed to claim achievement: $e");
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────
   // FETCH
@@ -197,6 +269,7 @@ class AchievementRepository {
         'achievement_id': ua.achievementId,
         'progress': ua.currentProgress,
         'is_unlocked': ua.isUnlocked ? 1 : 0,
+        'is_claimed': ua.isClaimed ? 1 : 0,
       },
       isSynced: true,
     );
@@ -254,6 +327,7 @@ class AchievementRepository {
         'achievement_id': current.achievementId,
         'progress': progress,
         'is_unlocked': isUnlocked ? 1 : 0,
+        'is_claimed': current.isClaimed ? 1 : 0,
       },
       isSynced: false,
     );
@@ -301,7 +375,7 @@ class AchievementRepository {
             currentProgress:
             (progressRow['progress'] as num?)?.toDouble() ?? 0.0,
             isUnlocked: progressRow['is_unlocked'] == 1,
-            isClaimed: false,
+            isClaimed: progressRow['is_claimed'] == 1,
             achievement: achievement,
           );
         } else {

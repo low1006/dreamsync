@@ -42,6 +42,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
     );
+
     if (picked != null) {
       setState(() {
         _dateBirthController.text = picked.toIso8601String().split('T').first;
@@ -140,14 +141,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onChanged: (val) =>
                         viewModel.updateAttribute('height', val),
                   ),
-                  CustomSlider(
-                    label: "Sleep Goal",
-                    value: viewModel.sleepGoal,
-                    min: 4,
-                    max: 12,
-                    unit: "hours",
-                    onChanged: (val) =>
-                        viewModel.updateAttribute('sleepGoal', val),
+
+                  const SizedBox(height: 8),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "Default Sleep Goal: 8 hours",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 24),
 
@@ -182,7 +186,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 dateBirth: _dateBirthController.text,
                                 weight: viewModel.weight,
                                 height: viewModel.height,
-                                sleepGoal: viewModel.sleepGoal,
+                                sleepGoal: 8.0,
                               ),
                             ),
                           );

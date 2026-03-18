@@ -6,8 +6,6 @@ import 'package:dreamsync/util/local_database.dart';
 
 class ScheduleRepository {
   final SupabaseClient _client = Supabase.instance.client;
-
-  // 🔥 FIXED: Pointing exactly to the 'sleep_schedules' table in Supabase
   final String _tableName = 'sleep_schedules';
 
   Future<bool> _isOnline() async {
@@ -162,6 +160,21 @@ class ScheduleRepository {
     }
   }
 
+  // ✅ ADDED: Handle toggle snooze properly (matching your other toggles)
+  Future<void> toggleSnooze(String id, bool currentValue) async {
+    if (await _isOnline()) {
+      try {
+        await _client.from(_tableName).update({'is_snooze_on': currentValue}).eq('schedule_id', id);
+        // Optional: Update local database here if you want immediate offline reflection
+      } catch (e) {
+        debugPrint("Error toggling snooze online: $e");
+      }
+    } else {
+      debugPrint("📴 Offline: Cannot toggle snooze right now.");
+      // Optional: Save offline action to sync later
+    }
+  }
+
   Future<void> deleteSchedule(String id) async {
     if (await _isOnline()) {
       await _client.from(_tableName).delete().eq('schedule_id', id);
@@ -180,5 +193,41 @@ class ScheduleRepository {
         debugPrint("❌ Schedule sync failed: $e");
       }
     }
+  }
+
+  // ✅ ADDED: Handle the default tone fetch and inventory update
+  Future<int> assignDefaultTone() async {
+    final userId = _client.auth.currentUser?.id;
+    int defaultId = 1; // Fallback ID
+
+    if (userId == null) return defaultId;
+
+    if (await _isOnline()) {
+      try {
+        // Fetch default tone
+        final defaultToneData = await _client
+            .from('store_items')
+            .select()
+            .eq('cost', 0)
+            .eq('type', 'TONE')
+            .limit(1)
+            .maybeSingle();
+
+        if (defaultToneData != null) {
+          defaultId = defaultToneData['item_id'];
+        }
+
+        // Assign to user inventory
+        await _client.from('user_inventory').upsert({
+          'user_id': userId,
+          'item_id': defaultId,
+        }, onConflict: 'user_id, item_id');
+
+      } catch (e) {
+        debugPrint("Network unavailable, using default tone ID $defaultId: $e");
+      }
+    }
+
+    return defaultId;
   }
 }

@@ -213,6 +213,42 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
                 ),
+
+                // --- SUGGESTION CHIP ---
+                if (viewModel.currentSuggestion != null && !viewModel.isLoading)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: GestureDetector(
+                        onTap: () => viewModel.selectSuggestion(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: accentBrand.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: accentBrand.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.lightbulb_outline, size: 18, color: accentBrand),
+                              const SizedBox(width: 8),
+                              Text(
+                                viewModel.currentSuggestion!,
+                                style: const TextStyle(
+                                  color: accentBrand,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
                 if (viewModel.isLoading)
                   const Padding(
                     padding: EdgeInsets.all(8.0),

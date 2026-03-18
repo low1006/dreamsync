@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:dreamsync/models/sleep_model/sleep_chart_point.dart';
 import 'package:dreamsync/models/sleep_model/sleep_record_model.dart';
@@ -14,7 +13,6 @@ import 'package:dreamsync/services/sleep_health_service.dart';
 import 'package:dreamsync/services/sleep_summary_service.dart';
 import 'package:dreamsync/services/sleep_achievement_service.dart';
 import 'package:dreamsync/services/health_connect_helper.dart';
-import 'package:dreamsync/util/local_database.dart';
 
 import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
 
@@ -22,22 +20,30 @@ enum SleepFilter { daily, weekly }
 
 class SleepViewModel extends ChangeNotifier {
   final SleepRepository _repository = SleepRepository();
-  final UserRepository _userRepository =
-  UserRepository(Supabase.instance.client);
+  final UserRepository _userRepository = UserRepository();
   final SleepHealthService _healthService = SleepHealthService();
   final SleepSummaryService _summaryService = SleepSummaryService();
-  final SleepAchievementService _achievementService =
-  SleepAchievementService();
+  final SleepAchievementService _achievementService = SleepAchievementService();
+
+  // ✅ FIX 1: Disposed guard — prevents "used after disposed" crash
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  /// Safe wrapper — drops the call silently if the VM is already disposed.
+  void _safeNotify() {
+    if (!_disposed) notifyListeners();
+  }
 
   bool isLoading = false;
   String errorMessage = '';
 
-  /// final banner state
   bool isDataPendingSync = false;
-
-  /// only show banner after local DB checking is done
   bool hasCheckedSyncStatus = false;
-
   bool _isCurrentlyLoading = false;
 
   String? _lastLoadedUserId;
@@ -67,10 +73,8 @@ class SleepViewModel extends ChangeNotifier {
   }) async {
     isLoading = true;
     errorMessage = '';
-
-    // important: reset banner visibility until local DB finishes checking
     hasCheckedSyncStatus = false;
-    notifyListeners();
+    _safeNotify();
 
     try {
       await _loadDailyFromDatabase(userId);
@@ -82,7 +86,7 @@ class SleepViewModel extends ChangeNotifier {
       hasCheckedSyncStatus = true;
     } finally {
       isLoading = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -125,37 +129,29 @@ class SleepViewModel extends ChangeNotifier {
     if (!forceRefresh &&
         _lastLoadedUserId == userId &&
         _lastLoadedAt != null &&
-        DateTime.now().difference(_lastLoadedAt!) <
-            const Duration(seconds: 20)) {
-      debugPrint('⏭️ SleepViewModel: cache hit, skipping reload.');
+        DateTime.now().difference(_lastLoadedAt!) < const Duration(seconds: 20)) {
       if (showLoading && isLoading) {
         isLoading = false;
-        notifyListeners();
+        _safeNotify();
       }
       return;
     }
 
-    if (_isCurrentlyLoading) {
-      debugPrint('⏳ SleepViewModel: already loading.');
-      return;
-    }
+    if (_isCurrentlyLoading) return;
 
     _isCurrentlyLoading = true;
     if (showLoading) {
       isLoading = true;
       errorMessage = '';
-      notifyListeners();
+      _safeNotify();
     }
 
     try {
       final status = await _healthService.getSdkStatus();
       if (status == HealthConnectSdkStatus.sdkUnavailable ||
-          status == HealthConnectSdkStatus
-              .sdkUnavailableProviderUpdateRequired) {
+          status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired) {
         if (context != null && context.mounted) {
           await HealthConnectHelper.showInstallDialog(context);
-        } else {
-          debugPrint('⚠️ Background sync: Health Connect unavailable.');
         }
         return;
       }
@@ -164,20 +160,13 @@ class SleepViewModel extends ChangeNotifier {
         requestIfNeeded: context != null,
       );
       if (!granted) {
-        if (showLoading) {
-          errorMessage = context != null ? 'Permission denied.' : '';
-        }
-        if (context == null) {
-          debugPrint('⚠️ Background sync aborted: no permissions.');
-        }
+        if (showLoading) errorMessage = context != null ? 'Permission denied.' : '';
         return;
       }
 
       final rawData = await _healthService.fetchLast30DaysSleepData();
-
       final result = _summaryService.rebuildDashboardStateFromRawData(rawData);
 
-      // temporary UI values from fresh health data
       dailyTotalSleepDuration = result.dailyTotalSleepDuration;
       dailySleepScore = result.dailySleepScore;
       dailyDeepSleep = result.dailyDeepSleep;
@@ -204,9 +193,6 @@ class SleepViewModel extends ChangeNotifier {
       );
       await _repository.saveDailySummaries(summaries);
 
-      // IMPORTANT:
-      // after saving summaries, re-read from local DB so the banner status
-      // always reflects the actual stored latest record, not an intermediate value
       await _loadDailyFromDatabase(userId);
       await _fetchWeeklyDataFromDatabase(userId);
 
@@ -226,15 +212,12 @@ class SleepViewModel extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ SleepViewModel._performHealthSync: $e');
       if (showLoading) {
-        errorMessage =
-        'Failed to sync with Health Connect. Ensure data exists.';
+        errorMessage = 'Failed to sync with Health Connect. Ensure data exists.';
       }
     } finally {
       _isCurrentlyLoading = false;
-      if (showLoading) {
-        isLoading = false;
-      }
-      notifyListeners();
+      if (showLoading) isLoading = false;
+      _safeNotify();
     }
   }
 
@@ -254,21 +237,14 @@ class SleepViewModel extends ChangeNotifier {
   void changeFilter(SleepFilter newFilter) {
     if (currentFilter != newFilter) {
       currentFilter = newFilter;
-      notifyListeners();
+      _safeNotify();
     }
   }
 
   Future<void> _loadDailyFromDatabase(String userId) async {
-    final db = await LocalDatabase.instance.database;
-    final rows = await db.rawQuery('''
-      SELECT *
-      FROM sleep_record
-      WHERE user_id = ? AND total_minutes > 0
-      ORDER BY date DESC
-      LIMIT 1
-    ''', [userId]);
+    final row = await _repository.getLatestDailyRecord(userId);
 
-    if (rows.isEmpty) {
+    if (row == null) {
       dailyTotalSleepDuration = '0h 0m';
       dailySleepScore = 0;
       dailyDeepSleep = '0h 0m';
@@ -280,13 +256,11 @@ class SleepViewModel extends ChangeNotifier {
       return;
     }
 
-    final row = rows.first;
     final totalMinutes = (row['total_minutes'] as num?)?.toInt() ?? 0;
     final deepMinutes = (row['deep_minutes'] as num?)?.toInt() ?? 0;
     final lightMinutes = (row['light_minutes'] as num?)?.toInt() ?? 0;
     final remMinutes = (row['rem_minutes'] as num?)?.toInt() ?? 0;
     final sleepScore = (row['sleep_score'] as num?)?.toInt() ?? 0;
-    final isSynced = ((row['is_synced'] as num?)?.toInt() ?? 1) == 1;
 
     dailyTotalSleepDuration = _formatMinutes(totalMinutes);
     dailySleepScore = sleepScore;
@@ -294,8 +268,18 @@ class SleepViewModel extends ChangeNotifier {
     dailyLightSleep = _formatMinutes(lightMinutes);
     dailyRemSleep = _formatMinutes(remMinutes);
 
-    // only final DB-backed banner state
-    isDataPendingSync = !isSynced;
+    final latestDateStr = row['date'] as String;
+    final latestRecordDate = DateTime.tryParse(latestDateStr) ?? DateTime(1970);
+    final latestDateOnly = DateTime(
+        latestRecordDate.year, latestRecordDate.month, latestRecordDate.day);
+
+    final now = DateTime.now();
+    final expectedDate = now.hour < 12
+        ? DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 1))
+        : DateTime(now.year, now.month, now.day);
+
+    isDataPendingSync = latestDateOnly.isBefore(expectedDate);
     hasCheckedSyncStatus = true;
 
     final hypnogramJson = row['hypnogram_json'] as String?;
@@ -334,8 +318,8 @@ class SleepViewModel extends ChangeNotifier {
         final total =
         weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
         final avgMinutes = (total / weeklyData.length).round();
-        final avgScore = (weeklyData.fold<int>(
-            0, (sum, e) => sum + e.sleepScore) /
+        final avgScore =
+        (weeklyData.fold<int>(0, (sum, e) => sum + e.sleepScore) /
             weeklyData.length)
             .round();
 
@@ -352,25 +336,19 @@ class SleepViewModel extends ChangeNotifier {
 
   Future<void> _checkMoodFeedbackNeeded(String userId) async {
     try {
-      final db = await LocalDatabase.instance.database;
-      final cutoff = _dateKey(DateTime.now().subtract(const Duration(days: 1)));
+      final cutoff =
+      _dateKey(DateTime.now().subtract(const Duration(days: 1)));
+      final row =
+      await _repository.getLatestRecordForMoodCheck(userId, cutoff);
 
-      final rows = await db.rawQuery('''
-        SELECT date, mood_feedback
-        FROM sleep_record
-        WHERE user_id = ? AND date >= ? AND total_minutes > 0
-        ORDER BY date DESC
-        LIMIT 1
-      ''', [userId, cutoff]);
-
-      if (rows.isEmpty) {
+      if (row == null) {
         showMoodFeedbackPrompt = false;
         pendingFeedbackDate = null;
         return;
       }
 
-      final latestDate = rows.first['date'] as String;
-      final existingMood = rows.first['mood_feedback'] as String?;
+      final latestDate = row['date'] as String;
+      final existingMood = row['mood_feedback'] as String?;
 
       showMoodFeedbackPrompt = existingMood == null || existingMood.isEmpty;
       pendingFeedbackDate = showMoodFeedbackPrompt ? latestDate : null;
@@ -386,7 +364,7 @@ class SleepViewModel extends ChangeNotifier {
     if (date == null || userId == null) return;
 
     isSubmittingMoodFeedback = true;
-    notifyListeners();
+    _safeNotify();
 
     try {
       await _repository.saveMoodFeedback(
@@ -401,7 +379,7 @@ class SleepViewModel extends ChangeNotifier {
       debugPrint('❌ submitMoodFeedback: $e');
     } finally {
       isSubmittingMoodFeedback = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 

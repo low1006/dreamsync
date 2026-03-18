@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:dreamsync/models/inventory_model.dart'; // Ensure this import is correct
+import 'package:dreamsync/models/inventory_model.dart';
 
 class ToneSelector extends StatefulWidget {
   final int currentToneId;
@@ -20,8 +20,8 @@ class ToneSelector extends StatefulWidget {
 
 class _ToneSelectorState extends State<ToneSelector> {
   final AudioPlayer _audioPlayer = AudioPlayer();
-  int? _playingId; // Track which tone ID is currently playing
-  bool _isPlayingDefault = false; // Track if the default tone is playing
+  int? _playingId;
+  bool _isPlayingDefault = false;
 
   @override
   void dispose() {
@@ -33,7 +33,7 @@ class _ToneSelectorState extends State<ToneSelector> {
     try {
       await _audioPlayer.stop();
 
-      // If we are tapping the same tone that is playing, just stop it.
+      // If tapping the same tone that is playing, just stop it.
       if ((_playingId == id && !isDefault) || (_isPlayingDefault && isDefault && _playingId == 1)) {
         setState(() {
           _playingId = null;
@@ -43,7 +43,6 @@ class _ToneSelectorState extends State<ToneSelector> {
       }
 
       // Play new tone
-      // Note: 'classic.mp3' or unlocked files usually live in assets/audio/
       await _audioPlayer.play(AssetSource('audio/$fileName'));
 
       setState(() {
@@ -65,6 +64,12 @@ class _ToneSelectorState extends State<ToneSelector> {
     }
   }
 
+  void _selectAndClose(int id, String name, String fileName) {
+    widget.onToneSelected(id, name, fileName);
+    _audioPlayer.stop(); // Stop audio when closing
+    Navigator.pop(context); // Automatically close the bottom sheet
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -72,15 +77,31 @@ class _ToneSelectorState extends State<ToneSelector> {
     final text = isDark ? Colors.white : const Color(0xFF0F172A);
 
     return Container(
-      height: 500, // Fixed height or use logic
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.7, // Takes up to 70% of screen
+      ),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: const EdgeInsets.symmetric(vertical: 20),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Drag Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 5,
+              decoration: BoxDecoration(
+                color: text.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -96,7 +117,10 @@ class _ToneSelectorState extends State<ToneSelector> {
                   ),
                 ),
                 IconButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    _audioPlayer.stop();
+                    Navigator.pop(context);
+                  },
                   icon: Icon(Icons.close, color: text.withOpacity(0.5)),
                 ),
               ],
@@ -104,14 +128,16 @@ class _ToneSelectorState extends State<ToneSelector> {
           ),
           const Divider(),
 
-          Expanded(
+          // Scrollable List
+          Flexible(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              shrinkWrap: true,
               children: [
                 // --- SECTION 1: DEFAULTS ---
                 _buildSectionHeader("Default", text),
                 _buildToneTile(
-                  id: 1, // Classic ID
+                  id: 1,
                   name: "Classic",
                   fileName: "classic.mp3",
                   isSelected: widget.currentToneId == 1,
@@ -129,7 +155,7 @@ class _ToneSelectorState extends State<ToneSelector> {
                     return _buildToneTile(
                       id: item.details.id,
                       name: item.details.name,
-                      fileName: item.details.audioFile, // Assumes getter exists
+                      fileName: item.details.audioFile,
                       isSelected: widget.currentToneId == item.details.id,
                       isPlaying: _playingId == item.details.id,
                       isDefault: false,
@@ -138,16 +164,15 @@ class _ToneSelectorState extends State<ToneSelector> {
                   }).toList(),
                 ] else ...[
                   Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(24.0),
                     child: Text(
-                      "No unlocked tones yet. Visit the Shop!",
+                      "No unlocked tones yet. Visit the Shop to unlock more!",
                       style: TextStyle(color: text.withOpacity(0.5), fontStyle: FontStyle.italic),
                       textAlign: TextAlign.center,
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 40),
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -162,7 +187,7 @@ class _ToneSelectorState extends State<ToneSelector> {
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          color: color.withOpacity(0.6),
+          color: color.withOpacity(0.5),
           fontSize: 12,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.2,
@@ -180,31 +205,26 @@ class _ToneSelectorState extends State<ToneSelector> {
     required bool isDefault,
     required Color textColor,
   }) {
+    final accent = const Color(0xFF3B82F6);
+
     return Card(
       elevation: 0,
-      color: isSelected
-          ? const Color(0xFF3B82F6).withOpacity(0.1)
-          : Colors.transparent,
+      color: isSelected ? accent.withOpacity(0.08) : Colors.transparent,
+      margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isSelected
-            ? const BorderSide(color: Color(0xFF3B82F6), width: 1.5)
-            : BorderSide.none,
+        borderRadius: BorderRadius.circular(16),
+        side: isSelected ? BorderSide(color: accent.withOpacity(0.5), width: 1.5) : BorderSide.none,
       ),
       child: ListTile(
-        onTap: () {
-          // Select this tone
-          widget.onToneSelected(id, name, fileName);
-          // Optional: Auto-play when selected?
-          _playPreview(fileName, id, isDefault: isDefault);
-        },
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        onTap: () => _selectAndClose(id, name, fileName),
         leading: CircleAvatar(
-          backgroundColor: isPlaying ? Colors.redAccent : const Color(0xFF3B82F6).withOpacity(0.2),
+          backgroundColor: isPlaying ? Colors.redAccent.withOpacity(0.1) : accent.withOpacity(0.1),
           child: IconButton(
             icon: Icon(
               isPlaying ? Icons.stop : Icons.play_arrow,
-              color: isPlaying ? Colors.white : const Color(0xFF3B82F6),
-              size: 20,
+              color: isPlaying ? Colors.redAccent : accent,
+              size: 22,
             ),
             onPressed: () => _playPreview(fileName, id, isDefault: isDefault),
           ),
@@ -213,11 +233,11 @@ class _ToneSelectorState extends State<ToneSelector> {
           name,
           style: TextStyle(
             color: textColor,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),
         trailing: isSelected
-            ? const Icon(Icons.check_circle, color: Color(0xFF3B82F6))
+            ? Icon(Icons.check_circle, color: accent)
             : null,
       ),
     );
