@@ -1,153 +1,513 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:ui';
+
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:do_not_disturb/do_not_disturb.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_timezone/flutter_timezone.dart';
-import 'dart:io' show Platform;
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:do_not_disturb/do_not_disturb.dart';
 
-final _dndPlugin = DoNotDisturbPlugin();
+final DoNotDisturbPlugin _dndPlugin = DoNotDisturbPlugin();
 
 @pragma('vm:entry-point')
-void fireAlarmCallback(int id, Map<String, dynamic> params) async {
+Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
   WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
 
-  // 1. DND Logic
-  bool isSmartNotification = params['isSmartNotification'] ?? false;
-  if (isSmartNotification) {
-    try {
-      if (await _dndPlugin.isNotificationPolicyAccessGranted()) {
-        await _dndPlugin.setInterruptionFilter(InterruptionFilter.all);
+  final service = NotificationService();
+  await service.initForIsolate();
+
+  try {
+    final bool isSmartNotification = params['isSmartNotification'] ?? false;
+
+    if (isSmartNotification) {
+      try {
+        final granted = await _dndPlugin.isNotificationPolicyAccessGranted();
+        if (granted) {
+          await _dndPlugin.setInterruptionFilter(InterruptionFilter.all);
+        }
+      } catch (e) {
+        debugPrint('DND access error in alarm callback: $e');
       }
-    } catch (e) {
-      debugPrint("DND Error: $e");
     }
-  }
 
-  // 2. Prepare Payload
-  String currentSound = params['soundFile'] ?? 'classic.mp3';
-  int snoozeCount = params['snoozeCount'] ?? 0;
-  bool isSmartAlarm = params['isSmartAlarm'] ?? false;
-  bool isSnoozeOn = params['isSnoozeOn'] ?? true;
+    final String currentSound = NotificationService.normalizeSoundFile(
+      params['soundFile']?.toString(),
+    );
 
-  String payloadData = jsonEncode({
-    'id': id,
-    'isSmartAlarm': isSmartAlarm,
-    'isSnoozeOn': isSnoozeOn,
-    'snoozeCount': snoozeCount,
-    'soundFile': currentSound,
-  });
+    final int snoozeCount = params['snoozeCount'] ?? 0;
+    final bool isSmartAlarm = params['isSmartAlarm'] ?? false;
+    final bool isSnoozeOn = params['isSnoozeOn'] ?? true;
 
-  // 3. Show Notification
-  NotificationService().showAlarmNotification(
-    id: id,
-    title: params['title'] ?? 'Wake Up',
-    body: params['body'] ?? 'Time to wake up!',
-    payload: payloadData,
-    soundFile: currentSound,
-  );
+    final payload = jsonEncode({
+      'id': id,
+      'isSmartAlarm': isSmartAlarm,
+      'isSnoozeOn': isSnoozeOn,
+      'snoozeCount': snoozeCount,
+      'soundFile': currentSound,
+    });
 
-  // 4. Loop Logic
-  bool loop = params['loop'] ?? false;
-  if (loop) {
-    _rescheduleNextWeek(id, params);
+    await service.showAlarmNotification(
+      id: id,
+      title: params['title'] ?? 'Wake Up',
+      body: params['body'] ?? 'Time to wake up!',
+      payload: payload,
+      soundFile: currentSound,
+    );
+
+    final bool loop = params['loop'] ?? false;
+    if (loop) {
+      await _rescheduleNextWeek(id, params);
+    }
+  } catch (e, st) {
+    debugPrint('fireAlarmCallback error: $e');
+    debugPrint('$st');
   }
 }
 
-void _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
-  int hour = params['hour'];
-  int minute = params['minute'];
-  DateTime now = DateTime.now();
-  DateTime nextRun = DateTime(now.year, now.month, now.day + 7, hour, minute, 0);
+Future<void> _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
+  final int hour = params['hour'];
+  final int minute = params['minute'];
+  final now = DateTime.now();
+
+  final nextRun = DateTime(now.year, now.month, now.day + 7, hour, minute);
 
   await AndroidAlarmManager.oneShotAt(
-    nextRun, id, fireAlarmCallback,
-    exact: true, wakeup: true, alarmClock: true, allowWhileIdle: true, rescheduleOnReboot: true,
+    nextRun,
+    id,
+    fireAlarmCallback,
+    exact: true,
+    wakeup: true,
+    alarmClock: true,
+    allowWhileIdle: true,
+    rescheduleOnReboot: true,
     params: params,
   );
 }
 
 @pragma('vm:entry-point')
-void fireBedtimeCallback(int id, Map<String, dynamic> params) async {
+Future<void> fireBedtimeCallback(int id, Map<String, dynamic> params) async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (await _dndPlugin.isNotificationPolicyAccessGranted()) {
-    await _dndPlugin.setInterruptionFilter(InterruptionFilter.alarms);
-    await NotificationService().showDndNotification();
-  }
-  bool loop = params['loop'] ?? false;
-  if (loop) {
-    _rescheduleBedtimeNextWeek(id, params);
+  DartPluginRegistrant.ensureInitialized();
+
+  final service = NotificationService();
+  await service.initForIsolate();
+
+  try {
+    final granted = await _dndPlugin.isNotificationPolicyAccessGranted();
+    if (granted) {
+      await _dndPlugin.setInterruptionFilter(InterruptionFilter.alarms);
+      await service.showDndNotification();
+    }
+
+    final bool loop = params['loop'] ?? false;
+    if (loop) {
+      await _rescheduleBedtimeNextWeek(id, params);
+    }
+  } catch (e, st) {
+    debugPrint('fireBedtimeCallback error: $e');
+    debugPrint('$st');
   }
 }
 
-void _rescheduleBedtimeNextWeek(int id, Map<String, dynamic> params) async {
-  int hour = params['hour'];
-  int minute = params['minute'];
-  DateTime now = DateTime.now();
-  DateTime nextRun = DateTime(now.year, now.month, now.day + 7, hour, minute, 0);
+Future<void> _rescheduleBedtimeNextWeek(
+    int id,
+    Map<String, dynamic> params,
+    ) async {
+  final int hour = params['hour'];
+  final int minute = params['minute'];
+  final now = DateTime.now();
+
+  final nextRun = DateTime(now.year, now.month, now.day + 7, hour, minute);
 
   await AndroidAlarmManager.oneShotAt(
-    nextRun, id, fireBedtimeCallback,
-    exact: true, wakeup: true, alarmClock: false, allowWhileIdle: true, rescheduleOnReboot: true,
+    nextRun,
+    id,
+    fireBedtimeCallback,
+    exact: true,
+    wakeup: true,
+    alarmClock: false,
+    allowWhileIdle: true,
+    rescheduleOnReboot: true,
     params: params,
   );
 }
 
 class NotificationService {
+  NotificationService._internal();
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
-  NotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-  final StreamController<String> _alarmStreamController = StreamController<String>.broadcast();
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
+
+  final StreamController<String> _alarmStreamController =
+  StreamController<String>.broadcast();
+
   Stream<String> get onAlarmFired => _alarmStreamController.stream;
 
+  bool _initialized = false;
+  bool _timezoneReady = false;
+  bool _pluginReady = false;
+
+  static bool _hasConsumedLaunchPayload = false;
+
+  static const String _dndChannelId = 'bedtime_dnd_channel';
+  static const String _dndChannelName = 'Bedtime Notifications';
+  static const int _dndNotificationId = 999999;
+
+  static const int smartAlarmMaxSnoozes = 2;
+
+  static String normalizeSoundFile(String? soundFile) {
+    final raw = (soundFile == null || soundFile.trim().isEmpty)
+        ? 'classic.mp3'
+        : soundFile.trim();
+
+    final lower = raw.toLowerCase().replaceAll(' ', '_');
+
+    if (lower.endsWith('.mp3') ||
+        lower.endsWith('.wav') ||
+        lower.endsWith('.ogg')) {
+      return lower;
+    }
+
+    return '$lower.mp3';
+  }
+
+  static String soundResourceName(String? soundFile) {
+    return normalizeSoundFile(soundFile).split('.').first;
+  }
+
+  static String audioAssetPath(String? soundFile) {
+    return 'audio/${normalizeSoundFile(soundFile)}';
+  }
+
   Future<void> init() async {
+    if (_initialized) return;
+
+    await _initTimezone();
+    await AndroidAlarmManager.initialize();
+    await _initializeNotifications();
+
+    _initialized = true;
+  }
+
+  Future<void> initForIsolate() async {
+    if (_initialized) return;
+
+    await _initTimezone();
+    await _initializeNotifications();
+
+    _initialized = true;
+  }
+
+  Future<void> _initTimezone() async {
+    if (_timezoneReady) return;
+
     tz.initializeTimeZones();
     try {
-      final String timeZoneName = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
+      final timezone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timezone));
     } catch (e) {
       tz.setLocalLocation(tz.getLocation('Asia/Kuala_Lumpur'));
     }
 
-    if (Platform.isAndroid) {
-      await AndroidAlarmManager.initialize();
-    }
+    _timezoneReady = true;
+  }
 
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const DarwinInitializationSettings initializationSettingsDarwin = DarwinInitializationSettings(
-      requestSoundPermission: true, requestBadgePermission: true, requestAlertPermission: true,
+  Future<void> _initializeNotifications() async {
+    if (_pluginReady) return;
+
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const ios = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
     );
 
     await flutterLocalNotificationsPlugin.initialize(
-      InitializationSettings(android: initializationSettingsAndroid, iOS: initializationSettingsDarwin),
+      const InitializationSettings(android: android, iOS: ios),
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        if (response.payload != null) {
-          _alarmStreamController.add(response.payload!);
+        final payload = response.payload;
+        if (payload != null && payload.isNotEmpty) {
+          _alarmStreamController.add(payload);
         }
       },
+      onDidReceiveBackgroundNotificationResponse:
+      notificationTapBackgroundHandler,
     );
-    // ✅ REMOVED requestPermissions() from here so it doesn't fire too early
+
+    _pluginReady = true;
   }
 
-  // ✅ UPDATED PERMISSION LOGIC
-  Future<void> requestPermissions() async {
-    if (Platform.isAndroid) {
-      final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  Future<String?> getLaunchPayload() async {
+    if (_hasConsumedLaunchPayload) return null;
 
-      // This triggers the native Android 13+ pop-up for notifications ONLY
-      if (androidImplementation != null) {
-        await androidImplementation.requestNotificationsPermission();
+    final details =
+    await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+
+    if (details?.didNotificationLaunchApp == true) {
+      _hasConsumedLaunchPayload = true;
+      return details?.notificationResponse?.payload;
+    }
+    return null;
+  }
+
+  @pragma('vm:entry-point')
+  static void notificationTapBackgroundHandler(
+      NotificationResponse response,
+      ) {}
+
+  Future<void> showAlarmNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+    String? soundFile,
+  }) async {
+    final normalizedSoundFile = normalizeSoundFile(soundFile);
+    final cleanSoundName = normalizedSoundFile.split('.').first;
+
+    final channelId = 'loud_alarm_channel_v4_$cleanSoundName';
+    final channelName = 'Loud Alarm ($cleanSoundName)';
+
+    final androidDetails = AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: 'Loud alarm notifications',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
+      fullScreenIntent: true,
+      playSound: true,
+      sound: RawResourceAndroidNotificationSound(cleanSoundName),
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+      ongoing: true,
+      autoCancel: false,
+      ticker: 'Alarm Ringing',
+      additionalFlags: Int32List.fromList(<int>[4]),
+    );
+
+    final iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      sound: normalizedSoundFile,
+      interruptionLevel: InterruptionLevel.critical,
+    );
+
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    debugPrint(
+      '🔔 Showing LOUD native alarm notification: id=$id sound=$cleanSoundName',
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      id,
+      title,
+      body,
+      details,
+      payload: payload,
+    );
+  }
+
+  Future<void> showDndNotification() async {
+    const androidDetails = AndroidNotificationDetails(
+      _dndChannelId,
+      _dndChannelName,
+      channelDescription: 'Bedtime mode notifications',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      _dndNotificationId,
+      'Bedtime Mode',
+      'Do Not Disturb has been enabled for bedtime.',
+      const NotificationDetails(android: androidDetails),
+    );
+  }
+
+  Future<void> stopNotification(int id) async {
+    await flutterLocalNotificationsPlugin.cancel(id);
+  }
+
+  Future<void> cancelAlarm(int baseId) async {
+    try {
+      for (int i = 1; i <= 7; i++) {
+        final int alarmId = baseId + i;
+        final int snoozeId = alarmId + 100000;
+        final int bedtimeId = alarmId + 500000;
+
+        await AndroidAlarmManager.cancel(alarmId);
+        await AndroidAlarmManager.cancel(snoozeId);
+        await AndroidAlarmManager.cancel(bedtimeId);
+
+        await stopNotification(alarmId);
+        await stopNotification(snoozeId);
+        await stopNotification(bedtimeId);
       }
 
+      await stopNotification(_dndNotificationId);
+
+      debugPrint('🛑 All alarms cancelled for base id: $baseId');
+    } catch (e) {
+      debugPrint('cancelAlarm error: $e');
     }
+  }
+
+  Future<void> cancelAllAlarmNotificationsAndSchedules({
+    int maxBaseId = 10000,
+  }) async {
+    try {
+      for (int baseId = 0; baseId <= maxBaseId; baseId++) {
+        for (int i = 1; i <= 7; i++) {
+          final int alarmId = baseId + i;
+          final int snoozeId = alarmId + 100000;
+          final int bedtimeId = alarmId + 500000;
+
+          await AndroidAlarmManager.cancel(alarmId);
+          await AndroidAlarmManager.cancel(snoozeId);
+          await AndroidAlarmManager.cancel(bedtimeId);
+
+          await stopNotification(alarmId);
+          await stopNotification(snoozeId);
+          await stopNotification(bedtimeId);
+        }
+      }
+
+      await flutterLocalNotificationsPlugin.cancelAll();
+      await stopNotification(_dndNotificationId);
+
+      debugPrint('🧹 All alarm schedules and notifications cleared.');
+    } catch (e) {
+      debugPrint('cancelAllAlarmNotificationsAndSchedules error: $e');
+    }
+  }
+
+  Future<void> debugResetForDevelopment() async {
+    if (!kDebugMode) return;
+    await init();
+    await cancelAllAlarmNotificationsAndSchedules();
+  }
+
+  String resolveNextSnoozeSoundFile({
+    required String currentSoundFile,
+    required int currentSnoozeCount,
+    required bool isSmartAlarm,
+  }) {
+    if (isSmartAlarm && (currentSnoozeCount + 1) >= smartAlarmMaxSnoozes) {
+      return 'buzzer.mp3';
+    }
+    return normalizeSoundFile(currentSoundFile);
+  }
+
+  bool shouldEnterPanicMode({
+    required bool isSmartAlarm,
+    required int snoozeCount,
+  }) {
+    return isSmartAlarm && snoozeCount >= smartAlarmMaxSnoozes;
+  }
+
+  Future<void> handleSnooze({
+    required int notificationId,
+    required int snoozeCount,
+    required bool isSmartAlarm,
+    required bool isSnoozeOn,
+    required String soundFile,
+  }) async {
+    final int originalId =
+    notificationId > 100000 ? notificationId - 100000 : notificationId;
+
+    final int snoozeId = originalId + 100000;
+
+    await stopNotification(originalId);
+    await stopNotification(snoozeId);
+
+    await AndroidAlarmManager.cancel(snoozeId);
+
+    final String nextSoundFile = resolveNextSnoozeSoundFile(
+      currentSoundFile: soundFile,
+      currentSnoozeCount: snoozeCount,
+      isSmartAlarm: isSmartAlarm,
+    );
+
+    await scheduleSnooze(
+      originalId: originalId,
+      currentSnoozeCount: snoozeCount,
+      isSmartAlarm: isSmartAlarm,
+      isSnoozeOn: isSnoozeOn,
+      soundFile: nextSoundFile,
+    );
+  }
+
+  Future<void> handleStopAlarm({required int notificationId}) async {
+    final int originalId =
+    notificationId > 100000 ? notificationId - 100000 : notificationId;
+
+    final int snoozeId = originalId + 100000;
+
+    try {
+      await stopNotification(originalId);
+      await stopNotification(snoozeId);
+
+      await AndroidAlarmManager.cancel(originalId);
+      await AndroidAlarmManager.cancel(snoozeId);
+
+      debugPrint('🛑 Alarm fully stopped: id=$originalId');
+    } catch (e) {
+      debugPrint('handleStopAlarm error: $e');
+    }
+  }
+
+  Future<void> scheduleSnooze({
+    required int originalId,
+    required int currentSnoozeCount,
+    required bool isSmartAlarm,
+    required bool isSnoozeOn,
+    required String soundFile,
+  }) async {
+    final int snoozeId = originalId + 100000;
+    final DateTime snoozeTime = DateTime.now().add(const Duration(minutes: 1));
+    final normalizedSoundFile = normalizeSoundFile(soundFile);
+
+    await AndroidAlarmManager.cancel(snoozeId);
+    await stopNotification(snoozeId);
+
+    final params = <String, dynamic>{
+      'title': 'Wake Up',
+      'body': 'Time to wake up!',
+      'hour': snoozeTime.hour,
+      'minute': snoozeTime.minute,
+      'loop': false,
+      'isSmartAlarm': isSmartAlarm,
+      'isSnoozeOn': isSnoozeOn,
+      'isSmartNotification': false,
+      'snoozeCount': currentSnoozeCount + 1,
+      'soundFile': normalizedSoundFile,
+    };
+
+    await AndroidAlarmManager.oneShotAt(
+      snoozeTime,
+      snoozeId,
+      fireAlarmCallback,
+      exact: true,
+      wakeup: true,
+      alarmClock: true,
+      allowWhileIdle: true,
+      rescheduleOnReboot: false,
+      params: params,
+    );
+
+    debugPrint('😴 Snooze scheduled: id=$snoozeId at $snoozeTime');
   }
 
   Future<void> scheduleAlarm({
@@ -160,199 +520,105 @@ class NotificationService {
     required bool isSnoozeOn,
     required bool isSmartNotification,
     required bool isSmartAlarm,
-    String? soundFile,
+    required String soundFile,
   }) async {
+    await init();
     await cancelAlarm(id);
 
-    if (days.isEmpty) return;
     if (!isAlarmEnabled && !isSmartNotification) return;
 
-    for (String day in days) {
-      final uniqueId = _createUniqueId(id, day);
-      final bedtimeUniqueId = uniqueId + 200000;
-      final nextWakeTime = _nextInstanceOfDayAndTime(time, _getDayOfWeek(day));
+    final normalizedSoundFile = normalizeSoundFile(soundFile);
 
-      DateTime nextBedTime = DateTime(nextWakeTime.year, nextWakeTime.month, nextWakeTime.day, bedTime.hour, bedTime.minute);
-      if (nextBedTime.isAfter(nextWakeTime)) nextBedTime = nextBedTime.subtract(const Duration(days: 1));
+    final weekdayMap = <String, int>{
+      'Mon': DateTime.monday,
+      'Tue': DateTime.tuesday,
+      'Wed': DateTime.wednesday,
+      'Thu': DateTime.thursday,
+      'Fri': DateTime.friday,
+      'Sat': DateTime.saturday,
+      'Sun': DateTime.sunday,
+    };
 
-      if (isAlarmEnabled && Platform.isAndroid) {
+    for (final day in days) {
+      final targetWeekday = weekdayMap[day];
+      if (targetWeekday == null) continue;
+
+      if (isAlarmEnabled) {
+        final alarmDateTime = _nextInstanceOfWeekdayTime(
+          targetWeekday,
+          time.hour,
+          time.minute,
+        );
+
         await AndroidAlarmManager.oneShotAt(
-          nextWakeTime, uniqueId, fireAlarmCallback,
-          exact: true, wakeup: true, alarmClock: true, allowWhileIdle: true, rescheduleOnReboot: true,
+          alarmDateTime,
+          id + targetWeekday,
+          fireAlarmCallback,
+          exact: true,
+          wakeup: true,
+          alarmClock: true,
+          allowWhileIdle: true,
+          rescheduleOnReboot: true,
           params: {
             'title': title,
             'body': 'Time to wake up!',
-            'isSnoozeOn': isSnoozeOn,
-            'soundFile': soundFile,
-            'isSmartNotification': isSmartNotification,
-            'isSmartAlarm': isSmartAlarm,
-            'snoozeCount': 0,
+            'hour': time.hour,
+            'minute': time.minute,
             'loop': true,
-            'hour': time.hour, 'minute': time.minute, 'day': day,
+            'isSmartAlarm': isSmartAlarm,
+            'isSnoozeOn': isSnoozeOn,
+            'isSmartNotification': isSmartNotification,
+            'snoozeCount': 0,
+            'soundFile': normalizedSoundFile,
           },
         );
-      } else if (isAlarmEnabled && !Platform.isAndroid) {
-        await _scheduleIOSAlarm(uniqueId, title, nextWakeTime, soundFile);
+
+        debugPrint('Alarm scheduled for $day at $alarmDateTime');
       }
 
-      if (isSmartNotification && Platform.isAndroid) {
-        await AndroidAlarmManager.oneShotAt(
-          nextBedTime, bedtimeUniqueId, fireBedtimeCallback,
-          exact: true, wakeup: true, alarmClock: false, allowWhileIdle: true, rescheduleOnReboot: true,
-          params: {'loop': true, 'hour': bedTime.hour, 'minute': bedTime.minute, 'day': day},
+      if (isSmartNotification) {
+        final bedtimeDateTime = _nextInstanceOfWeekdayTime(
+          targetWeekday,
+          bedTime.hour,
+          bedTime.minute,
         );
+
+        await AndroidAlarmManager.oneShotAt(
+          bedtimeDateTime,
+          (id + targetWeekday) + 500000,
+          fireBedtimeCallback,
+          exact: true,
+          wakeup: true,
+          alarmClock: false,
+          allowWhileIdle: true,
+          rescheduleOnReboot: true,
+          params: {
+            'hour': bedTime.hour,
+            'minute': bedTime.minute,
+            'loop': true,
+          },
+        );
+
+        debugPrint('Bedtime DND scheduled for $day at $bedtimeDateTime');
       }
     }
   }
 
-  Future<void> showAlarmNotification({required int id, required String title, required String body, String? payload, String? soundFile}) async {
-    String cleanSoundName = (soundFile ?? 'buzzer').split('.').first;
-
-    String channelId = 'alarm_channel_$cleanSoundName';
-    String channelName = 'Alarm ($cleanSoundName)';
-
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      channelId,
-      channelName,
-      channelDescription: 'Loud alarm notifications',
-      importance: Importance.max, priority: Priority.max, fullScreenIntent: true,
-      sound: RawResourceAndroidNotificationSound(cleanSoundName),
-      additionalFlags: Int32List.fromList(<int>[4]), playSound: true,
-      category: AndroidNotificationCategory.alarm, visibility: NotificationVisibility.public,
-      ongoing: true, autoCancel: false, ticker: 'Alarm Ringing',
-    );
-
-    final NotificationDetails platformDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: DarwinNotificationDetails(sound: '$cleanSoundName.mp3', presentSound: true, presentAlert: true),
-    );
-
-    await flutterLocalNotificationsPlugin.show(id, title, body, platformDetails, payload: payload);
-  }
-
-  Future<void> scheduleSnooze({
-    required int originalId,
-    required int currentSnoozeCount,
-    required bool isSmartAlarm,
-    required bool isSnoozeOn,
-    required String soundFile,
-  }) async {
+  DateTime _nextInstanceOfWeekdayTime(int weekday, int hour, int minute) {
     final now = DateTime.now();
-    // 5 minutes snooze
-    final snoozeTime = now.add(const Duration(minutes: 5));
-    final snoozeId = originalId + 100000;
+    DateTime scheduled = DateTime(now.year, now.month, now.day, hour, minute);
 
-    int nextSnoozeCount = currentSnoozeCount + 1;
-
-    String payload = jsonEncode({
-      'id': originalId,
-      'isSmartAlarm': isSmartAlarm,
-      'isSnoozeOn': isSnoozeOn,
-      'snoozeCount': nextSnoozeCount,
-      'soundFile': soundFile,
-    });
-
-    if (Platform.isAndroid) {
-      await AndroidAlarmManager.oneShotAt(
-        snoozeTime, snoozeId, fireAlarmCallback,
-        exact: true, wakeup: true, alarmClock: true,
-        params: {
-          'title': 'Snooze',
-          'body': 'Snooze over!',
-          'isSmartAlarm': isSmartAlarm,
-          'isSnoozeOn': isSnoozeOn,
-          'snoozeCount': nextSnoozeCount,
-          'soundFile': soundFile,
-          'loop': false
-        },
-      );
-    } else {
-      String cleanSound = soundFile.split('.').first;
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        snoozeId, "Snooze", "Snooze is over!", tz.TZDateTime.from(snoozeTime, tz.local),
-        NotificationDetails(iOS: DarwinNotificationDetails(sound: '$cleanSound.mp3', presentSound: true, presentAlert: true)),
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        payload: payload,
+    while (scheduled.weekday != weekday || !scheduled.isAfter(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+      scheduled = DateTime(
+        scheduled.year,
+        scheduled.month,
+        scheduled.day,
+        hour,
+        minute,
       );
     }
-  }
 
-  Future<void> stopNotification(int id) async {
-    await flutterLocalNotificationsPlugin.cancel(id);
-  }
-
-  Future<void> cancelAlarm(int id) async {
-    final allDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    for (var day in allDays) {
-      final uniqueId = _createUniqueId(id, day);
-      if (Platform.isAndroid) {
-        await AndroidAlarmManager.cancel(uniqueId);
-        await AndroidAlarmManager.cancel(uniqueId + 100000);
-        await AndroidAlarmManager.cancel(uniqueId + 200000);
-      }
-      await flutterLocalNotificationsPlugin.cancel(uniqueId);
-      await flutterLocalNotificationsPlugin.cancel(uniqueId + 100000);
-    }
-  }
-
-  int _createUniqueId(int baseId, String day) {
-    int safeBase = baseId.abs() % 100000;
-    int dayOffset = _getDayOfWeek(day);
-    return (safeBase * 10) + dayOffset;
-  }
-
-  int _getDayOfWeek(String day) {
-    switch (day) {
-      case 'Mon': return DateTime.monday;
-      case 'Tue': return DateTime.tuesday;
-      case 'Wed': return DateTime.wednesday;
-      case 'Thu': return DateTime.thursday;
-      case 'Fri': return DateTime.friday;
-      case 'Sat': return DateTime.saturday;
-      case 'Sun': return DateTime.sunday;
-      default: return DateTime.monday;
-    }
-  }
-
-  tz.TZDateTime _nextInstanceOfDayAndTime(TimeOfDay time, int dayOfWeek) {
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    tz.TZDateTime scheduledDate = tz.TZDateTime(tz.local, now.year, now.month, now.day, time.hour, time.minute);
-    while (scheduledDate.weekday != dayOfWeek) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 7));
-    }
-    return scheduledDate;
-  }
-
-  Future<void> _scheduleIOSAlarm(int id, String title, tz.TZDateTime scheduledDate, String? soundFile) async {
-    String cleanSound = (soundFile ?? 'buzzer').split('.').first;
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      id, title, "Time to wake up!", scheduledDate,
-      NotificationDetails(iOS: DarwinNotificationDetails(sound: '$cleanSound.mp3', presentSound: true, presentAlert: true)),
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-    );
-  }
-
-  Future<bool> hasDndAccess() async {
-    return await _dndPlugin.isNotificationPolicyAccessGranted();
-  }
-
-  Future<void> openDndSettings() async {
-    await _dndPlugin.openNotificationPolicyAccessSettings();
-  }
-
-  Future<void> showDndNotification() async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'dnd_status_channel', 'DND Status', channelDescription: 'Notifies when Do Not Disturb is activated',
-      importance: Importance.low, priority: Priority.low, icon: '@mipmap/ic_launcher',
-    );
-    await flutterLocalNotificationsPlugin.show(
-      9999, 'Bedtime Activated 🌙', 'Do Not Disturb is ON. Sleep well, your morning alarm will still ring!',
-      const NotificationDetails(android: androidDetails, iOS: DarwinNotificationDetails()),
-    );
+    return scheduled;
   }
 }

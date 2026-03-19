@@ -1,73 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:dreamsync/models/inventory_model.dart';
+import 'package:dreamsync/services/notification_service.dart';
 
-class ToneSelector extends StatefulWidget {
-  final int currentToneId;
+class ToneSelector extends StatelessWidget {
+  final String currentToneFile;
   final List<InventoryItem> unlockedTones;
   final Function(int id, String name, String file) onToneSelected;
 
   const ToneSelector({
     super.key,
-    required this.currentToneId,
+    required this.currentToneFile,
     required this.unlockedTones,
     required this.onToneSelected,
   });
 
-  @override
-  State<ToneSelector> createState() => _ToneSelectorState();
-}
-
-class _ToneSelectorState extends State<ToneSelector> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  int? _playingId;
-  bool _isPlayingDefault = false;
-
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
+  List<InventoryItem> get _availableAlarmTones {
+    return unlockedTones.where((item) {
+      final file = NotificationService.normalizeSoundFile(
+        item.details.audioFile,
+      );
+      return file != 'classic.mp3';
+    }).toList();
   }
 
-  Future<void> _playPreview(String fileName, int id, {bool isDefault = false}) async {
-    try {
-      await _audioPlayer.stop();
-
-      // If tapping the same tone that is playing, just stop it.
-      if ((_playingId == id && !isDefault) || (_isPlayingDefault && isDefault && _playingId == 1)) {
-        setState(() {
-          _playingId = null;
-          _isPlayingDefault = false;
-        });
-        return;
-      }
-
-      // Play new tone
-      await _audioPlayer.play(AssetSource('audio/$fileName'));
-
-      setState(() {
-        _playingId = isDefault ? 1 : id;
-        _isPlayingDefault = isDefault;
-      });
-
-      // Reset state when finished
-      _audioPlayer.onPlayerComplete.listen((_) {
-        if (mounted) {
-          setState(() {
-            _playingId = null;
-            _isPlayingDefault = false;
-          });
-        }
-      });
-    } catch (e) {
-      debugPrint("Error playing preview: $e");
-    }
-  }
-
-  void _selectAndClose(int id, String name, String fileName) {
-    widget.onToneSelected(id, name, fileName);
-    _audioPlayer.stop(); // Stop audio when closing
-    Navigator.pop(context); // Automatically close the bottom sheet
+  void _selectAndClose(BuildContext context, int id, String name, String fileName) {
+    final normalizedFile = NotificationService.normalizeSoundFile(fileName);
+    onToneSelected(id, name, normalizedFile);
+    Navigator.pop(context);
   }
 
   @override
@@ -75,10 +34,15 @@ class _ToneSelectorState extends State<ToneSelector> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF1E293B) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF0F172A);
+    const accent = Color(0xFF3B82F6);
+
+    final currentNormalized = NotificationService.normalizeSoundFile(
+      currentToneFile,
+    );
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.7, // Takes up to 70% of screen
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
       ),
       decoration: BoxDecoration(
         color: bg,
@@ -89,7 +53,6 @@ class _ToneSelectorState extends State<ToneSelector> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag Handle
           Center(
             child: Container(
               width: 40,
@@ -101,8 +64,6 @@ class _ToneSelectorState extends State<ToneSelector> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
@@ -117,57 +78,57 @@ class _ToneSelectorState extends State<ToneSelector> {
                   ),
                 ),
                 IconButton(
-                  onPressed: () {
-                    _audioPlayer.stop();
-                    Navigator.pop(context);
-                  },
+                  onPressed: () => Navigator.pop(context),
                   icon: Icon(Icons.close, color: text.withOpacity(0.5)),
                 ),
               ],
             ),
           ),
           const Divider(),
-
-          // Scrollable List
           Flexible(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               shrinkWrap: true,
               children: [
-                // --- SECTION 1: DEFAULTS ---
                 _buildSectionHeader("Default", text),
                 _buildToneTile(
+                  context: context,
                   id: 1,
                   name: "Classic",
+                  subtitle: "Default",
                   fileName: "classic.mp3",
-                  isSelected: widget.currentToneId == 1,
-                  isPlaying: _isPlayingDefault && _playingId == 1,
-                  isDefault: true,
+                  isSelected: currentNormalized == 'classic.mp3',
                   textColor: text,
+                  accentColor: accent,
                 ),
-
                 const SizedBox(height: 16),
+                if (_availableAlarmTones.isNotEmpty) ...[
+                  _buildSectionHeader("Available Alarm Tones", text),
+                  ..._availableAlarmTones.map((item) {
+                    final normalizedFile = NotificationService.normalizeSoundFile(
+                      item.details.audioFile,
+                    );
 
-                // --- SECTION 2: MY TONES ---
-                if (widget.unlockedTones.isNotEmpty) ...[
-                  _buildSectionHeader("My Tones", text),
-                  ...widget.unlockedTones.map((item) {
                     return _buildToneTile(
+                      context: context,
                       id: item.details.id,
                       name: item.details.name,
-                      fileName: item.details.audioFile,
-                      isSelected: widget.currentToneId == item.details.id,
-                      isPlaying: _playingId == item.details.id,
-                      isDefault: false,
+                      subtitle: normalizedFile,
+                      fileName: normalizedFile,
+                      isSelected: currentNormalized == normalizedFile,
                       textColor: text,
+                      accentColor: accent,
                     );
-                  }).toList(),
+                  }),
                 ] else ...[
                   Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: Text(
-                      "No unlocked tones yet. Visit the Shop to unlock more!",
-                      style: TextStyle(color: text.withOpacity(0.5), fontStyle: FontStyle.italic),
+                      "No extra alarm tones available yet.",
+                      style: TextStyle(
+                        color: text.withOpacity(0.5),
+                        fontStyle: FontStyle.italic,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -197,37 +158,31 @@ class _ToneSelectorState extends State<ToneSelector> {
   }
 
   Widget _buildToneTile({
+    required BuildContext context,
     required int id,
     required String name,
+    required String subtitle,
     required String fileName,
     required bool isSelected,
-    required bool isPlaying,
-    required bool isDefault,
     required Color textColor,
+    required Color accentColor,
   }) {
-    final accent = const Color(0xFF3B82F6);
-
     return Card(
       elevation: 0,
-      color: isSelected ? accent.withOpacity(0.08) : Colors.transparent,
+      color: isSelected ? accentColor.withOpacity(0.08) : Colors.transparent,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: isSelected ? BorderSide(color: accent.withOpacity(0.5), width: 1.5) : BorderSide.none,
+        side: isSelected
+            ? BorderSide(color: accentColor.withOpacity(0.5), width: 1.5)
+            : BorderSide.none,
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        onTap: () => _selectAndClose(id, name, fileName),
+        onTap: () => _selectAndClose(context, id, name, fileName),
         leading: CircleAvatar(
-          backgroundColor: isPlaying ? Colors.redAccent.withOpacity(0.1) : accent.withOpacity(0.1),
-          child: IconButton(
-            icon: Icon(
-              isPlaying ? Icons.stop : Icons.play_arrow,
-              color: isPlaying ? Colors.redAccent : accent,
-              size: 22,
-            ),
-            onPressed: () => _playPreview(fileName, id, isDefault: isDefault),
-          ),
+          backgroundColor: accentColor.withOpacity(0.1),
+          child: Icon(Icons.music_note, color: accentColor, size: 22),
         ),
         title: Text(
           name,
@@ -236,9 +191,15 @@ class _ToneSelectorState extends State<ToneSelector> {
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),
-        trailing: isSelected
-            ? Icon(Icons.check_circle, color: accent)
-            : null,
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            color: textColor.withOpacity(0.5),
+            fontSize: 12,
+          ),
+        ),
+        trailing:
+        isSelected ? Icon(Icons.check_circle, color: accentColor) : null,
       ),
     );
   }

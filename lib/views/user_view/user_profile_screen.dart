@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:health/health.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
-import 'package:dreamsync/views/user_screen/friend_list_screen.dart';
+import 'package:dreamsync/views/user_view/friend_list_screen.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/util/time_formatter.dart';
 import 'package:dreamsync/models/user_model.dart';
@@ -34,7 +34,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final viewModel = context.read<UserViewModel>();
+      final viewModel = context.read<ProfileViewModel>();
       final userId = viewModel.userProfile?.userId;
       if (userId != null) {
         await _refreshProfileSilently(userId, force: true);
@@ -51,7 +51,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
-      final viewModel = context.read<UserViewModel>();
+      final viewModel = context.read<ProfileViewModel>();
       final userId = viewModel.userProfile?.userId;
       if (userId != null) {
         _refreshProfileSilently(userId, force: true);
@@ -63,7 +63,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    final user = Provider.of<UserViewModel>(context, listen: false).userProfile;
+    final user = Provider.of<ProfileViewModel>(context, listen: false).userProfile;
 
     if (_isInit) {
       if (user != null) {
@@ -80,7 +80,6 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ADDED: The missing method to sync local state with the user model
   void _syncTempFromUser(UserModel user) {
     _tempWeight = user.weight;
     _tempHeight = user.height;
@@ -95,7 +94,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
 
     _isRefreshingProfile = true;
     try {
-      await context.read<UserViewModel>().fetchProfile(userId);
+      await context.read<ProfileViewModel>().fetchProfile(userId);
       _lastRefreshedUserId = userId;
     } catch (e) {
       debugPrint("❌ Failed to refresh profile: $e");
@@ -164,16 +163,12 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _saveProfile() async {
-    final viewModel = Provider.of<UserViewModel>(context, listen: false);
+    final viewModel = Provider.of<ProfileViewModel>(context, listen: false);
 
-    // This updates Supabase, caches it, and mutates the local state immediately
     await viewModel.updateProfileData(
       weight: _tempWeight,
       height: _tempHeight,
     );
-
-    // REMOVED: Redundant _refreshProfileSilently call.
-    // The ViewModel already has the latest data.
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -188,33 +183,31 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final viewModel = Provider.of<UserViewModel>(context);
+    final viewModel = Provider.of<ProfileViewModel>(context);
     final user = viewModel.userProfile;
 
+    // ✅ Match exact Achievement Screen layout logic
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
     final accent = const Color(0xFF3B82F6);
     final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
-    // Ensures sliders sync to the latest database values if not currently editing
     if (!_isEditing && user != null) {
       _syncTempFromUser(user);
-
-      // REMOVED: The problematic code block that forced a refresh inside build()
-      // which often causes infinite rebuild loops in Flutter.
     }
 
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
+        backgroundColor: bg,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: IconThemeData(color: text),
         title: Text(
           "My Profile",
           style: TextStyle(color: text, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: bg,
-        elevation: 0,
-        centerTitle: true,
         actions: [
           if (user != null)
             Padding(
@@ -649,7 +642,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _showDeleteConfirm(BuildContext context, UserViewModel viewModel) {
+  void _showDeleteConfirm(BuildContext context, ProfileViewModel viewModel) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = Theme.of(context).cardColor;
     final textColor = Theme.of(context).colorScheme.onSurface;

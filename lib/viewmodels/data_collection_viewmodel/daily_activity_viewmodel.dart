@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:app_usage/app_usage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 
 import 'package:dreamsync/repositories/daily_activity_repository.dart';
 import 'package:dreamsync/models/daily_activity_model.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
+import 'package:dreamsync/services/screen_time_service.dart'; // Add your new service here
 
 class DailyActivityViewModel extends ChangeNotifier {
   final DailyActivityRepository _repository = DailyActivityRepository();
   final Health _health = Health();
+  final ScreenTimeService _screenTimeService = ScreenTimeService(); // Initialize the new service
 
   bool isLoading = false;
 
@@ -99,6 +100,7 @@ class DailyActivityViewModel extends ChangeNotifier {
       await _repository.ensureTodayRow(userId, todayKey);
       final existing = await _repository.getTodayActivity(userId, todayKey);
 
+      // 1. Check if we already fetched it today and have a valid number
       if (lastFetchedDate == todayKey &&
           existing != null &&
           existing.screenTimeMinutes > 0) {
@@ -110,20 +112,19 @@ class DailyActivityViewModel extends ChangeNotifier {
         return formatScreenTime(screenTimeMinutes);
       }
 
-      final now = DateTime.now();
-      final startOfToday = DateTime(now.year, now.month, now.day);
+      // 2. Fetch from our Custom Native Method Channel via ScreenTimeService
+      int totalMinutes = await _screenTimeService.getDailyScreenTimeMinutes();
 
-      final infoList = await AppUsage().getAppUsage(startOfToday, now);
-
-      int totalMinutes = 0;
-      for (final info in infoList) {
-        totalMinutes += info.usage.inMinutes;
+      if (totalMinutes == -1) {
+        // This means permission was not granted and the settings screen was opened
+        return "Need Usage Access";
       }
 
       debugPrint(
-        "📱 Fetched screen time from OS => date=$todayKey, totalMinutes=$totalMinutes",
+        "📱 Fetched screen time from Native Android => date=$todayKey, totalMinutes=$totalMinutes",
       );
 
+      // 3. Save the fetched data to local database
       await addActivity(userId: userId, setScreenTime: totalMinutes);
       await prefs.setString('screen_time_last_fetch_date', todayKey);
 
@@ -135,7 +136,7 @@ class DailyActivityViewModel extends ChangeNotifier {
       return formatScreenTime(totalMinutes);
     } catch (e) {
       debugPrint("❌ Error fetching screen time: $e");
-      return "Need Usage Access";
+      return "Error fetching data";
     }
   }
 

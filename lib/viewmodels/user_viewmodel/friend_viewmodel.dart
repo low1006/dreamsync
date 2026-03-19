@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/util/network_helper.dart';
 
 class FriendViewModel extends ChangeNotifier {

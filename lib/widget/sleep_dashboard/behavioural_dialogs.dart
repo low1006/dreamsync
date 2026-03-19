@@ -66,7 +66,7 @@ class _ExerciseSheetContentState extends State<_ExerciseSheetContent> {
     final duration = int.tryParse(_durationController.text) ?? 0;
     if (duration <= 0) return;
 
-    final user = widget.parentContext.read<UserViewModel>().userProfile;
+    final user = widget.parentContext.read<ProfileViewModel>().userProfile;
     if (user != null) {
       await widget.parentContext.read<DailyActivityViewModel>().addActivity(
         userId: user.userId,
@@ -190,7 +190,7 @@ class _FoodSheetContentState extends State<_FoodSheetContent> {
     if (_selectedFood == null) return;
     final total =
     ((_selectedFood!['calories'] ?? 0).toDouble() * _quantity).round();
-    final user = widget.parentContext.read<UserViewModel>().userProfile;
+    final user = widget.parentContext.read<ProfileViewModel>().userProfile;
 
     if (user != null) {
       await widget.parentContext.read<DailyActivityViewModel>().addActivity(

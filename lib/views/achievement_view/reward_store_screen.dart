@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/models/inventory_model.dart';
-import 'package:dreamsync/viewmodels/reward_store_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/reward_store_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 
 class RewardStoreScreen extends StatefulWidget {
@@ -22,7 +22,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
     _initialized = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final user = context.read<UserViewModel>().userProfile;
+      final user = context.read<ProfileViewModel>().userProfile;
       print('🟡 [RewardStoreScreen] userProfile = ${user?.userId}');
 
       if (user != null) {
@@ -129,7 +129,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
                         ElevatedButton(
                           onPressed: () async {
                             final user =
-                                context.read<UserViewModel>().userProfile;
+                                context.read<ProfileViewModel>().userProfile;
                             if (user != null) {
                               await vm.refresh(user.userId);
                             }
@@ -142,7 +142,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
                 )
                     : RefreshIndicator(
                   onRefresh: () async {
-                    final user = context.read<UserViewModel>().userProfile;
+                    final user = context.read<ProfileViewModel>().userProfile;
                     if (user != null) {
                       await vm.refresh(user.userId);
                     }

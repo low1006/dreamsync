@@ -3,7 +3,7 @@ import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
 import 'package:dreamsync/util/local_database.dart';
 
-class UserViewModel extends ChangeNotifier {
+class ProfileViewModel extends ChangeNotifier {
   final UserRepository _repository = UserRepository();
 
   UserModel? _userProfile;

@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
-import 'package:dreamsync/widget/sleep_dashboard/behavioural_card.dart';
+import 'package:dreamsync/widget/sleep_dashboard/cards/behavioural_card.dart';
 import 'package:dreamsync/widget/sleep_dashboard/behavioural_dialogs.dart';
-import 'package:dreamsync/widget/sleep_dashboard/hypnogram_painter.dart';
-import 'package:dreamsync/widget/sleep_dashboard/components/sleep_mood_prompt_card.dart';
-import 'package:dreamsync/widget/sleep_dashboard/sleep_score_gauge_painter.dart';
-import 'package:dreamsync/widget/sleep_dashboard/components/sync_pending_banner.dart';
+import 'package:dreamsync/widget/sleep_dashboard/charts/hypnogram.dart';
+import 'package:dreamsync/widget/sleep_dashboard/cards/sleep_mood_prompt_card.dart';
+import 'package:dreamsync/widget/sleep_dashboard/charts/sleep_score_gauge.dart';
+import 'package:dreamsync/widget/sleep_dashboard/states/sync_pending_banner.dart';
 
 class SleepDashboardDailyTab extends StatelessWidget {
   final SleepViewModel viewModel;
@@ -99,7 +99,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
                                 size: const Size(100, 100),
                                 painter: SleepScoreGaugePainter(
                                   score: viewModel.dailySleepScore,
-                                  themeColor: Colors.indigoAccent,
+                                  themeColor: accent,
                                 ),
                               ),
                               Container(
@@ -184,7 +184,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
                                   _buildLegendItem(
                                       "Light", const Color(0xFF42A5F5), subText),
                                   _buildLegendItem(
-                                      "Deep", const Color(0xFF1A237E), subText),
+                                      "Deep", accent, subText),
                                 ],
                               ),
                             ],
@@ -211,7 +211,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
                               _buildSleepStageRow(
                                 "Deep Sleep",
                                 viewModel.dailyDeepSleep,
-                                Colors.indigo,
+                                accent,
                                 text,
                               ),
                               const Divider(height: 16),
@@ -256,10 +256,10 @@ class SleepDashboardDailyTab extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.bedtime_off,
                           size: 56,
-                          color: Colors.indigoAccent,
+                          color: accent,
                         ),
                         const SizedBox(height: 16),
                         Text(

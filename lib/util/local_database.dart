@@ -136,7 +136,7 @@ class LocalDatabase {
   Future<Database> _openDB(String path, String password) {
     return openDatabase(
       path,
-      version: 8,
+      version: 9,
       password: password,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,

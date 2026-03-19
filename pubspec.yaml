@@ -41,6 +41,7 @@ dependencies:
   flutter_secure_storage: ^10.0.0
   flutter_dotenv: ^6.0.0
   tflite_flutter: ^0.12.0
+  flutter_volume_controller: ^1.3.4
 
 dev_dependencies:
   flutter_test:
@@ -51,8 +52,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/audio/
     - .env
     - assets/sql/schema.sql
     - assets/ml/sleep_model.tflite
     - assets/ml/scaler_stats.json
+    - assets/audio/

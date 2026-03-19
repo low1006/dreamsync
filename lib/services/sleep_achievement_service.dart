@@ -1,5 +1,5 @@
 import 'package:dreamsync/models/sleep_model/sleep_record_model.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 
 class SleepAchievementService {
   // Only nights with score >= this threshold count toward streak

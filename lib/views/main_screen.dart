@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 // Screens
-import 'package:dreamsync/views/achievement_screen.dart';
-import 'package:dreamsync/views/schedule_screen.dart';
-import 'package:dreamsync/views/user_screen/user_profile_screen_view.dart';
-import 'package:dreamsync/views/advisor_screen/chat_bot_screen.dart';
-import 'package:dreamsync/views/sleep_dashboard_screen/sleep_dashboard_screen_view.dart';
+import 'package:dreamsync/views/achievement_view/achievement_screen.dart';
+import 'package:dreamsync/views/schedule_view/schedule_screen.dart';
+import 'package:dreamsync/views/user_view/user_profile_screen.dart';
+import 'package:dreamsync/views/advisor_view/chat_bot_screen.dart';
+import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_screen.dart';
 
 // ViewModels
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 
 class MainScreen extends StatefulWidget {
@@ -40,7 +40,7 @@ class _MainScreenState extends State<MainScreen> {
 
     if (_hasFetchedInitialData) return;
 
-    final profileVM = context.read<UserViewModel>();
+    final profileVM = context.read<ProfileViewModel>();
     final user = profileVM.userProfile;
 
     if (user == null) return;
@@ -54,9 +54,6 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _prefetchInitialData(String userId) async {
     if (!mounted) return;
-
-    debugPrint("🚀 Background prefetch started...");
-
     try {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       if (!mounted) return;
@@ -65,8 +62,6 @@ class _MainScreenState extends State<MainScreen> {
       await Future<void>.delayed(const Duration(milliseconds: 250));
       if (!mounted) return;
       await context.read<FriendViewModel>().loadLeaderboard();
-
-      debugPrint("✅ Background prefetch completed.");
     } catch (e) {
       debugPrint("❌ Background prefetch error: $e");
     }
@@ -74,7 +69,6 @@ class _MainScreenState extends State<MainScreen> {
 
   void _onItemTapped(int index) {
     if (_selectedIndex == index) return;
-
     setState(() {
       _selectedIndex = index;
     });
@@ -82,7 +76,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.select<UserViewModel, dynamic>(
+    final user = context.select<ProfileViewModel, dynamic>(
           (vm) => vm.userProfile,
     );
 
@@ -95,13 +89,19 @@ class _MainScreenState extends State<MainScreen> {
       });
     }
 
+    // ✅ Match exact Achievement Screen logic
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final accent = const Color(0xFF3B82F6);
+    final unselected = isDark ? Colors.white54 : Colors.black54;
+
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
-        backgroundColor: const Color(0xFF1E3A8A),
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white54,
+        backgroundColor: bg,
+        selectedItemColor: accent,
+        unselectedItemColor: unselected,
         showSelectedLabels: true,
         showUnselectedLabels: true,
         selectedLabelStyle: const TextStyle(

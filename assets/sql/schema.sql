@@ -108,4 +108,3 @@ CREATE TABLE IF NOT EXISTS sleep_recommendation (
   generated_at TEXT NOT NULL,
   PRIMARY KEY (user_id, date)
 );
-

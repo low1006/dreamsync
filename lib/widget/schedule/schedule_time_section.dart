@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:dreamsync/widget/schedule/time_card.dart';
-import 'package:dreamsync/widget/schedule/day_selector.dart';
+import 'package:dreamsync/widget/schedule/cards/schedule_time_card.dart';
+import 'package:dreamsync/widget/schedule/selectors/day_selector.dart';
 
 class ScheduleTimeSection extends StatelessWidget {
   final TimeOfDay bedTime;

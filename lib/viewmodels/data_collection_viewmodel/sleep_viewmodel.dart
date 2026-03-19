@@ -14,7 +14,7 @@ import 'package:dreamsync/services/sleep_summary_service.dart';
 import 'package:dreamsync/services/sleep_achievement_service.dart';
 import 'package:dreamsync/services/health_connect_helper.dart';
 
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 
 enum SleepFilter { daily, weekly }
 

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/models/user_model.dart';
-import 'package:dreamsync/views/reward_store_screen.dart';
+import 'package:dreamsync/views/achievement_view/reward_store_screen.dart';
 
 class AchievementScreen extends StatefulWidget {
   const AchievementScreen({super.key});
@@ -23,7 +23,7 @@ class _AchievementScreenState extends State<AchievementScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final user = context.read<UserViewModel>().userProfile;
+      final user = context.read<ProfileViewModel>().userProfile;
       if (user != null) {
         context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
       }
@@ -48,6 +48,7 @@ class _AchievementScreenState extends State<AchievementScreen>
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: bg,
+        automaticallyImplyLeading: false,
         elevation: 0,
         centerTitle: true,
         title: Text("Achievements", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
@@ -277,7 +278,7 @@ class _AchievementScreenState extends State<AchievementScreen>
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 onPressed: () {
-                  final userVM = context.read<UserViewModel>();
+                  final userVM = context.read<ProfileViewModel>();
                   context.read<AchievementViewModel>().claimReward(
                     userAchievement.userAchievementId,
                     userVM,
@@ -303,7 +304,7 @@ class _AchievementScreenState extends State<AchievementScreen>
   // ─────────────────────────────────────────────
   Widget _buildLeaderboardTab(
       BuildContext context, Color text, Color accent) {
-    return Consumer2<FriendViewModel, UserViewModel>(
+    return Consumer2<FriendViewModel, ProfileViewModel>(
       builder: (context, friendVM, profileVM, child) {
         final currentUser = profileVM.userProfile;
 

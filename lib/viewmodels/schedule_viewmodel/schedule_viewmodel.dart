@@ -27,10 +27,8 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> _createDefaultSchedule() async {
     try {
-      // ✅ 1. Ask repository to handle database logic and return the ID
       final defaultId = await _repository.assignDefaultTone();
 
-      // ✅ 2. Always create the schedule (Repository handles offline caching)
       await _repository.createSchedule(
         bedtime: const TimeOfDay(hour: 22, minute: 30),
         wakeTime: const TimeOfDay(hour: 7, minute: 0),
@@ -55,6 +53,7 @@ class ScheduleViewModel extends ChangeNotifier {
           isSmartAlarm: schedule.isSmartAlarm,
           isSmartNotification: schedule.isSmartNotification,
           itemId: schedule.toneId,
+          isSnoozeOn: schedule.isSnoozeOn,
         );
       } else {
         await _repository.updateSchedule(schedule);
@@ -82,7 +81,6 @@ class ScheduleViewModel extends ChangeNotifier {
 
   Future<void> toggleSnooze(String id, bool isSnoozeOn) async {
     try {
-      // ✅ Now it correctly delegates to the repository!
       await _repository.toggleSnooze(id, isSnoozeOn);
       await loadSchedules();
     } catch (e) {
@@ -96,8 +94,11 @@ class ScheduleViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // 1. HARD ERRORS (Blocks the user from saving)
-  String? validateBlockingIssues({required TimeOfDay bedtime, required TimeOfDay wakeTime, required List<String> days}) {
+  String? validateBlockingIssues({
+    required TimeOfDay bedtime,
+    required TimeOfDay wakeTime,
+    required List<String> days,
+  }) {
     if (days.isEmpty) return "Please select at least one day";
 
     if (bedtime.hour == wakeTime.hour && bedtime.minute == wakeTime.minute) {
@@ -114,8 +115,11 @@ class ScheduleViewModel extends ChangeNotifier {
     return null;
   }
 
-  // 2. SOFT WARNINGS (Triggers the "Are you sure?" dialog in the View)
-  bool isSleepDurationShort({required TimeOfDay bedtime, required TimeOfDay wakeTime, required double sleepGoal}) {
+  bool isSleepDurationShort({
+    required TimeOfDay bedtime,
+    required TimeOfDay wakeTime,
+    required double sleepGoal,
+  }) {
     double toDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
     double duration = toDouble(wakeTime) - toDouble(bedtime);
 

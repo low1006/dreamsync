@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
-import 'package:dreamsync/widget/sleep_dashboard/weekly_bar_chart.dart';
-import 'package:dreamsync/widget/sleep_dashboard/sleep_score_gauge_painter.dart';
+import 'package:dreamsync/widget/sleep_dashboard/charts/bar_chart.dart';
+import 'package:dreamsync/widget/sleep_dashboard/charts/sleep_score_gauge.dart';
 
 class SleepDashboardWeeklyTab extends StatelessWidget {
   final SleepViewModel viewModel;
@@ -67,7 +67,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                     size: const Size(100, 100),
                     painter: SleepScoreGaugePainter(
                       score: viewModel.weeklySleepScore,
-                      themeColor: Colors.indigoAccent,
+                      themeColor: accent,
                     ),
                   ),
                   Container(
@@ -118,7 +118,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                     .toList(),
                 labels:
                 viewModel.weeklyData.map((e) => e.shortDayName).toList(),
-                color: Colors.indigoAccent,
+                color: accent,
                 unit: "h",
                 maxY: 8.0,
                 isDecimal: true,

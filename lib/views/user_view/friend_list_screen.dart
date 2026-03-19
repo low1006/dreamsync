@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/widget/custom/custom_text_field.dart';
 
 class FriendListScreen extends StatefulWidget {
@@ -119,12 +119,12 @@ class _FriendListScreenState extends State<FriendListScreen>
   Widget build(BuildContext context) {
     final viewModel = Provider.of<FriendViewModel>(context);
 
+    // ✅ Match exact Achievement Screen layout logic
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
     final accent = const Color(0xFF3B82F6);
-    final surface =
-    isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+    final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
 
     return Scaffold(
       backgroundColor: bg,
@@ -132,9 +132,9 @@ class _FriendListScreenState extends State<FriendListScreen>
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
+        iconTheme: IconThemeData(color: text),
         title: Text("My Friends",
             style: TextStyle(color: text, fontWeight: FontWeight.bold)),
-        iconTheme: IconThemeData(color: text),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: accent,
@@ -153,7 +153,6 @@ class _FriendListScreenState extends State<FriendListScreen>
           : TabBarView(
         controller: _tabController,
         children: [
-          // --- TAB 1: FRIENDS LIST ---
           viewModel.friends.isEmpty
               ? _buildEmptyState("No friends yet. Add someone!", text)
               : ListView.separated(
@@ -172,7 +171,6 @@ class _FriendListScreenState extends State<FriendListScreen>
             },
           ),
 
-          // --- TAB 2: PENDING REQUESTS ---
           viewModel.pendingRequests.isEmpty
               ? _buildEmptyState("No pending requests.", text)
               : ListView.separated(
@@ -318,8 +316,6 @@ class _FriendListScreenState extends State<FriendListScreen>
               padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
-            // ✅ FIXED: Read AchievementViewModel from context and pass it
-            // to acceptRequest so the Social Butterfly achievement is checked.
             onPressed: () {
               final achievementVM =
               context.read<AchievementViewModel>();

@@ -6,12 +6,12 @@ import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 
-import 'package:dreamsync/views/sleep_dashboard_screen/sleep_dashboard_daily_tab.dart';
-import 'package:dreamsync/views/sleep_dashboard_screen/sleep_dashboard_weekly_tab.dart';
-import 'package:dreamsync/widget/sleep_dashboard/components/sleep_dashboard_loading.dart';
-import 'package:dreamsync/widget/sleep_dashboard/components/sleep_dashboard_error.dart';
+import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_daily_tab.dart';
+import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_weekly_tab.dart';
+import 'package:dreamsync/widget/sleep_dashboard/states/sleep_dashboard_loading.dart';
+import 'package:dreamsync/widget/sleep_dashboard/states/sleep_dashboard_error.dart';
 
 class SleepDashboardScreen extends StatefulWidget {
   const SleepDashboardScreen({super.key});
@@ -59,7 +59,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     final achievementVM = context.read<AchievementViewModel>();
 
     try {
-      // 1) Load cached/local data first for an instant UI
       await sleepVM.loadFromDatabase(userId: userId);
       await dailyVM.loadTodayData(userId);
       await dailyVM.loadWeeklyData(userId);
@@ -70,15 +69,12 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
         _isInitialLoadDone = true;
       });
 
-      // 2) Fetch live screen time from native Android UsageStatsManager
-      //    This is fast (native call) and safe to await here.
       final liveScreenTime =
       await dailyVM.fetchAndSaveScreenTime(userId, achievementVM);
 
       if (!mounted) return;
       setState(() => _screenTime = liveScreenTime);
 
-      // 3) Background sync only once per session
       if (!_hasStartedBackgroundSync) {
         _hasStartedBackgroundSync = true;
         unawaited(_backgroundRefresh(userId));
@@ -167,7 +163,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
   }
 
   Future<void> _fullRefresh() async {
-    final user = context.read<UserViewModel>().userProfile;
+    final user = context.read<ProfileViewModel>().userProfile;
     if (user == null) return;
 
     final sleepVM = context.read<SleepViewModel>();
@@ -183,7 +179,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     await dailyVM.loadTodayData(user.userId);
     await dailyVM.loadWeeklyData(user.userId);
 
-    // Always re-fetch live screen time on a manual pull-to-refresh
     final liveScreenTime =
     await dailyVM.fetchAndSaveScreenTime(user.userId, achievementVM);
 
@@ -196,12 +191,13 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Match exact Achievement Screen layout logic
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : const Color(0xFFF5F7FA);
+    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
     final accent = const Color(0xFF3B82F6);
 
-    final user = context.watch<UserViewModel>().userProfile;
+    final user = context.watch<ProfileViewModel>().userProfile;
     final dailyVM = context.watch<DailyActivityViewModel>();
 
     if (user != null && !_hasFetchedData) {
@@ -218,12 +214,12 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
+        automaticallyImplyLeading: false,
+        iconTheme: IconThemeData(color: text),
         title: Text(
           'Sleep Dashboard',
           style: TextStyle(fontWeight: FontWeight.bold, color: text),
         ),
-        automaticallyImplyLeading: false,
-        iconTheme: IconThemeData(color: text),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: accent,
@@ -250,7 +246,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
             return SleepDashboardErrorView(
               message: viewModel.errorMessage,
               onRetry: () async {
-                final u = context.read<UserViewModel>().userProfile;
+                final u = context.read<ProfileViewModel>().userProfile;
                 if (u == null) return;
 
                 setState(() {

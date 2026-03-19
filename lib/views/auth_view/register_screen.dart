@@ -5,7 +5,7 @@ import 'package:dreamsync/widget/custom/custom_text_field.dart';
 import 'package:dreamsync/widget/custom/custom_button.dart';
 import 'package:dreamsync/widget/custom/custom_dropdown.dart';
 import 'package:dreamsync/widget/custom/custom_slider.dart';
-import 'package:dreamsync/views/auth_screen/otp_screen.dart';
+import 'package:dreamsync/views/auth_view/otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});

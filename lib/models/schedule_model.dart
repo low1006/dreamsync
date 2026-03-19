@@ -8,7 +8,7 @@ class ScheduleModel {
   final bool isActive;
   final List<String> days;
   final bool isSmartAlarm;
-  final bool isSmartNotification; // <-- 1. ADD THIS
+  final bool isSmartNotification;
   final bool isSnoozeOn;
 
   final int toneId;
@@ -23,7 +23,7 @@ class ScheduleModel {
     required this.isActive,
     required this.days,
     this.isSmartAlarm = false,
-    this.isSmartNotification = true, // <-- 2. ADD THIS
+    this.isSmartNotification = true,
     this.isSnoozeOn = true,
     this.toneId = 1,
     this.toneName = 'Classic',
@@ -42,7 +42,7 @@ class ScheduleModel {
       isActive: map['is_alarm_on'] ?? true,
       days: _parseDays(map['days']),
       isSmartAlarm: map['is_smart_alarm'] ?? false,
-      isSmartNotification: map['is_smart_notification'] ?? true, // <-- 3. ADD THIS
+      isSmartNotification: map['is_smart_notification'] ?? true,
       isSnoozeOn: map['is_snooze_on'] ?? true,
       toneId: map['item_id'] ?? 1,
       toneName: toneData['name'] ?? 'Classic',
@@ -53,35 +53,60 @@ class ScheduleModel {
   static TimeOfDay _parseTime(String timeStr) {
     final parts = timeStr.split(':');
     return TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1])
+      hour: int.parse(parts[0]),
+      minute: int.parse(parts[1]),
     );
   }
 
   static List<String> _parseDays(dynamic input) {
     if (input == null) return [];
 
-    // Case A: It's already a List (Standard Supabase Array/JSON)
     if (input is List) {
       return List<String>.from(input);
     }
 
-    // Case B: It's a String (e.g., "{Mon,Tue}" or "['Mon', 'Tue']")
     if (input is String) {
-      // Remove brackets [], braces {}, and quotes ""
       final clean = input.replaceAll(RegExp(r'[\[\]"{}]'), '');
       if (clean.trim().isEmpty) return [];
-      // Split by comma and trim whitespace
       return clean.split(',').map((e) => e.trim()).toList();
     }
 
     return [];
   }
 
-
   static String formatTimeForDB(TimeOfDay time) {
     final h = time.hour.toString().padLeft(2, '0');
     final m = time.minute.toString().padLeft(2, '0');
     return "$h:$m:00";
+  }
+
+  ScheduleModel copyWith({
+    String? id,
+    String? label,
+    TimeOfDay? bedtime,
+    TimeOfDay? wakeTime,
+    bool? isActive,
+    List<String>? days,
+    bool? isSmartAlarm,
+    bool? isSmartNotification,
+    bool? isSnoozeOn,
+    int? toneId,
+    String? toneName,
+    String? toneFile,
+  }) {
+    return ScheduleModel(
+      id: id ?? this.id,
+      label: label ?? this.label,
+      bedtime: bedtime ?? this.bedtime,
+      wakeTime: wakeTime ?? this.wakeTime,
+      isActive: isActive ?? this.isActive,
+      days: days ?? this.days,
+      isSmartAlarm: isSmartAlarm ?? this.isSmartAlarm,
+      isSmartNotification: isSmartNotification ?? this.isSmartNotification,
+      isSnoozeOn: isSnoozeOn ?? this.isSnoozeOn,
+      toneId: toneId ?? this.toneId,
+      toneName: toneName ?? this.toneName,
+      toneFile: toneFile ?? this.toneFile,
+    );
   }
 }

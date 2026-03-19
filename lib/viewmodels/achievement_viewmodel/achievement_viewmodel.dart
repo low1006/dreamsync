@@ -29,7 +29,7 @@ class AchievementViewModel extends ChangeNotifier {
   }
 
   // ✅ New method to handle when a user taps the "Claim" button
-  Future<void> claimReward(String userAchievementId, UserViewModel userVM) async {
+  Future<void> claimReward(String userAchievementId, ProfileViewModel userVM) async {
     final index = userAchievements.indexWhere(
           (ua) => ua.userAchievementId == userAchievementId,
     );

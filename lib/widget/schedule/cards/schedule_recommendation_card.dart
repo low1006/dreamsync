@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:dreamsync/viewmodels/recommendation_viewmodel.dart';
+import 'package:dreamsync/viewmodels/schedule_viewmodel/recommendation_viewmodel.dart';
 
 class ScheduleRecommendationCard extends StatelessWidget {
   final RecommendationViewModel recommendationVM;

@@ -3,12 +3,44 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:health/health.dart';
-import 'package:dreamsync/services/notification_service.dart';
-import 'package:app_usage/app_usage.dart';
 
 class PermissionService {
-  PermissionService._();
+  PermissionService._(); // Prevent instantiation
 
+  // ==========================================
+  // 1. CORE APP STARTUP PERMISSIONS
+  // ==========================================
+
+  /// Call this once when the app starts (e.g., in main.dart)
+  static Future<void> requestAppStartupPermissions(BuildContext context) async {
+    // 1. Notification Permission (Required for Android 13+ and iOS)
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+
+    if (Platform.isAndroid) {
+      // 2. Exact Alarms Permission (Required for Android 12+ for precise alarms)
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        await Permission.scheduleExactAlarm.request();
+      }
+
+      // 3. Ignore Battery Optimizations (Highly recommended for alarm apps to wake up)
+      if (await Permission.ignoreBatteryOptimizations.isDenied) {
+        await Permission.ignoreBatteryOptimizations.request();
+      }
+
+      // 4. Activity Recognition (Optional startup permission, good for step tracking)
+      if (await Permission.activityRecognition.isDenied) {
+        await Permission.activityRecognition.request();
+      }
+    }
+  }
+
+  // ==========================================
+  // 2. CONTEXTUAL PERMISSIONS (Call when needed)
+  // ==========================================
+
+  /// Request Health Connect Permission (Best called when the user opens the Sleep Dashboard)
   static Future<bool> requestHealthPermission(BuildContext context) async {
     final health = Health();
 
@@ -44,129 +76,41 @@ class PermissionService {
     }
   }
 
+  /// Explicit Activity Recognition check (if you need to force it with a dialog later)
   static Future<bool> requestActivityRecognitionPermission(
-      BuildContext context,
-      ) async {
-    try {
-      final status = await Permission.activityRecognition.status;
-      if (status.isGranted) return true;
-
-      final result = await Permission.activityRecognition.request();
-      return result.isGranted;
-    } catch (e) {
-      debugPrint("❌ Activity recognition permission error: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> requestUsageAccessPermission(
-      BuildContext context,
-      ) async {
-    try {
-      final now = DateTime.now();
-      final start = now.subtract(const Duration(minutes: 1));
-
-      // Small probe query to test whether usage access is available
-      await AppUsage().getAppUsage(start, now);
+      BuildContext context) async {
+    if (await Permission.activityRecognition.isGranted) {
       return true;
-    } catch (e) {
-      debugPrint("❌ Usage access not granted or query failed: $e");
+    }
 
-      final goToSettings = await _showExplanationBottomSheet(
-        context,
-        "Usage Access Required",
-        "To read your daily screen time, DreamSync needs Usage Access permission. On the next screen, open 'Usage access' or 'Usage data access' and allow DreamSync.",
-      );
+    final status = await Permission.activityRecognition.request();
 
-      if (goToSettings != true) return false;
-
-      await openAppSettings();
+    if (status.isPermanentlyDenied) {
+      if (context.mounted) {
+        final goToSettings = await _showSettingsDialog(
+          context,
+          "Activity Permission Needed",
+          "We need motion tracking to detect when you are walking vs sleeping. Please enable 'Physical Activity' in Settings.",
+        );
+        if (goToSettings == true) {
+          await openAppSettings();
+        }
+      }
       return false;
     }
+
+    return status.isGranted;
   }
 
-  static Future<bool> requestExactAlarmPermission(
-      BuildContext context,
-      ) async {
-    if (!Platform.isAndroid) return true;
+  // ==========================================
+  // 3. UI HELPERS
+  // ==========================================
 
-    try {
-      final status = await Permission.scheduleExactAlarm.status;
-      if (status.isGranted) return true;
-
-      final goToSettings = await _showExplanationBottomSheet(
-        context,
-        "Exact Alarms Required",
-        "To ensure your alarm rings exactly on time, we need this permission. Please allow it on the next screen.",
-      );
-
-      if (goToSettings != true) return false;
-
-      final result = await Permission.scheduleExactAlarm.request();
-      return result.isGranted;
-    } catch (e) {
-      debugPrint("❌ Exact alarm permission error: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> requestOverlayPermission(
-      BuildContext context,
-      ) async {
-    if (!Platform.isAndroid) return true;
-
-    try {
-      final status = await Permission.systemAlertWindow.status;
-      if (status.isGranted) return true;
-
-      final goToSettings = await _showExplanationBottomSheet(
-        context,
-        "Display Over Other Apps",
-        "We need this to wake your screen up and show the alarm when your phone is locked. Please allow it on the next screen.",
-      );
-
-      if (goToSettings != true) return false;
-
-      final result = await Permission.systemAlertWindow.request();
-      return result.isGranted;
-    } catch (e) {
-      debugPrint("❌ Overlay permission error: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> requestDndPermission(BuildContext context) async {
-    if (!Platform.isAndroid) return true;
-
-    try {
-      final hasDnd = await NotificationService().hasDndAccess();
-      if (hasDnd) return true;
-
-      final goToSettings = await _showExplanationBottomSheet(
-        context,
-        "Do Not Disturb Access",
-        "To automatically silence distractions during bedtime, we need Do Not Disturb access. Please allow it on the next screen.",
-      );
-
-      if (goToSettings != true) return false;
-
-      await NotificationService().openDndSettings();
-      return await NotificationService().hasDndAccess();
-    } catch (e) {
-      debugPrint("❌ DND permission error: $e");
-      return false;
-    }
-  }
-
-  static Future<bool?> _showExplanationBottomSheet(
-      BuildContext context,
-      String title,
-      String content,
-      ) {
+  /// A beautiful bottom sheet dialog to guide users to Settings if a permission is permanently denied
+  static Future<bool?> _showSettingsDialog(
+      BuildContext context, String title, String content) {
     return showModalBottomSheet<bool>(
       context: context,
-      isDismissible: false,
-      enableDrag: false,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),

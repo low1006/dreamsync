@@ -32,7 +32,6 @@ class ScheduleRepository {
           final localJson = Map<String, dynamic>.from(json);
           localJson['id'] = localJson['schedule_id']?.toString() ?? DateTime.now().toString();
           localJson.remove('store_items');
-          // Caching into the local 'schedule' SQLite table
           await LocalDatabase.instance.insertRecord('schedule', localJson, isSynced: true);
         }
 
@@ -55,16 +54,13 @@ class ScheduleRepository {
 
         map['schedule_id'] = map['schedule_id'] ?? map['id'];
 
-        // Convert SQLite integers back to booleans
         if (map['is_alarm_on'] is int) map['is_alarm_on'] = map['is_alarm_on'] == 1;
         if (map['is_smart_alarm'] is int) map['is_smart_alarm'] = map['is_smart_alarm'] == 1;
         if (map['is_smart_notification'] is int) map['is_smart_notification'] = map['is_smart_notification'] == 1;
         if (map['is_snooze_on'] is int) map['is_snooze_on'] = map['is_snooze_on'] == 1;
 
-        // Convert SQLite string back to List
-        if (map['days'] is String) {
-          map['days'] = (map['days'] as String).split(',');
-        }
+        // 🚨 FIXED: Removed the broken string split here. The JSON string is passed directly
+        // to ScheduleModel.fromMap where it uses regex to safely decode it.
 
         return ScheduleModel.fromMap(map);
       }).toList();
@@ -125,7 +121,7 @@ class ScheduleRepository {
       'is_alarm_on': schedule.isActive,
       'is_smart_alarm': schedule.isSmartAlarm,
       'is_smart_notification': schedule.isSmartNotification,
-      'is_snooze_on' : schedule.isSnoozeOn,
+      'is_snooze_on': schedule.isSnoozeOn,
       'item_id': schedule.toneId,
     };
 
@@ -137,7 +133,7 @@ class ScheduleRepository {
         localData['user_id'] = _client.auth.currentUser?.id ?? '';
         await LocalDatabase.instance.insertRecord('schedule', localData, isSynced: true);
       } catch (e) {
-        debugPrint("Error updating schedule online.");
+        debugPrint("Error updating schedule online: $e");
       }
     }
   }
@@ -160,18 +156,15 @@ class ScheduleRepository {
     }
   }
 
-  // ✅ ADDED: Handle toggle snooze properly (matching your other toggles)
   Future<void> toggleSnooze(String id, bool currentValue) async {
     if (await _isOnline()) {
       try {
         await _client.from(_tableName).update({'is_snooze_on': currentValue}).eq('schedule_id', id);
-        // Optional: Update local database here if you want immediate offline reflection
       } catch (e) {
         debugPrint("Error toggling snooze online: $e");
       }
     } else {
       debugPrint("📴 Offline: Cannot toggle snooze right now.");
-      // Optional: Save offline action to sync later
     }
   }
 
@@ -195,7 +188,6 @@ class ScheduleRepository {
     }
   }
 
-  // ✅ ADDED: Handle the default tone fetch and inventory update
   Future<int> assignDefaultTone() async {
     final userId = _client.auth.currentUser?.id;
     int defaultId = 1; // Fallback ID
@@ -204,7 +196,6 @@ class ScheduleRepository {
 
     if (await _isOnline()) {
       try {
-        // Fetch default tone
         final defaultToneData = await _client
             .from('store_items')
             .select()
@@ -217,7 +208,6 @@ class ScheduleRepository {
           defaultId = defaultToneData['item_id'];
         }
 
-        // Assign to user inventory
         await _client.from('user_inventory').upsert({
           'user_id': userId,
           'item_id': defaultId,

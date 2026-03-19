@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:dreamsync/viewmodels/chat_viewmodel.dart';
+import 'package:dreamsync/viewmodels/advisor_viewmodel/chat_viewmodel.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -72,6 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return Scaffold(
         backgroundColor: scaffoldBg,
         appBar: AppBar(
+          automaticallyImplyLeading: false,
           title: Text("DreamSync AI", style: TextStyle(color: primaryText, fontWeight: FontWeight.bold)),
           backgroundColor: scaffoldBg,
           elevation: 0,
