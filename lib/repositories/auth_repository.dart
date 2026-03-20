@@ -112,7 +112,6 @@ class AuthRepository {
         'sleep_goal_hours': sleepGoal,
         'streak': 0,
         'current_points': 0,
-        'uid_text': userId.substring(0, 8),
         'deleted_at': null,
       });
 

@@ -1,19 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:audioplayers/audioplayers.dart'; // ✅ Brought back audioplayers
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/schedule_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/recommendation_viewmodel.dart';
+
+
 import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/models/inventory_model.dart';
+
+
+// Widgets
 import 'package:dreamsync/widget/schedule/selectors/tone_selector.dart';
+import 'package:dreamsync/widget/schedule/schedule_setting_tile.dart';
 import 'package:dreamsync/widget/schedule/cards/schedule_recommendation_card.dart';
 import 'package:dreamsync/widget/schedule/schedule_time_section.dart';
-import 'package:dreamsync/widget/schedule/schedule_settings_section.dart';
 import 'package:dreamsync/widget/schedule/cards/schedule_tone_card.dart';
 import 'package:dreamsync/util/time_formatter.dart';
 
@@ -484,7 +489,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         backgroundColor: bg,
         elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: text),
         title: Text(
           "Sleep Schedule",
           style: TextStyle(color: text, fontWeight: FontWeight.bold),
@@ -513,15 +517,35 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ScheduleRecommendationCard(
-              recommendationVM: recommendationVM,
-              isDark: isDark,
-              text: text,
-              accent: accent,
-              onRefresh: () => _loadRecommendation(forceRefresh: true),
-              onApply: _applyRecommendation,
+            // 1. Prominent Master Toggle (Always Editable for convenience)
+            Container(
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: SwitchListTile(
+                title: Text(
+                  "Alarm Enabled",
+                  style: TextStyle(
+                      color: text,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18),
+                ),
+                subtitle: Text(
+                  _isAlarmOn ? "Alarm is active" : "Alarm is off",
+                  style: TextStyle(color: subText, fontSize: 13),
+                ),
+                value: _isAlarmOn,
+                activeColor: accent,
+                onChanged: (v) async {
+                  setState(() => _isAlarmOn = v);
+                  await _quickUpdate(v);
+                },
+              ),
             ),
             const SizedBox(height: 24),
+
+            // 2. Core Time Settings
             ScheduleTimeSection(
               bedTime: _bedTime,
               wakeTime: _wakeTime,
@@ -544,61 +568,121 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 });
               },
             ),
+
+            const SizedBox(height: 20),
+
+            ScheduleRecommendationCard(
+              recommendationVM: recommendationVM,
+              isDark: isDark,
+              text: text,
+              accent: accent,
+              onRefresh: () => _loadRecommendation(forceRefresh: true),
+              onApply: _applyRecommendation,
+            ),
+
             const SizedBox(height: 30),
 
-            Text(
-              "Alarm Settings",
-              style: TextStyle(
-                color: text,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
+            // 3. Advanced Settings with Edit Mode Restrictions
+            Theme(
+              data: Theme.of(context).copyWith(
+                dividerColor: Colors.transparent,
+              ),
+              child: ExpansionTile(
+                iconColor: accent,
+                collapsedIconColor: subText,
+                title: Text(
+                  "Advanced Settings",
+                  style: TextStyle(
+                    color: text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                children: [
+                  const SizedBox(height: 10),
+
+                  // --- GROUP 1: SMART FEATURES ---
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Text("SMART FEATURES", style: TextStyle(color: subText, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                    ),
+                  ),
+                  ScheduleSettingTile(
+                    title: "Smart Alarm",
+                    subtitle: "Enable smart wake behaviour",
+                    value: _isSmartAlarm,
+                    onChanged: (v) {
+                      if (!_isEditing) return;
+                      setState(() => _isSmartAlarm = v);
+                    },
+                    enabled: _isEditing, // Only editable when saving
+                    text: text,
+                    subText: subText,
+                    icon: Icons.auto_mode,
+                    iconColor: Colors.indigo,
+                  ),
+                  ScheduleSettingTile(
+                    title: "Do Not Disturb",
+                    subtitle: "Silence calls and notifications during bedtime",
+                    value: _isSmartNotification,
+                    onChanged: (v) {
+                      if (!_isEditing) return;
+                      setState(() => _isSmartNotification = v);
+                    },
+                    enabled: _isEditing, // Only editable when saving
+                    text: text,
+                    subText: subText,
+                    icon: Icons.do_not_disturb_on,
+                    iconColor: Colors.blueAccent,
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Divider(color: subText.withOpacity(0.2)),
+                  ),
+
+                  // --- GROUP 2: SOUND & SNOOZE ---
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Text("SOUND & SNOOZE", style: TextStyle(color: subText, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                    ),
+                  ),
+                  ScheduleSettingTile(
+                    title: "Snooze",
+                    subtitle: "Allow alarm snoozing",
+                    value: _isSnoozeOn,
+                    onChanged: (v) {
+                      if (!_isEditing) return;
+                      setState(() => _isSnoozeOn = v);
+                    },
+                    enabled: _isEditing, // Only editable when saving
+                    text: text,
+                    subText: subText,
+                    icon: Icons.snooze,
+                    iconColor: Colors.orange,
+                  ),
+                  const SizedBox(height: 8),
+                  ScheduleToneCard(
+                    toneName: _currentToneName,
+                    isEditing: _isEditing,
+                    onTap: _openToneSelector,
+                    text: text,
+                    subText: subText,
+                    surface: surface,
+                    accent: accent,
+                    alarmVolume: _hardwareAlarmVolume,
+                    onVolumeChanged: _onVolumeChanged,
+                    isPreviewPlaying: _isPreviewPlaying,
+                    onTogglePreview: _toggleVolumePreview,
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ),
             ),
-            const SizedBox(height: 14),
-
-            ScheduleSettingsSection(
-              isEditing: _isEditing,
-              isAlarmOn: _isAlarmOn,
-              isSmartAlarm: _isSmartAlarm,
-              isSmartNotification: _isSmartNotification,
-              isSnoozeOn: _isSnoozeOn,
-              text: text,
-              subText: subText,
-              onAlarmChanged: (v) async {
-                setState(() => _isAlarmOn = v);
-                await _quickUpdate(v);
-              },
-              onSmartAlarmChanged: (v) {
-                if (!_isEditing) return;
-                setState(() => _isSmartAlarm = v);
-              },
-              onSmartNotificationChanged: (v) async {
-                setState(() => _isSmartNotification = v);
-                await _quickUpdateNotification(v);
-              },
-              onSnoozeChanged: (v) async {
-                setState(() => _isSnoozeOn = v);
-                await _quickUpdateSnooze(v);
-              },
-            ),
-            const SizedBox(height: 4),
-
-            ScheduleToneCard(
-              toneName: _currentToneName,
-              isEditing: _isEditing,
-              onTap: _openToneSelector,
-              text: text,
-              subText: subText,
-              surface: surface,
-              accent: accent,
-              alarmVolume: _hardwareAlarmVolume,
-              onVolumeChanged: _onVolumeChanged,
-
-              // ✅ Passed the restored preview methods
-              isPreviewPlaying: _isPreviewPlaying,
-              onTogglePreview: _toggleVolumePreview,
-            ),
-
             const SizedBox(height: 30),
           ],
         ),

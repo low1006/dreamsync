@@ -17,7 +17,6 @@ import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/schedule_viewmodel.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
-import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/recommendation_viewmodel.dart';
 import 'package:dreamsync/viewmodels/advisor_viewmodel/chat_viewmodel.dart';
@@ -51,7 +50,6 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => ScheduleViewModel()),
         ChangeNotifierProvider(create: (_) => InventoryViewModel()),
         ChangeNotifierProvider(create: (_) => SleepViewModel()),
-        ChangeNotifierProvider(create: (_) => FriendViewModel()),
         ChangeNotifierProvider(create: (_) => DailyActivityViewModel()),
         ChangeNotifierProvider(create: (_) => RecommendationViewModel()),
         ChangeNotifierProvider(create: (_) => ChatViewModel()),

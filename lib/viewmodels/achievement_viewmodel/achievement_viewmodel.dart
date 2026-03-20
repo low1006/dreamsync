@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/repositories/achievement_repository.dart';
+import 'package:dreamsync/repositories/friend_repository.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+import 'package:dreamsync/util/network_helper.dart';
 
 class AchievementViewModel extends ChangeNotifier {
   final AchievementRepository _repo = AchievementRepository();
+  final FriendRepository _friendRepo = FriendRepository();
 
   List<UserAchievementModel> userAchievements = [];
   bool isLoading = false;
+
+  // --- Leaderboard State ---
+  List<UserModel> leaderboardUsers = [];
 
   Future<void> fetchUserAchievements(String userId) async {
     debugPrint("🚀 Fetching achievements for $userId...");
@@ -25,6 +32,24 @@ class AchievementViewModel extends ChangeNotifier {
     } finally {
       isLoading = false;
       notifyListeners();
+    }
+  }
+
+  // =========================================================
+  // LEADERBOARD
+  // =========================================================
+  Future<void> loadLeaderboard() async {
+    if (!await NetworkHelper.isOnline()) {
+      debugPrint("📴 Offline: Skipping leaderboard fetch.");
+      return;
+    }
+
+    try {
+      leaderboardUsers = await _friendRepo.fetchLeaderboard();
+      leaderboardUsers.sort((a, b) => b.streak.compareTo(a.streak));
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error loading leaderboard: $e");
     }
   }
 
@@ -84,66 +109,6 @@ class AchievementViewModel extends ChangeNotifier {
     return userAchievements
         .where((ua) => ua.achievement?.criteriaType == criteriaType)
         .toList();
-  }
-
-  Future<void> processDailySleepMetrics({
-    required double hoursSlept,
-    required double sleepScore,
-    required bool wokeUpEarly,
-    required bool consistentBedtime,
-    required bool noScreenTime,
-    required bool isConsecutiveDay,
-  }) async {
-
-    // --- Permanent Milestones ---
-    for (final ua in getByType('sleep_score')) {
-      await setProgress(ua.userAchievementId, sleepScore);
-    }
-    for (final ua in getByType('total_logs')) {
-      await updateProgress(ua.userAchievementId, 1.0);
-    }
-    for (final ua in getByType('streak_days')) {
-      if (isConsecutiveDay) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      } else {
-        await setProgress(ua.userAchievementId, 0.0);
-      }
-    }
-    for (final ua in getByType('early_wake_streak')) {
-      if (wokeUpEarly) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      } else {
-        await setProgress(ua.userAchievementId, 0.0);
-      }
-    }
-    for (final ua in getByType('bedtime_consistency')) {
-      if (consistentBedtime) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      }
-    }
-    for (final ua in getByType('no_screen_time')) {
-      if (noScreenTime) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      }
-    }
-
-    // --- NEW: Daily Repeatable Tasks ---
-    for (final ua in getByType('daily_log')) {
-      await updateProgress(ua.userAchievementId, 1.0);
-    }
-    for (final ua in getByType('daily_sleep_score')) {
-      await setProgress(ua.userAchievementId, sleepScore >= 85 ? 85 : 0);
-    }
-    for (final ua in getByType('daily_wake_on_time')) {
-      if (wokeUpEarly) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      }
-    }
-    for (final ua in getByType('daily_no_screen')) {
-      if (noScreenTime) {
-        await updateProgress(ua.userAchievementId, 1.0);
-      }
-    }
   }
 
   Future<void> updateProgress(

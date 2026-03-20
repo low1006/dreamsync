@@ -61,7 +61,7 @@ class _MainScreenState extends State<MainScreen> {
 
       await Future<void>.delayed(const Duration(milliseconds: 250));
       if (!mounted) return;
-      await context.read<FriendViewModel>().loadLeaderboard();
+      await context.read<AchievementViewModel>().loadLeaderboard();
     } catch (e) {
       debugPrint("❌ Background prefetch error: $e");
     }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
-import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/models/user_model.dart';
@@ -27,7 +26,7 @@ class _AchievementScreenState extends State<AchievementScreen>
       if (user != null) {
         context.read<AchievementViewModel>().fetchUserAchievements(user.userId);
       }
-      context.read<FriendViewModel>().loadLeaderboard();
+      context.read<AchievementViewModel>().loadLeaderboard();
     });
   }
 
@@ -304,19 +303,19 @@ class _AchievementScreenState extends State<AchievementScreen>
   // ─────────────────────────────────────────────
   Widget _buildLeaderboardTab(
       BuildContext context, Color text, Color accent) {
-    return Consumer2<FriendViewModel, ProfileViewModel>(
-      builder: (context, friendVM, profileVM, child) {
+    return Consumer2<AchievementViewModel, ProfileViewModel>(
+      builder: (context, achievementVM, profileVM, child) {
         final currentUser = profileVM.userProfile;
 
         if (currentUser == null) {
           return Center(child: CircularProgressIndicator(color: accent));
         }
 
-        if (friendVM.isLoading && friendVM.leaderboardUsers.isEmpty) {
+        if (achievementVM.isLoading && achievementVM.leaderboardUsers.isEmpty) {
           return Center(child: CircularProgressIndicator(color: accent));
         }
 
-        final leaderboard = friendVM.leaderboardUsers;
+        final leaderboard = achievementVM.leaderboardUsers;
         final noFriends = leaderboard.length <= 1;
 
         if (noFriends) {

@@ -25,12 +25,14 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
 
   bool? _isHealthConnected;
   final Health _health = Health();
+  final FriendViewModel _friendVM = FriendViewModel();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkHealthStatus();
+    _friendVM.addListener(_onFriendVMChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -39,13 +41,20 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
       if (userId != null) {
         await _refreshProfileSilently(userId, force: true);
       }
+      _friendVM.loadPendingRequestCount();
     });
   }
 
   @override
   void dispose() {
+    _friendVM.removeListener(_onFriendVMChanged);
+    _friendVM.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _onFriendVMChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -56,6 +65,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
       if (userId != null) {
         _refreshProfileSilently(userId, force: true);
       }
+      _friendVM.loadPendingRequestCount();
     }
   }
 
@@ -390,20 +400,53 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-              _buildActionButton(
-                context,
-                "My Friends",
-                Icons.people,
-                accent,
-                    () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChangeNotifierProvider(
-                      create: (_) => FriendViewModel(),
-                      child: const FriendListScreen(),
-                    ),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  _buildActionButton(
+                    context,
+                    "My Friends",
+                    Icons.people,
+                    accent,
+                        () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChangeNotifierProvider(
+                            create: (_) => FriendViewModel(),
+                            child: const FriendListScreen(),
+                          ),
+                        ),
+                      );
+                      _friendVM.loadPendingRequestCount();
+                    },
                   ),
-                ),
+                  if (_friendVM.pendingRequestCount > 0)
+                    Positioned(
+                      right: 12,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEF4444),
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          '${_friendVM.pendingRequestCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               _buildActionButton(
