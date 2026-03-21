@@ -126,7 +126,7 @@ class RecommendationService {
           COALESCE(a.food_calories, 0) AS food_calories,
           COALESCE(a.screen_time_minutes, 0) AS screen_time_minutes
         FROM sleep_record s
-        LEFT JOIN daily_activity a
+        LEFT JOIN daily_activities a
           ON s.user_id = a.user_id AND s.date = a.date
         WHERE s.user_id = ?
           AND s.date >= ?

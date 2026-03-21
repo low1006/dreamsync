@@ -9,7 +9,7 @@ class UserModel {
   final String uidText;
   int currentPoints;
   double sleepGoalHours;
-  final int streak;
+  int streak;
 
   UserModel({
     required this.userId,
@@ -40,24 +40,24 @@ class UserModel {
       }
 
       return age;
-    } catch (e) {
+    } catch (_) {
       return 0;
     }
   }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      userId: json['user_id'] ?? '',
-      username: json['username'] ?? 'Unknown',
-      email: json['email'] ?? '',
-      gender: json['gender'] ?? '',
-      dateBirth: json['date_birth'] ?? '',
-      weight: (json['weight'] ?? 0).toDouble(),
-      height: (json['height'] ?? 0).toDouble(),
-      uidText: json['uid_text'] ?? '',
-      currentPoints: json['current_points'] ?? 0,
-      sleepGoalHours: (json['sleep_goal_hours'] ?? 8.0).toDouble(),
-      streak: json['streak'] ?? 0,
+      userId: (json['user_id'] ?? '').toString(),
+      username: (json['username'] ?? 'Unknown').toString(),
+      email: (json['email'] ?? '').toString(),
+      gender: (json['gender'] ?? '').toString(),
+      dateBirth: (json['date_birth'] ?? '').toString(),
+      weight: _toDouble(json['weight']),
+      height: _toDouble(json['height']),
+      uidText: (json['uid_text'] ?? '').toString(),
+      currentPoints: _toInt(json['current_points']),
+      sleepGoalHours: _toDouble(json['sleep_goal_hours'], fallback: 8.0),
+      streak: _toInt(json['streak']),
     );
   }
 
@@ -75,5 +75,21 @@ class UserModel {
       'sleep_goal_hours': sleepGoalHours,
       'streak': streak,
     };
+  }
+
+  static double _toDouble(dynamic value, {double fallback = 0.0}) {
+    if (value == null) return fallback;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? fallback;
+  }
+
+  static int _toInt(dynamic value, {int fallback = 0}) {
+    if (value == null) return fallback;
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? fallback;
   }
 }

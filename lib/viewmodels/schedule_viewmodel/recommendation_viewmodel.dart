@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dreamsync/services/recommendation_service.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
 

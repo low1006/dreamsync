@@ -22,12 +22,48 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
     required this.onRefresh,
   });
 
+  List<double> _normalizeTo7(
+      List<dynamic> data,
+      double Function(dynamic item) mapper,
+      ) {
+    final values = data.map(mapper).toList();
+
+    if (values.length >= 7) {
+      return values.sublist(values.length - 7);
+    }
+
+    final padding = List<double>.filled(7 - values.length, 0);
+    return [...padding, ...values];
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
     final shadowColor = Colors.black.withOpacity(isDark ? 0.20 : 0.05);
     final subText = isDark ? Colors.white70 : Colors.grey;
+
+    final sleepTrendValues = _normalizeTo7(
+      viewModel.weeklyData,
+          (e) => e.totalMinutes / 60.0,
+    );
+
+    final screenTimeValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.screenTimeMinutes / 60.0,
+    );
+
+    final exerciseValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.exerciseMinutes.toDouble(),
+    );
+
+    final foodValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.foodCalories.toDouble(),
+    );
+
+    final hasSleepTrend = sleepTrendValues.any((v) => v > 0);
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -46,7 +82,6 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
             Container(
               decoration: BoxDecoration(
                 color: cardColor,
@@ -100,8 +135,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                 ],
               ),
             ),
-
-            if (viewModel.weeklyData.isNotEmpty) ...[
+            if (hasSleepTrend) ...[
               const SizedBox(height: 20),
               Text(
                 "7-Day Sleep Trend",
@@ -113,20 +147,15 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               WeeklyBarChart(
-                values: viewModel.weeklyData
-                    .map((e) => e.totalMinutes / 60.0)
-                    .toList(),
-                labels:
-                viewModel.weeklyData.map((e) => e.shortDayName).toList(),
+                values: sleepTrendValues,
+                labels: last7DaysLabels,
                 color: accent,
                 unit: "h",
                 maxY: 8.0,
                 isDecimal: true,
               ),
             ],
-
             const SizedBox(height: 24),
-
             Text(
               "Behavioural Data",
               style: TextStyle(
@@ -136,7 +165,6 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
             Text(
               "Screen Time Trend",
               style: TextStyle(
@@ -147,20 +175,14 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             WeeklyBarChart(
-              values: dailyVM.weeklyData.isEmpty
-                  ? [0, 0, 0, 0, 0, 0, 0]
-                  : dailyVM.weeklyData
-                  .map((e) => e.screenTimeMinutes / 60.0)
-                  .toList(),
+              values: screenTimeValues,
               labels: last7DaysLabels,
               color: Colors.blueGrey,
               unit: "h",
               maxY: 8.0,
               isDecimal: true,
             ),
-
             const SizedBox(height: 24),
-
             Text(
               "Exercise Trend",
               style: TextStyle(
@@ -171,18 +193,12 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             WeeklyBarChart(
-              values: dailyVM.weeklyData.isEmpty
-                  ? [0, 0, 0, 0, 0, 0, 0]
-                  : dailyVM.weeklyData
-                  .map((e) => e.exerciseMinutes.toDouble())
-                  .toList(),
+              values: exerciseValues,
               labels: last7DaysLabels,
               color: Colors.orange,
-              unit: "h",
+              unit: "m",
             ),
-
             const SizedBox(height: 24),
-
             Text(
               "Food Intake Trend",
               style: TextStyle(
@@ -193,16 +209,11 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             WeeklyBarChart(
-              values: dailyVM.weeklyData.isEmpty
-                  ? [0, 0, 0, 0, 0, 0, 0]
-                  : dailyVM.weeklyData
-                  .map((e) => e.foodCalories.toDouble())
-                  .toList(),
+              values: foodValues,
               labels: last7DaysLabels,
               color: Colors.green,
               unit: "k",
             ),
-
             const SizedBox(height: 30),
           ],
         ),

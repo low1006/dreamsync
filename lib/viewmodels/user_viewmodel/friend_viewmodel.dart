@@ -3,7 +3,6 @@ import 'package:dreamsync/models/friend_profile_model.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/friend_repository.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
-import 'package:dreamsync/util/network_helper.dart';
 
 class FriendViewModel extends ChangeNotifier {
   final FriendRepository _repo = FriendRepository();
@@ -40,13 +39,6 @@ class FriendViewModel extends ChangeNotifier {
     isLoading = true;
     notifyListeners();
 
-    if (!await NetworkHelper.isOnline()) {
-      debugPrint("📴 Offline: Skipping friend list fetch.");
-      isLoading = false;
-      notifyListeners();
-      return;
-    }
-
     try {
       final result = await _repo.fetchFriendships();
       friends = result['friends'] ?? [];
@@ -68,13 +60,6 @@ class FriendViewModel extends ChangeNotifier {
     errorMessage = null;
     searchedUser = null;
     notifyListeners();
-
-    if (!await NetworkHelper.isOnline()) {
-      errorMessage = "You must be online to search for users.";
-      isLoading = false;
-      notifyListeners();
-      return false;
-    }
 
     try {
       searchedUser = await _repo.searchByUid(uid);
@@ -114,12 +99,6 @@ class FriendViewModel extends ChangeNotifier {
   Future<void> sendFriendRequestToSearchedUser() async {
     if (searchedUser == null) return;
 
-    if (!await NetworkHelper.isOnline()) {
-      errorMessage = "You must be online to send friend requests.";
-      notifyListeners();
-      return;
-    }
-
     try {
       await _repo.sendFriendRequest(searchedUser!.userId);
       friendshipStatus = 'pending';
@@ -138,11 +117,6 @@ class FriendViewModel extends ChangeNotifier {
       String senderId,
       AchievementViewModel achievementVM,
       ) async {
-    if (!await NetworkHelper.isOnline()) {
-      errorMessage = "You must be online to accept friend requests.";
-      notifyListeners();
-      return;
-    }
 
     try {
       await _repo.acceptFriendRequest(senderId);

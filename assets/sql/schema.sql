@@ -1,7 +1,17 @@
--- 1. Sleep Record Table
--- Stores summary data for cloud sync and detailed stage data locally only.
+-- ============================================================================
+-- DreamSync Local Database Schema (Encrypted SQLite via SQLCipher)
+--
+-- Stores sensitive data in plaintext locally (the DB itself is encrypted).
+-- The is_synced flag tracks offline-first sync state:
+--   0 = not yet pushed to Supabase (encrypted)
+--   1 = successfully synced
+--
+-- Supabase stores the same data but encrypted (see supabase_schema.sql).
+-- ============================================================================
+
+-- 1. Sleep Record (full detail — stages + hypnogram stored locally only)
 CREATE TABLE IF NOT EXISTS sleep_record (
-  id TEXT PRIMARY KEY,
+  sleep_id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   date TEXT NOT NULL,
   total_minutes INTEGER NOT NULL DEFAULT 0 CHECK (total_minutes >= 0),
@@ -28,72 +38,22 @@ ON sleep_record(user_id);
 CREATE INDEX IF NOT EXISTS idx_sleep_record_user_date
 ON sleep_record(user_id, date);
 
--- 2. Daily Activity Table
-CREATE TABLE IF NOT EXISTS daily_activity (
-  id TEXT PRIMARY KEY,
+-- 2. Daily Activity (exercise, calories, screen time)
+CREATE TABLE IF NOT EXISTS daily_activities (
+  activity_id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   date TEXT NOT NULL,
-  exercise_minutes INTEGER DEFAULT 0,
-  food_calories INTEGER DEFAULT 0,
-  screen_time_minutes INTEGER DEFAULT 0,
-  is_synced INTEGER DEFAULT 0,
+  exercise_minutes INTEGER NOT NULL DEFAULT 0 CHECK (exercise_minutes >= 0),
+  food_calories INTEGER NOT NULL DEFAULT 0 CHECK (food_calories >= 0),
+  screen_time_minutes INTEGER NOT NULL DEFAULT 0 CHECK (screen_time_minutes >= 0),
+  is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
   UNIQUE(user_id, date)
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_activity_user_date
-ON daily_activity(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_daily_activities_user_date
+ON daily_activities(user_id, date);
 
--- 3. Schedule Table
-CREATE TABLE IF NOT EXISTS schedule (
-  id TEXT PRIMARY KEY,
-  schedule_id INTEGER,
-  user_id TEXT NOT NULL,
-  target_bed_time TEXT,
-  target_wake_time TEXT,
-  days TEXT,
-  is_alarm_on INTEGER DEFAULT 1,
-  is_smart_alarm INTEGER DEFAULT 0,
-  is_smart_notification INTEGER DEFAULT 0,
-  is_snooze_on INTEGER DEFAULT 1,
-  item_id INTEGER,
-  created_at TEXT,
-  is_synced INTEGER DEFAULT 0
-);
-
--- 4. User Achievements Cache
-CREATE TABLE IF NOT EXISTS user_achievement (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  achievement_id TEXT NOT NULL,
-  progress REAL DEFAULT 0,
-  is_unlocked INTEGER DEFAULT 0,
-  is_claimed INTEGER DEFAULT 0,
-  date_claimed TEXT,
-  is_synced INTEGER DEFAULT 0
-);
-
--- 5. Achievement Definitions Cache
-CREATE TABLE IF NOT EXISTS achievement_definition (
-  id TEXT PRIMARY KEY,
-  title TEXT,
-  description TEXT,
-  criteria_type TEXT,
-  criteria_value REAL,
-  category TEXT,
-  xp_reward INTEGER DEFAULT 0,
-  icon_path TEXT
-);
-
--- 6. Friends Cache
-CREATE TABLE IF NOT EXISTS friend_cache (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  friend_id TEXT NOT NULL,
-  friend_name TEXT,
-  friend_avatar TEXT
-);
-
--- 7. Sleep Recommendation Cache
+-- 3. Sleep Recommendation Cache (ML output — local only, no cloud sync)
 CREATE TABLE IF NOT EXISTS sleep_recommendation (
   user_id TEXT NOT NULL,
   date TEXT NOT NULL,
@@ -107,4 +67,86 @@ CREATE TABLE IF NOT EXISTS sleep_recommendation (
   message TEXT,
   generated_at TEXT NOT NULL,
   PRIMARY KEY (user_id, date)
+);
+
+-- 4. Sleep Schedule
+CREATE TABLE IF NOT EXISTS sleep_schedule (
+  schedule_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  target_bed_time TEXT NOT NULL,
+  target_wake_time TEXT NOT NULL,
+  days TEXT NOT NULL,
+  is_alarm_on INTEGER NOT NULL DEFAULT 1 CHECK (is_alarm_on IN (0, 1)),
+  is_smart_alarm INTEGER NOT NULL DEFAULT 0 CHECK (is_smart_alarm IN (0, 1)),
+  is_smart_notification INTEGER NOT NULL DEFAULT 0 CHECK (is_smart_notification IN (0, 1)),
+  item_id INTEGER NOT NULL DEFAULT 1,
+  is_snooze_on INTEGER NOT NULL DEFAULT 1 CHECK (is_snooze_on IN (0, 1)),
+  is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
+  UNIQUE(user_id, target_bed_time, target_wake_time, days)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sleep_schedule_user_id
+ON sleep_schedule(user_id);
+
+-- 5. User Achievement Progress Cache
+CREATE TABLE IF NOT EXISTS user_achievement (
+  user_achievement_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  achievement_id TEXT NOT NULL,
+  current_progress REAL NOT NULL DEFAULT 0,
+  is_unlocked INTEGER NOT NULL DEFAULT 0 CHECK (is_unlocked IN (0, 1)),
+  is_claimed INTEGER NOT NULL DEFAULT 0 CHECK (is_claimed IN (0, 1)),
+  date_claimed TEXT,
+  is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
+  UNIQUE(user_id, achievement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_achievement_user_id
+ON user_achievement(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_achievement_user_achievement
+ON user_achievement(user_id, achievement_id);
+
+-- 6. Achievement Definitions Cache
+CREATE TABLE IF NOT EXISTS achievement (
+  achievement_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  criteria_type TEXT,
+  criteria_value REAL,
+  category TEXT,
+  xp_reward INTEGER NOT NULL DEFAULT 0
+);
+
+-- 7. Friends Cache
+CREATE TABLE IF NOT EXISTS friend_cache (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  friend_id TEXT NOT NULL,
+  friend_name TEXT,
+  friend_avatar TEXT,
+  email TEXT,
+  uid_text TEXT,
+  sleep_goal_hours REAL NOT NULL DEFAULT 0,
+  streak INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(user_id, friend_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friend_cache_user_id
+ON friend_cache(user_id);
+
+-- 8. Profile Cache
+CREATE TABLE IF NOT EXISTS profile (
+  user_id TEXT PRIMARY KEY,
+  username TEXT,
+  email TEXT,
+  gender TEXT,
+  date_birth TEXT,
+  weight REAL DEFAULT 0,
+  height REAL DEFAULT 0,
+  uid_text TEXT,
+  current_points INTEGER NOT NULL DEFAULT 0,
+  sleep_goal_hours REAL NOT NULL DEFAULT 8.0,
+  streak INTEGER NOT NULL DEFAULT 0,
+  is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1))
 );

@@ -2,6 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/repositories/schedule_repository.dart';
 
+enum ScheduleSaveStatus {
+  success,
+  validationError,
+  confirmationRequired,
+  saveError,
+}
+
+class ScheduleSaveResult {
+  final ScheduleSaveStatus status;
+  final String message;
+
+  const ScheduleSaveResult({
+    required this.status,
+    required this.message,
+  });
+}
+
 class ScheduleViewModel extends ChangeNotifier {
   final ScheduleRepository _repository = ScheduleRepository();
 
@@ -11,14 +28,26 @@ class ScheduleViewModel extends ChangeNotifier {
   Future<void> loadSchedules() async {
     isLoading = true;
     notifyListeners();
+
+    // FIX: Track whether schedules were empty BEFORE the fetch.
+    // Only create a default if we had nothing cached AND the server confirms empty.
+    // This prevents the 7am default from firing when Supabase returns [] offline.
+    final hadSchedulesBefore = schedules.isNotEmpty;
+
     try {
-      schedules = await _repository.fetchSchedules();
-      if (schedules.isEmpty) {
+      final fetched = await _repository.fetchSchedules();
+
+      schedules = fetched;
+
+      if (schedules.isEmpty && !hadSchedulesBefore) {
+        // Truly a first-time user with no schedules anywhere — safe to create default.
         await _createDefaultSchedule();
         schedules = await _repository.fetchSchedules();
       }
     } catch (e) {
-      debugPrint("Error loading schedules: $e");
+      // FIX: Network/offline error — do NOT wipe schedules and do NOT create a
+      // default. Keep whatever is already in memory so the UI stays correct.
+      debugPrint("Error loading schedules (keeping existing in-memory state): $e");
     } finally {
       isLoading = false;
       notifyListeners();
@@ -43,6 +72,10 @@ class ScheduleViewModel extends ChangeNotifier {
     }
   }
 
+  /// FIX: Optimistic local update — after a successful (or queued-offline) write,
+  /// update the in-memory [schedules] list directly instead of re-fetching from
+  /// Supabase. Re-fetching offline returns stale/empty data which overwrites the
+  /// user's just-saved changes and can trigger the 7am default schedule.
   Future<void> saveSchedule(ScheduleModel schedule) async {
     try {
       if (schedule.id.isEmpty) {
@@ -55,13 +88,29 @@ class ScheduleViewModel extends ChangeNotifier {
           itemId: schedule.toneId,
           isSnoozeOn: schedule.isSnoozeOn,
         );
+        // For a brand-new schedule we don't have a server-assigned id yet,
+        // so do a refresh to pick it up (only on create).
+        await loadSchedules();
       } else {
         await _repository.updateSchedule(schedule);
+        // Optimistic update: reflect the change instantly in memory.
+        _applyLocalUpdate(schedule);
       }
-      await loadSchedules();
     } catch (e) {
       debugPrint("Error saving schedule: $e");
+      rethrow;
     }
+  }
+
+  /// Replaces the matching schedule in [schedules] in-place and notifies listeners.
+  void _applyLocalUpdate(ScheduleModel updated) {
+    final index = schedules.indexWhere((s) => s.id == updated.id);
+    if (index >= 0) {
+      schedules[index] = updated;
+    } else {
+      schedules.add(updated);
+    }
+    notifyListeners();
   }
 
   Future<void> toggleSchedule(String id, bool currentStatus) async {
@@ -126,5 +175,85 @@ class ScheduleViewModel extends ChangeNotifier {
     if (duration <= 0) duration += 24;
 
     return duration < sleepGoal;
+  }
+
+  Future<ScheduleSaveResult> validateScheduleBeforeSave({
+    required TimeOfDay bedtime,
+    required TimeOfDay wakeTime,
+    required List<String> days,
+    required double sleepGoal,
+  }) async {
+    final String? hardError = validateBlockingIssues(
+      bedtime: bedtime,
+      wakeTime: wakeTime,
+      days: days,
+    );
+
+    if (hardError != null) {
+      return ScheduleSaveResult(
+        status: ScheduleSaveStatus.validationError,
+        message: hardError,
+      );
+    }
+
+    if (isSleepDurationShort(
+      bedtime: bedtime,
+      wakeTime: wakeTime,
+      sleepGoal: sleepGoal,
+    )) {
+      return const ScheduleSaveResult(
+        status: ScheduleSaveStatus.confirmationRequired,
+        message:
+        "Calculated sleep duration is less than your sleep goal.\nSave anyway?",
+      );
+    }
+
+    return const ScheduleSaveResult(
+      status: ScheduleSaveStatus.success,
+      message: "",
+    );
+  }
+
+  Future<ScheduleSaveResult> saveScheduleFromForm({
+    required String? existingId,
+    required TimeOfDay bedtime,
+    required TimeOfDay wakeTime,
+    required List<String> days,
+    required bool isAlarmOn,
+    required bool isSmartAlarm,
+    required bool isSmartNotification,
+    required bool isSnoozeOn,
+    required int toneId,
+    required String toneName,
+    required String toneFile,
+  }) async {
+    try {
+      final scheduleToSave = ScheduleModel(
+        id: existingId ?? '',
+        label: "Main Schedule",
+        bedtime: bedtime,
+        wakeTime: wakeTime,
+        isActive: isAlarmOn,
+        days: days,
+        isSmartAlarm: isSmartAlarm,
+        isSmartNotification: isSmartNotification,
+        isSnoozeOn: isSnoozeOn,
+        toneId: toneId,
+        toneName: toneName,
+        toneFile: toneFile,
+      );
+
+      await saveSchedule(scheduleToSave);
+
+      return const ScheduleSaveResult(
+        status: ScheduleSaveStatus.success,
+        message: "Schedule saved successfully",
+      );
+    } catch (e) {
+      return ScheduleSaveResult(
+        status: ScheduleSaveStatus.saveError,
+        message: "Failed to save schedule: $e",
+      );
+    }
   }
 }

@@ -5,14 +5,17 @@ import 'package:health/health.dart';
 import 'package:dreamsync/repositories/daily_activity_repository.dart';
 import 'package:dreamsync/models/daily_activity_model.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
-import 'package:dreamsync/services/screen_time_service.dart'; // Add your new service here
+import 'package:dreamsync/services/screen_time_service.dart';
+import 'package:dreamsync/services/sync_service.dart';
 
 class DailyActivityViewModel extends ChangeNotifier {
   final DailyActivityRepository _repository = DailyActivityRepository();
   final Health _health = Health();
-  final ScreenTimeService _screenTimeService = ScreenTimeService(); // Initialize the new service
+  final ScreenTimeService _screenTimeService = ScreenTimeService();
+  final SyncService _syncService = SyncService();
 
   bool isLoading = false;
+  bool _hasRestoredFromCloud = false;
 
   int exerciseMinutes = 0;
   int foodCalories = 0;
@@ -20,11 +23,24 @@ class DailyActivityViewModel extends ChangeNotifier {
 
   List<DailyActivityModel> weeklyData = [];
 
+  // ===========================================================================
+  // LOAD TODAY (with cloud restore on empty DB)
+  // ===========================================================================
+
   Future<void> loadTodayData(String userId) async {
     isLoading = true;
     notifyListeners();
 
     try {
+      // If we haven't checked cloud restore yet, do it once per session
+      if (!_hasRestoredFromCloud) {
+        _hasRestoredFromCloud = true;
+        if (await _syncService.isActivityLocalEmpty(userId)) {
+          debugPrint('📦 Activity DB empty — restoring from encrypted cloud...');
+          await _syncService.restoreActivityFromCloud(userId);
+        }
+      }
+
       final today = _getTodayDateString();
 
       await _repository.ensureTodayRow(userId, today);
@@ -44,6 +60,10 @@ class DailyActivityViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // ===========================================================================
+  // ADD ACTIVITY (offline-first write + encrypted sync attempt)
+  // ===========================================================================
 
   Future<void> addActivity({
     required String userId,
@@ -74,6 +94,7 @@ class DailyActivityViewModel extends ChangeNotifier {
       "💾 Saving activity => date=$today, screen=$screenTimeMinutes, exercise=$exerciseMinutes, food=$foodCalories",
     );
 
+    // This saves locally first (is_synced=0) then attempts encrypted Supabase push
     await _repository.saveActivity(
       DailyActivityModel(
         userId: userId,
@@ -88,6 +109,10 @@ class DailyActivityViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ===========================================================================
+  // SCREEN TIME
+  // ===========================================================================
+
   Future<String> fetchAndSaveScreenTime(
       String userId,
       AchievementViewModel achievementVM,
@@ -100,7 +125,6 @@ class DailyActivityViewModel extends ChangeNotifier {
       await _repository.ensureTodayRow(userId, todayKey);
       final existing = await _repository.getTodayActivity(userId, todayKey);
 
-      // 1. Check if we already fetched it today and have a valid number
       if (lastFetchedDate == todayKey &&
           existing != null &&
           existing.screenTimeMinutes > 0) {
@@ -112,11 +136,9 @@ class DailyActivityViewModel extends ChangeNotifier {
         return formatScreenTime(screenTimeMinutes);
       }
 
-      // 2. Fetch from our Custom Native Method Channel via ScreenTimeService
       int totalMinutes = await _screenTimeService.getDailyScreenTimeMinutes();
 
       if (totalMinutes == -1) {
-        // This means permission was not granted and the settings screen was opened
         return "Need Usage Access";
       }
 
@@ -124,9 +146,11 @@ class DailyActivityViewModel extends ChangeNotifier {
         "📱 Fetched screen time from Native Android => date=$todayKey, totalMinutes=$totalMinutes",
       );
 
-      // 3. Save the fetched data to local database
       await addActivity(userId: userId, setScreenTime: totalMinutes);
       await prefs.setString('screen_time_last_fetch_date', todayKey);
+
+      // Retry any previously failed encrypted syncs
+      await _syncService.syncActivityRecords(userId);
 
       final verify = await _repository.getTodayActivity(userId, todayKey);
       debugPrint(
@@ -139,6 +163,10 @@ class DailyActivityViewModel extends ChangeNotifier {
       return "Error fetching data";
     }
   }
+
+  // ===========================================================================
+  // EXERCISE — HEALTH CONNECT
+  // ===========================================================================
 
   Future<int> fetchTodayExerciseMinutesFromHealthConnect() async {
     try {
@@ -165,8 +193,7 @@ class DailyActivityViewModel extends ChangeNotifier {
         granted = await _health.requestAuthorization(
           types,
           permissions: permissions,
-        ) ??
-            false;
+        );
       }
 
       if (!granted) {
@@ -226,6 +253,9 @@ class DailyActivityViewModel extends ChangeNotifier {
       await addActivity(userId: userId, setExercise: totalMinutes);
       await prefs.setString('exercise_last_fetch_date', todayKey);
 
+      // Retry any previously failed encrypted syncs
+      await _syncService.syncActivityRecords(userId);
+
       final verify = await _repository.getTodayActivity(userId, todayKey);
       debugPrint(
         "✅ Verify exercise after save => date=$todayKey, savedExercise=${verify?.exerciseMinutes}",
@@ -237,6 +267,10 @@ class DailyActivityViewModel extends ChangeNotifier {
       return 0;
     }
   }
+
+  // ===========================================================================
+  // WEEKLY DATA
+  // ===========================================================================
 
   Future<void> loadWeeklyData(String userId) async {
     try {
@@ -306,6 +340,10 @@ class DailyActivityViewModel extends ChangeNotifier {
       weeklyData = [];
     }
   }
+
+  // ===========================================================================
+  // HELPERS
+  // ===========================================================================
 
   String formatScreenTime(int totalMinutes) {
     final hours = totalMinutes ~/ 60;

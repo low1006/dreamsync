@@ -4,7 +4,6 @@ import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/repositories/achievement_repository.dart';
 import 'package:dreamsync/repositories/friend_repository.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
-import 'package:dreamsync/util/network_helper.dart';
 
 class AchievementViewModel extends ChangeNotifier {
   final AchievementRepository _repo = AchievementRepository();
@@ -39,10 +38,6 @@ class AchievementViewModel extends ChangeNotifier {
   // LEADERBOARD
   // =========================================================
   Future<void> loadLeaderboard() async {
-    if (!await NetworkHelper.isOnline()) {
-      debugPrint("📴 Offline: Skipping leaderboard fetch.");
-      return;
-    }
 
     try {
       leaderboardUsers = await _friendRepo.fetchLeaderboard();
@@ -94,14 +89,6 @@ class AchievementViewModel extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint("❌ Error claiming reward: $e");
-    }
-  }
-
-  Future<void> syncOfflineAchievements() async {
-    try {
-      await _repo.syncOfflineAchievements();
-    } catch (e) {
-      debugPrint("❌ syncOfflineAchievements error: $e");
     }
   }
 

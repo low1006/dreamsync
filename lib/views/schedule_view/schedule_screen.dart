@@ -113,10 +113,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  void _syncFromViewModel(ScheduleViewModel vm) {
-    if (vm.schedules.isEmpty) return;
-
-    final schedule = vm.schedules.first;
+  /// Syncs local state from the ViewModel.
+  ///
+  /// Pass [overrideSchedule] after a save so the UI is populated from the
+  /// just-saved model rather than whatever Supabase returned (which may be
+  /// stale/empty in offline mode and would overwrite the user's edits).
+  void _syncFromViewModel(ScheduleViewModel vm, {ScheduleModel? overrideSchedule}) {
+    final schedule = overrideSchedule ?? (vm.schedules.isNotEmpty ? vm.schedules.first : null);
+    if (schedule == null) return;
 
     _existingId = schedule.id;
     _bedTime = schedule.bedtime;
@@ -188,48 +192,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Future<void> _quickUpdateNotification(bool isSmartNotif) async {
-    if (_existingId == null || _existingId!.isEmpty) return;
-
-    await context
-        .read<ScheduleViewModel>()
-        .toggleSmartNotification(_existingId!, isSmartNotif);
-
-    await _rescheduleAlarm();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isSmartNotif
-              ? "Do Not Disturb Enabled"
-              : "Do Not Disturb Disabled",
-        ),
-        duration: const Duration(seconds: 1),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  Future<void> _quickUpdateSnooze(bool isSnooze) async {
-    if (_existingId == null || _existingId!.isEmpty) return;
-
-    await context
-        .read<ScheduleViewModel>()
-        .toggleSnooze(_existingId!, isSnooze);
-
-    await _rescheduleAlarm();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(isSnooze ? "Snooze Enabled" : "Snooze Disabled"),
-        duration: const Duration(seconds: 1),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   void _toggleEditMode() {
     if (_isEditing) {
       _stopVolumePreview(); // ✅ Stop preview when saving
@@ -268,31 +230,29 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     final double mySleepGoal = userVM.userProfile?.sleepGoalHours ?? 8.0;
 
-    final String? hardError = scheduleVM.validateBlockingIssues(
+    final validationResult = await scheduleVM.validateScheduleBeforeSave(
       bedtime: _bedTime,
       wakeTime: _wakeTime,
       days: _selectedDays,
+      sleepGoal: mySleepGoal,
     );
 
-    if (hardError != null) {
+    if (validationResult.status == ScheduleSaveStatus.validationError) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(hardError), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(validationResult.message),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
-    if (scheduleVM.isSleepDurationShort(
-      bedtime: _bedTime,
-      wakeTime: _wakeTime,
-      sleepGoal: mySleepGoal,
-    )) {
+    if (validationResult.status == ScheduleSaveStatus.confirmationRequired) {
       final bool? confirm = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text("Less Duration"),
-          content: const Text(
-            "Calculated sleep duration is less than your sleep goal.\nSave anyway?",
-          ),
+          content: Text(validationResult.message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -309,7 +269,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (confirm != true) return;
     }
 
-    final scheduleToSave = ScheduleModel(
+    // Capture the model we intend to save BEFORE calling the VM so that after
+    // save we can sync the UI from this known-correct model rather than from
+    // whatever Supabase returns (which may be stale/empty in offline mode).
+    final scheduleBeingSaved = ScheduleModel(
       id: _existingId ?? '',
       label: "Main Schedule",
       bedtime: _bedTime,
@@ -324,23 +287,46 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       toneFile: _currentToneFile,
     );
 
-    await scheduleVM.saveSchedule(scheduleToSave);
-    await scheduleVM.loadSchedules();
+    final saveResult = await scheduleVM.saveScheduleFromForm(
+      existingId: _existingId,
+      bedtime: _bedTime,
+      wakeTime: _wakeTime,
+      days: _selectedDays,
+      isAlarmOn: _isAlarmOn,
+      isSmartAlarm: _isSmartAlarm,
+      isSmartNotification: _isSmartNotification,
+      isSnoozeOn: _isSnoozeOn,
+      toneId: _currentToneId,
+      toneName: _currentToneName,
+      toneFile: _currentToneFile,
+    );
 
-    _syncFromViewModel(scheduleVM);
+    if (saveResult.status == ScheduleSaveStatus.saveError) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(saveResult.message),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // FIX: Always sync from the model we saved, never from the VM's schedules
+    // list directly — the list may be stale after an offline round-trip.
+    _syncFromViewModel(scheduleVM, overrideSchedule: scheduleBeingSaved);
     await _rescheduleAlarm();
 
     if (!mounted) return;
     setState(() => _isEditing = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Schedule saved successfully"),
+      SnackBar(
+        content: Text(saveResult.message),
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
-
   void _openToneSelector() {
     if (!_isEditing) return;
 

@@ -9,6 +9,7 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import 'package:dreamsync/services/permission_service.dart';
 import 'package:dreamsync/services/notification_service.dart';
+import 'package:dreamsync/services/sync_service.dart';
 import 'package:dreamsync/util/global.dart';
 
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
@@ -75,6 +76,9 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   StreamSubscription<String>? _alarmSubscription;
   bool _alarmScreenOpen = false;
+  bool _hasSyncedOnStartup = false;
+
+  final SyncService _syncService = SyncService();
 
   @override
   void initState() {
@@ -129,6 +133,27 @@ class _MyAppState extends State<MyApp> {
         if (userId != null) {
           profileVM.fetchProfile(userId);
         }
+      }
+    });
+  }
+
+  /// Push any unsynced encrypted records to Supabase on app startup.
+  /// Runs once per app launch when user is authenticated.
+  void _triggerStartupSync() {
+    if (_hasSyncedOnStartup) return;
+
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    _hasSyncedOnStartup = true;
+
+    // Run in background — don't block the UI
+    Future.microtask(() async {
+      try {
+        debugPrint('🚀 Startup: syncing unsynced encrypted records...');
+        await _syncService.syncAll(userId);
+      } catch (e) {
+        debugPrint('⚠️ Startup sync failed (will retry next launch): $e');
       }
     });
   }
@@ -196,9 +221,12 @@ class _MyAppState extends State<MyApp> {
 
           if (session != null) {
             _ensureProfileLoaded(context);
+            _triggerStartupSync();
             return const MainScreen();
           }
 
+          // Reset sync flag on logout so next login triggers sync
+          _hasSyncedOnStartup = false;
           return const LoginScreen();
         },
       ),

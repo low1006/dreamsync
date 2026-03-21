@@ -16,27 +16,45 @@ class SleepAchievementService {
   }) async {
     int totalLogs = 0;
     int totalLifetimeMinutes = 0;
+
     final Map<String, int> scoreByDate = {};
     final Map<String, int> minutesByDate = {};
 
     for (final record in allRecords) {
-      final dateKey = normalizeDateKey(record.date);
+      final normalizedKey = normalizeDateKey(record.date);
 
       if (record.totalMinutes > 0) {
         totalLogs++;
         totalLifetimeMinutes += record.totalMinutes;
-      }
 
-      scoreByDate[dateKey] = record.sleepScore;
-      minutesByDate[dateKey] = record.totalMinutes;
+        // keep latest value for that date
+        scoreByDate[normalizedKey] = record.sleepScore;
+        minutesByDate[normalizedKey] = record.totalMinutes;
+      }
     }
 
     final currentStreak = computeStreak(scoreByDate);
     final totalLifetimeHours = totalLifetimeMinutes / 60.0;
+
     final todayKey = dateKey(DateTime.now());
-    final todayMinutes = minutesByDate[todayKey] ?? 0;
+    final hasTodayRecord =
+        scoreByDate.containsKey(todayKey) && minutesByDate.containsKey(todayKey);
+
+    final todayScore = hasTodayRecord ? (scoreByDate[todayKey] ?? 0) : 0;
+    final todayMinutes = hasTodayRecord ? (minutesByDate[todayKey] ?? 0) : 0;
     final todayHours = todayMinutes / 60.0;
-    final todayWakeTime = wakeTimeByDay[todayKey];
+    final todayWakeTime = hasTodayRecord ? wakeTimeByDay[todayKey] : null;
+
+    // latest available score for permanent “sleep_score” achievements
+    int latestSleepScore = 0;
+    if (allRecords.isNotEmpty) {
+      final validRecords =
+      allRecords.where((r) => r.totalMinutes > 0).toList()
+        ..sort((a, b) => normalizeDateKey(a.date).compareTo(normalizeDateKey(b.date)));
+      if (validRecords.isNotEmpty) {
+        latestSleepScore = validRecords.last.sleepScore;
+      }
+    }
 
     // ─────────────────────────────────────────────────────────
     // PERMANENT achievements
@@ -48,8 +66,12 @@ class SleepAchievementService {
     }
 
     // sleep_score — Good Night (80), Deep Dreamer (90), Sleep Elite (95), Perfect Rest (100)
+    // Use latest available valid score, not forced "today only".
     for (final a in achievementVM.getByType('sleep_score')) {
-      await achievementVM.setProgress(a.userAchievementId, dailySleepScore.toDouble());
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        latestSleepScore.toDouble(),
+      );
     }
 
     // total_hours — Nap Snatcher (10), Hibernator (100), Sleep Marathon (500), Sleep Collector (1000)
@@ -59,41 +81,61 @@ class SleepAchievementService {
 
     // streak_days — Three Peat (3), Week Warrior (7), Monthly Master (30), Consistency King (60)
     for (final a in achievementVM.getByType('streak_days')) {
-      await achievementVM.setProgress(a.userAchievementId, currentStreak.toDouble());
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        currentStreak.toDouble(),
+      );
     }
 
-    // friends_count is handled in FriendViewModel.acceptRequest()
-
     // ─────────────────────────────────────────────────────────
-    // DAILY achievements (reset each day by the repo)
+    // DAILY achievements
+    // IMPORTANT:
+    // Only evaluate daily achievements if there is an actual record for today.
+    // This prevents yesterday's good result from being claimed again tomorrow.
     // ─────────────────────────────────────────────────────────
 
     // early_wake_daily — Early Bird: wake before 7 AM
     for (final a in achievementVM.getByType('early_wake_daily')) {
-      final wokeEarly = todayWakeTime != null && todayWakeTime.hour < 7;
-      await achievementVM.setProgress(a.userAchievementId, wokeEarly ? 1.0 : 0.0);
+      final wokeEarly = hasTodayRecord &&
+          todayWakeTime != null &&
+          todayWakeTime.hour < 7;
+
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        wokeEarly ? 1.0 : 0.0,
+      );
     }
 
     // sleep_score_daily — Healthy Rhythm: score >= 80 today
     for (final a in achievementVM.getByType('sleep_score_daily')) {
-      await achievementVM.setProgress(a.userAchievementId, dailySleepScore.toDouble());
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        hasTodayRecord ? todayScore.toDouble() : 0.0,
+      );
     }
 
-    // sleep_hours_daily — Full Recharge: sleep >= 8 hours
+    // sleep_hours_daily — Full Recharge: sleep >= 8 hours today
     for (final a in achievementVM.getByType('sleep_hours_daily')) {
-      await achievementVM.setProgress(a.userAchievementId, todayHours);
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        hasTodayRecord ? todayHours : 0.0,
+      );
     }
 
     // bedtime_consistency_daily — On The Dot: bed within 30 min of target
-    // TODO: Wire up when schedule comparison data is available
     for (final a in achievementVM.getByType('bedtime_consistency_daily')) {
-      await achievementVM.setProgress(a.userAchievementId, bedtimeConsistentToday ? 1.0 : 0.0);
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        hasTodayRecord && bedtimeConsistentToday ? 1.0 : 0.0,
+      );
     }
 
     // no_screen_time_daily — Phone Down: no phone 30 min before sleep
-    // TODO: Wire up when screen time tracking data is available
     for (final a in achievementVM.getByType('no_screen_time_daily')) {
-      await achievementVM.setProgress(a.userAchievementId, noScreenTimeToday ? 1.0 : 0.0);
+      await achievementVM.setProgress(
+        a.userAchievementId,
+        hasTodayRecord && noScreenTimeToday ? 1.0 : 0.0,
+      );
     }
 
     return currentStreak;

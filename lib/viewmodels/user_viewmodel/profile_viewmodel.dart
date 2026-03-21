@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
+import 'package:dreamsync/services/encryption_service.dart';
 import 'package:dreamsync/util/local_database.dart';
 
 class ProfileViewModel extends ChangeNotifier {
@@ -9,10 +10,6 @@ class ProfileViewModel extends ChangeNotifier {
   UserModel? _userProfile;
   bool _isLoading = false;
 
-  // ✅ FIX: Disposed guard — prevents "used after disposed" crash.
-  // signOut() triggers widget-tree teardown while the async call is still
-  // in-flight. By the time the finally block runs, the VM is already disposed,
-  // so every bare notifyListeners() throws. _safeNotify() silently no-ops instead.
   bool _disposed = false;
 
   @override
@@ -82,6 +79,7 @@ class ProfileViewModel extends ChangeNotifier {
 
     try {
       await LocalDatabase.instance.closeDatabase();
+      EncryptionService.instance.clearCache();
       await _repository.deleteAccount();
       _userProfile = null;
     } finally {
@@ -95,15 +93,12 @@ class ProfileViewModel extends ChangeNotifier {
     _safeNotify();
 
     try {
-      // Close DB first so the static singleton is cleared before Supabase
-      // tears down the session and Flutter disposes the widget tree.
       await LocalDatabase.instance.closeDatabase();
+      EncryptionService.instance.clearCache();
       await _repository.signOut();
       _userProfile = null;
     } finally {
       _isLoading = false;
-      // _safeNotify() is a no-op if Flutter already disposed this VM
-      // during the await above — which is exactly what was crashing.
       _safeNotify();
     }
   }

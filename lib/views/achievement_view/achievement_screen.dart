@@ -55,7 +55,7 @@ class _AchievementScreenState extends State<AchievementScreen>
           controller: _tabController,
           indicatorColor: accent,
           labelColor: accent,
-          unselectedLabelColor: text.withOpacity(0.5),
+          unselectedLabelColor: text.withValues(alpha: 0.5),
           tabs: const [Tab(text: "Badges"), Tab(text: "Leaderboard")],
         ),
       ),
@@ -96,7 +96,7 @@ class _AchievementScreenState extends State<AchievementScreen>
           return Center(
             child: Text(
               "No achievements yet!",
-              style: TextStyle(color: text.withOpacity(0.5)),
+              style: TextStyle(color: text.withValues(alpha: 0.5)),
             ),
           );
         }
@@ -173,12 +173,12 @@ class _AchievementScreenState extends State<AchievementScreen>
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: userAchievement.isUnlocked
-              ? Colors.amber.withOpacity(0.4)
-              : text.withOpacity(0.05),
+              ? Colors.amber.withValues(alpha: 0.4)
+              : text.withValues(alpha: 0.05),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -192,15 +192,15 @@ class _AchievementScreenState extends State<AchievementScreen>
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: userAchievement.isUnlocked
-                  ? Colors.amber.withOpacity(0.1)
-                  : text.withOpacity(0.05),
+                  ? Colors.amber.withValues(alpha: 0.1)
+                  : text.withValues(alpha: 0.05),
               shape: BoxShape.circle,
             ),
             child: Icon(
               Icons.emoji_events,
               color: userAchievement.isUnlocked
                   ? Colors.amber
-                  : text.withOpacity(0.3),
+                  : text.withValues(alpha: 0.3),
               size: 28,
             ),
           ),
@@ -219,14 +219,14 @@ class _AchievementScreenState extends State<AchievementScreen>
                 const SizedBox(height: 4),
                 Text(
                   badge.description,
-                  style: TextStyle(color: text.withOpacity(0.6), fontSize: 13),
+                  style: TextStyle(color: text.withValues(alpha: 0.6), fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: progress,
-                    backgroundColor: text.withOpacity(0.1),
+                    backgroundColor: text.withValues(alpha: 0.1),
                     color: userAchievement.isUnlocked ? Colors.green : accent,
                     minHeight: 6,
                   ),
@@ -236,7 +236,7 @@ class _AchievementScreenState extends State<AchievementScreen>
                   "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
                   style: TextStyle(
                       fontSize: 12,
-                      color: text.withOpacity(0.5),
+                      color: text.withValues(alpha: 0.5),
                       fontWeight: FontWeight.bold),
                 ),
               ],
@@ -336,12 +336,12 @@ class _AchievementScreenState extends State<AchievementScreen>
                   horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: isMe
-                    ? accent.withOpacity(0.1)
+                    ? accent.withValues(alpha: 0.1)
                     : Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
                 border: isMe
                     ? Border.all(color: accent, width: 1.5)
-                    : Border.all(color: text.withOpacity(0.05)),
+                    : Border.all(color: text.withValues(alpha: 0.05)),
               ),
               child: Row(
                 children: [
@@ -382,7 +382,7 @@ class _AchievementScreenState extends State<AchievementScreen>
                             Text(
                               "${user.streak} Day Streak",
                               style: TextStyle(
-                                  color: text.withOpacity(0.6),
+                                  color: text.withValues(alpha: 0.6),
                                   fontSize: 13),
                             ),
                           ],
@@ -414,10 +414,10 @@ class _AchievementScreenState extends State<AchievementScreen>
             decoration: BoxDecoration(
               color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: text.withOpacity(0.1)),
+              border: Border.all(color: text.withValues(alpha: 0.1)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -429,7 +429,7 @@ class _AchievementScreenState extends State<AchievementScreen>
                   "Your Current Streak",
                   style: TextStyle(
                       fontSize: 14,
-                      color: text.withOpacity(0.5),
+                      color: text.withValues(alpha: 0.5),
                       fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
@@ -458,7 +458,7 @@ class _AchievementScreenState extends State<AchievementScreen>
               "You haven't added any friends yet.\nAdd friends to compete on the leaderboard!",
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 15, color: text.withOpacity(0.6), height: 1.5),
+                  fontSize: 15, color: text.withValues(alpha: 0.6), height: 1.5),
             ),
           ),
           const SizedBox(height: 24),
@@ -487,6 +487,6 @@ class _AchievementScreenState extends State<AchievementScreen>
     if (rank == 1) return const Color(0xFFFFD700);
     if (rank == 2) return const Color(0xFFC0C0C0);
     if (rank == 3) return const Color(0xFFCD7F32);
-    return defaultColor.withOpacity(0.5);
+    return defaultColor.withValues(alpha: 0.5);
   }
 }

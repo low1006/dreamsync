@@ -48,7 +48,7 @@ class RewardStoreViewModel extends ChangeNotifier {
   bool get hasSelection => _selectedItem != null;
 
   Future<void> initialize(String userId) async {
-    print('🟡 [RewardStoreVM] initialize() called with userId = $userId');
+    debugPrint('🟡 [RewardStoreVM] initialize() called with userId = $userId');
 
     _isLoading = true;
     _errorMessage = null;
@@ -68,21 +68,21 @@ class RewardStoreViewModel extends ChangeNotifier {
       _ownedItems = results[1] as List<InventoryItem>;
       _user = results[2] as UserModel?;
 
-      print('🟢 [RewardStoreVM] all store items count = ${_storeItems.length}');
-      print('🟢 [RewardStoreVM] owned items count = ${_ownedItems.length}');
-      print('🟢 [RewardStoreVM] user loaded = ${_user != null}');
-      print('🟢 [RewardStoreVM] currentPoints = ${_user?.currentPoints}');
+      debugPrint('🟢 [RewardStoreVM] all store items count = ${_storeItems.length}');
+      debugPrint('🟢 [RewardStoreVM] owned items count = ${_ownedItems.length}');
+      debugPrint('🟢 [RewardStoreVM] user loaded = ${_user != null}');
+      debugPrint('🟢 [RewardStoreVM] currentPoints = ${_user?.currentPoints}');
 
       final ownedIds = _ownedItems.map((e) => e.details.id).toSet();
-      print('🟡 [RewardStoreVM] ownedIds = $ownedIds');
+      debugPrint('🟡 [RewardStoreVM] ownedIds = $ownedIds');
 
       _availableItems = _storeItems
           .where((item) => !ownedIds.contains(item.id))
           .toList();
 
-      print('🟢 [RewardStoreVM] available items count = ${_availableItems.length}');
+      debugPrint('🟢 [RewardStoreVM] available items count = ${_availableItems.length}');
       for (final item in _availableItems) {
-        print('   ↳ available item: id=${item.id}, name=${item.name}, cost=${item.cost}');
+        debugPrint('   ↳ available item: id=${item.id}, name=${item.name}, cost=${item.cost}');
       }
 
       if (_storeItems.isEmpty) {
@@ -98,8 +98,8 @@ class RewardStoreViewModel extends ChangeNotifier {
 
       _validateSelection();
     } catch (e, st) {
-      print('🔴 [RewardStoreVM] Failed to load reward store: $e');
-      print(st);
+      debugPrint('🔴 [RewardStoreVM] Failed to load reward store: $e');
+      debugPrint('$st');
       _errorMessage = 'Failed to load reward store: $e';
       _debugMessage = 'DEBUG ERROR: $e';
     } finally {
@@ -109,12 +109,12 @@ class RewardStoreViewModel extends ChangeNotifier {
   }
 
   Future<void> refresh(String userId) async {
-    print('🟡 [RewardStoreVM] refresh() called');
+    debugPrint('🟡 [RewardStoreVM] refresh() called');
     await initialize(userId);
   }
 
   void selectItem(StoreItem item) {
-    print('🟡 [RewardStoreVM] selectItem() => ${item.name} (${item.id})');
+    debugPrint('🟡 [RewardStoreVM] selectItem() => ${item.name} (${item.id})');
     _selectedItem = item;
     _errorMessage = null;
     _successMessage = null;
@@ -197,8 +197,8 @@ class RewardStoreViewModel extends ChangeNotifier {
       final item = _selectedItem!;
       final newPoints = currentPoints - item.cost;
 
-      print('🟡 [RewardStoreVM] purchasing item = ${item.name}, cost = ${item.cost}');
-      print('🟡 [RewardStoreVM] old points = ${_user!.currentPoints}, new points = $newPoints');
+      debugPrint('🟡 [RewardStoreVM] purchasing item = ${item.name}, cost = ${item.cost}');
+      debugPrint('🟡 [RewardStoreVM] old points = ${_user!.currentPoints}, new points = $newPoints');
 
       await _inventoryRepository.purchaseItem(
         storeItemId: item.id,
@@ -211,7 +211,8 @@ class RewardStoreViewModel extends ChangeNotifier {
 
       _ownedItems = await _inventoryRepository.fetchMyInventory(userId: _user!.userId);
       final ownedIds = _ownedItems.map((e) => e.details.id).toSet();
-      _availableItems = _storeItems.where((item) => !ownedIds.contains(item.id)).toList();
+      _availableItems =
+          _storeItems.where((item) => !ownedIds.contains(item.id)).toList();
 
       _successMessage = '${item.name} unlocked successfully!';
       _validationMessage = null;
@@ -219,12 +220,12 @@ class RewardStoreViewModel extends ChangeNotifier {
       'DEBUG: purchase success. Remaining available items = ${_availableItems.length}';
       _selectedItem = null;
 
-      print('🟢 [RewardStoreVM] purchase success');
+      debugPrint('🟢 [RewardStoreVM] purchase success');
       notifyListeners();
       return true;
     } catch (e, st) {
-      print('🔴 [RewardStoreVM] Failed to purchase item: $e');
-      print(st);
+      debugPrint('🔴 [RewardStoreVM] Failed to purchase item: $e');
+      debugPrint('$st');
       _errorMessage = 'Failed to purchase item: $e';
       _debugMessage = 'DEBUG PURCHASE ERROR: $e';
       notifyListeners();
