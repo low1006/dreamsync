@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
+import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/widget/friend/cards/friend_card.dart';
 import 'package:dreamsync/widget/friend/cards/request_card.dart';
 import 'package:dreamsync/widget/friend/friend_detail_sheet.dart';
 import 'package:dreamsync/widget/friend/add_friend_dialogs.dart';
+import 'package:dreamsync/util/network_helper.dart';
+import 'package:dreamsync/widget/custom/offline_status_banner.dart';
 
 class FriendListScreen extends StatefulWidget {
   const FriendListScreen({super.key});
@@ -23,8 +26,19 @@ class _FriendListScreenState extends State<FriendListScreen>
     _tabController = TabController(length: 2, vsync: this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<FriendViewModel>(context, listen: false).loadFriendListData();
+      final friendVM = Provider.of<FriendViewModel>(context, listen: false);
+      final achievementVM =
+      Provider.of<AchievementViewModel>(context, listen: false);
+
+      friendVM.loadFriendListData(achievementVM: achievementVM);
+      friendVM.loadPendingRequestCount();
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
@@ -45,7 +59,7 @@ class _FriendListScreenState extends State<FriendListScreen>
         centerTitle: true,
         iconTheme: IconThemeData(color: text),
         title: Text(
-          "My Friends",
+          'My Friends',
           style: TextStyle(color: text, fontWeight: FontWeight.bold),
         ),
         bottom: TabBar(
@@ -56,57 +70,63 @@ class _FriendListScreenState extends State<FriendListScreen>
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           dividerColor: text.withOpacity(0.1),
           tabs: [
-            const Tab(text: "Friends"),
-            Tab(text: "Requests (${viewModel.pendingRequests.length})"),
+            const Tab(text: 'Friends'),
+            Tab(text: 'Requests (${viewModel.pendingRequests.length})'),
           ],
         ),
       ),
-      body: viewModel.isLoading
-          ? Center(child: CircularProgressIndicator(color: accent))
-          : TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          // Friends Tab
-          viewModel.friends.isEmpty
-              ? _buildEmptyState("No friends yet. Add someone!", text)
-              : ListView.separated(
-            padding: const EdgeInsets.all(20),
-            itemCount: viewModel.friends.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final friend = viewModel.friends[index];
-              return FriendCard(
-                friend: friend,
-                surface: surface,
-                text: text,
-                accent: accent,
-                onTap: () => FriendDetailSheet.show(
-                  context,
-                  friend: friend,
-                  surface: surface,
-                  text: text,
-                  accent: accent,
+          const OfflineStatusBanner(),
+          Expanded(
+            child: viewModel.isLoading
+                ? Center(child: CircularProgressIndicator(color: accent))
+                : TabBarView(
+              controller: _tabController,
+              children: [
+                viewModel.friends.isEmpty
+                    ? _buildEmptyState('No friends yet. Add someone!', text)
+                    : ListView.separated(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: viewModel.friends.length,
+                  separatorBuilder: (_, __) =>
+                  const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final friend = viewModel.friends[index];
+                    return FriendCard(
+                      friend: friend,
+                      surface: surface,
+                      text: text,
+                      accent: accent,
+                      onTap: () => FriendDetailSheet.show(
+                        context,
+                        friend: friend,
+                        surface: surface,
+                        text: text,
+                        accent: accent,
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
-
-          // Requests Tab
-          viewModel.pendingRequests.isEmpty
-              ? _buildEmptyState("No pending requests.", text)
-              : ListView.separated(
-            padding: const EdgeInsets.all(20),
-            itemCount: viewModel.pendingRequests.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final req = viewModel.pendingRequests[index];
-              return RequestCard(
-                request: req,
-                surface: surface,
-                text: text,
-                accent: accent,
-              );
-            },
+                viewModel.pendingRequests.isEmpty
+                    ? _buildEmptyState('No pending requests.', text)
+                    : ListView.separated(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: viewModel.pendingRequests.length,
+                  separatorBuilder: (_, __) =>
+                  const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final req = viewModel.pendingRequests[index];
+                    return RequestCard(
+                      request: req,
+                      surface: surface,
+                      text: text,
+                      accent: accent,
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -115,14 +135,22 @@ class _FriendListScreenState extends State<FriendListScreen>
         elevation: 4,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: const Icon(Icons.person_add, color: Colors.white),
-        onPressed: () => AddFriendDialog.show(
-          context,
-          viewModel: viewModel,
-          bg: bg,
-          surface: surface,
-          text: text,
-          accent: accent,
-        ),
+        onPressed: () async {
+          final ok = await NetworkHelper.ensureInternet(
+            context,
+            message: 'You cannot add friends while offline.',
+          );
+          if (!ok) return;
+
+          AddFriendDialog.show(
+            context,
+            viewModel: viewModel,
+            bg: bg,
+            surface: surface,
+            text: text,
+            accent: accent,
+          );
+        },
       ),
     );
   }

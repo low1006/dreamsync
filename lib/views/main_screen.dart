@@ -13,7 +13,8 @@ import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_screen.dart
 // ViewModels
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
-import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
+import 'package:dreamsync/util/network_helper.dart';
+import 'package:dreamsync/widget/custom/offline_status_banner.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -33,6 +34,18 @@ class _MainScreenState extends State<MainScreen> {
     AchievementScreen(),
     UserScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    NetworkHelper.startMonitoring();
+  }
+
+  @override
+  void dispose() {
+    NetworkHelper.stopMonitoring();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -96,7 +109,12 @@ class _MainScreenState extends State<MainScreen> {
     final unselected = isDark ? Colors.white54 : Colors.black54;
 
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: Column(
+        children: [
+          const OfflineStatusBanner(),
+          Expanded(child: _pages[_selectedIndex]),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         backgroundColor: bg,

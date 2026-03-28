@@ -45,8 +45,6 @@ class ScheduleViewModel extends ChangeNotifier {
         schedules = await _repository.fetchSchedules();
       }
     } catch (e) {
-      // FIX: Network/offline error — do NOT wipe schedules and do NOT create a
-      // default. Keep whatever is already in memory so the UI stays correct.
       debugPrint("Error loading schedules (keeping existing in-memory state): $e");
     } finally {
       isLoading = false;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/friend_profile_model.dart';
+import 'package:dreamsync/widget/custom/user_avatar.dart';
 
 class FriendDetailSheet extends StatelessWidget {
   final FriendProfile friend;
@@ -55,17 +56,13 @@ class FriendDetailSheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          CircleAvatar(
-            radius: 36,
-            backgroundColor: accent.withOpacity(0.1),
-            child: Text(
-              friend.username[0].toUpperCase(),
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: accent,
-                fontSize: 28,
-              ),
-            ),
+          UserAvatar(
+            avatarPath: friend.avatarAssetPath,
+            size: 72,
+            borderColor: accent.withOpacity(0.5),
+            borderWidth: 2,
+            borderPadding: 3,
+            fallbackIconColor: accent,
           ),
           const SizedBox(height: 12),
           Text(

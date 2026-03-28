@@ -10,6 +10,7 @@ class UserModel {
   int currentPoints;
   double sleepGoalHours;
   int streak;
+  String? avatarAssetPath;
 
   UserModel({
     required this.userId,
@@ -23,6 +24,7 @@ class UserModel {
     required this.currentPoints,
     this.sleepGoalHours = 8.0,
     this.streak = 0,
+    this.avatarAssetPath,
   });
 
   int get age {
@@ -31,14 +33,11 @@ class UserModel {
     try {
       final now = DateTime.now();
       final birthDate = DateTime.parse(dateBirth);
-
       int age = now.year - birthDate.year;
-
       if (now.month < birthDate.month ||
           (now.month == birthDate.month && now.day < birthDate.day)) {
         age--;
       }
-
       return age;
     } catch (_) {
       return 0;
@@ -46,6 +45,9 @@ class UserModel {
   }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final avatarRaw = json['avatar_asset_path'];
+    final avatar = avatarRaw?.toString().trim();
+
     return UserModel(
       userId: (json['user_id'] ?? '').toString(),
       username: (json['username'] ?? 'Unknown').toString(),
@@ -58,6 +60,7 @@ class UserModel {
       currentPoints: _toInt(json['current_points']),
       sleepGoalHours: _toDouble(json['sleep_goal_hours'], fallback: 8.0),
       streak: _toInt(json['streak']),
+      avatarAssetPath: (avatar == null || avatar.isEmpty) ? null : avatar,
     );
   }
 
@@ -74,6 +77,7 @@ class UserModel {
       'current_points': currentPoints,
       'sleep_goal_hours': sleepGoalHours,
       'streak': streak,
+      'avatar_asset_path': avatarAssetPath,
     };
   }
 

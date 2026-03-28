@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS daily_activities (
   exercise_minutes INTEGER NOT NULL DEFAULT 0 CHECK (exercise_minutes >= 0),
   food_calories INTEGER NOT NULL DEFAULT 0 CHECK (food_calories >= 0),
   screen_time_minutes INTEGER NOT NULL DEFAULT 0 CHECK (screen_time_minutes >= 0),
+  burned_calories INTEGER NOT NULL DEFAULT 0 CHECK (burned_calories >= 0),
   is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
   UNIQUE(user_id, date)
 );
@@ -138,6 +139,7 @@ ON friend_cache(user_id);
 -- 8. Profile Cache
 CREATE TABLE IF NOT EXISTS profile (
   user_id TEXT PRIMARY KEY,
+  avatar_asset_path TEXT,
   username TEXT,
   email TEXT,
   gender TEXT,

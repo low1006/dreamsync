@@ -9,7 +9,6 @@ class ProfileViewModel extends ChangeNotifier {
 
   UserModel? _userProfile;
   bool _isLoading = false;
-
   bool _disposed = false;
 
   @override
@@ -29,9 +28,7 @@ class ProfileViewModel extends ChangeNotifier {
   Future<void> fetchProfile(String userId) async {
     _isLoading = true;
     _safeNotify();
-
     _userProfile = await _repository.getProfileSafe(userId);
-
     _isLoading = false;
     _safeNotify();
   }
@@ -49,11 +46,21 @@ class ProfileViewModel extends ChangeNotifier {
       height: height,
     );
 
-    if (_userProfile != null) {
-      _userProfile!.weight = weight;
-      _userProfile!.height = height;
-    }
+    _userProfile?.weight = weight;
+    _userProfile?.height = height;
+    _safeNotify();
+  }
 
+  Future<void> updateAvatar(String? avatarAssetPath) async {
+    final userId = _userProfile?.userId;
+    if (userId == null) return;
+
+    await _repository.updateAvatar(
+      userId: userId,
+      avatarAssetPath: avatarAssetPath,
+    );
+
+    _userProfile?.avatarAssetPath = avatarAssetPath;
     _safeNotify();
   }
 
@@ -66,17 +73,13 @@ class ProfileViewModel extends ChangeNotifier {
       sleepGoalHours: hours,
     );
 
-    if (_userProfile != null) {
-      _userProfile!.sleepGoalHours = hours;
-    }
-
+    _userProfile?.sleepGoalHours = hours;
     _safeNotify();
   }
 
   Future<void> deleteUserAccount() async {
     _isLoading = true;
     _safeNotify();
-
     try {
       await LocalDatabase.instance.closeDatabase();
       EncryptionService.instance.clearCache();
@@ -91,7 +94,6 @@ class ProfileViewModel extends ChangeNotifier {
   Future<void> signOut() async {
     _isLoading = true;
     _safeNotify();
-
     try {
       await LocalDatabase.instance.closeDatabase();
       EncryptionService.instance.clearCache();
@@ -108,11 +110,7 @@ class ProfileViewModel extends ChangeNotifier {
     if (userId == null) return;
 
     await _repository.updatePoints(userId, newPoints);
-
-    if (_userProfile != null) {
-      _userProfile!.currentPoints = newPoints;
-    }
-
+    _userProfile?.currentPoints = newPoints;
     _safeNotify();
   }
 }

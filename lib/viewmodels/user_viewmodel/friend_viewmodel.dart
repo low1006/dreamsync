@@ -3,9 +3,11 @@ import 'package:dreamsync/models/friend_profile_model.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/friend_repository.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
+import 'package:dreamsync/services/sleep_achievement_service.dart';
 
 class FriendViewModel extends ChangeNotifier {
   final FriendRepository _repo = FriendRepository();
+  final SleepAchievementService _achievementService = SleepAchievementService();
 
   // --- Friend List State ---
   List<FriendProfile> friends = [];
@@ -35,14 +37,21 @@ class FriendViewModel extends ChangeNotifier {
   // =========================================================
   // LOAD FRIENDS & PENDING REQUESTS
   // =========================================================
-  Future<void> loadFriendListData() async {
+  Future<void> loadFriendListData({
+    AchievementViewModel? achievementVM,
+  }) async {
     isLoading = true;
+    errorMessage = null;
     notifyListeners();
 
     try {
       final result = await _repo.fetchFriendships();
       friends = result['friends'] ?? [];
       pendingRequests = result['pending'] ?? [];
+
+      if (achievementVM != null) {
+        await _syncFriendAchievements(achievementVM);
+      }
     } catch (e) {
       debugPrint("LOAD ERROR: $e");
       errorMessage = 'Error loading friends';
@@ -79,7 +88,8 @@ class FriendViewModel extends ChangeNotifier {
         return false;
       }
 
-      friendshipStatus = await _repo.checkFriendshipStatus(searchedUser!.userId);
+      friendshipStatus =
+      await _repo.checkFriendshipStatus(searchedUser!.userId);
 
       isLoading = false;
       notifyListeners();
@@ -103,7 +113,8 @@ class FriendViewModel extends ChangeNotifier {
       await _repo.sendFriendRequest(searchedUser!.userId);
       friendshipStatus = 'pending';
       notifyListeners();
-      loadFriendListData();
+
+      await loadFriendListData();
     } catch (e) {
       errorMessage = 'Could not send request.';
       notifyListeners();
@@ -117,11 +128,10 @@ class FriendViewModel extends ChangeNotifier {
       String senderId,
       AchievementViewModel achievementVM,
       ) async {
-
     try {
       await _repo.acceptFriendRequest(senderId);
-      await loadFriendListData();
-      await _checkFriendAchievements(achievementVM);
+      await loadFriendListData(achievementVM: achievementVM);
+      await loadPendingRequestCount();
     } catch (e) {
       errorMessage = 'Failed to accept request.';
       notifyListeners();
@@ -131,11 +141,16 @@ class FriendViewModel extends ChangeNotifier {
   // =========================================================
   // PRIVATE
   // =========================================================
-  Future<void> _checkFriendAchievements(
-      AchievementViewModel achievementVM) async {
-    final count = friends.length.toDouble();
-    for (final a in achievementVM.getByType('friends_count')) {
-      await achievementVM.setProgress(a.userAchievementId, count);
-    }
+  Future<void> _syncFriendAchievements(
+      AchievementViewModel achievementVM,
+      ) async {
+    final count = friends.length;
+
+    await _achievementService.updateFriendAchievements(
+      friendCount: count,
+      achievementVM: achievementVM,
+    );
+
+    debugPrint("👥 Friend achievement synced with count=$count");
   }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
+import 'package:dreamsync/util/network_helper.dart';
+import 'package:dreamsync/widget/custom/user_avatar.dart';
 
 class AddFriendDialog extends StatelessWidget {
   final Color bg;
@@ -104,7 +106,6 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // UID Input
           Container(
             decoration: BoxDecoration(
               color: bg,
@@ -139,14 +140,12 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
           ),
           const SizedBox(height: 16),
 
-          // Loading
           if (model.isLoading)
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: CircularProgressIndicator(color: accent),
             ),
 
-          // Error
           if (model.errorMessage != null && !model.isLoading)
             Container(
               padding: const EdgeInsets.all(12),
@@ -161,7 +160,6 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
               ),
             ),
 
-          // Search Result
           if (model.searchedUser != null && !model.isLoading)
             Container(
               margin: const EdgeInsets.only(top: 8),
@@ -175,15 +173,10 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: accent,
-                      child: Text(
-                        model.searchedUser!.username[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                    leading: UserAvatar(
+                      avatarPath: model.searchedUser!.avatarAssetPath,
+                      size: 44,
+                      fallbackIconColor: accent,
                     ),
                     title: Text(
                       model.searchedUser!.username,
@@ -215,6 +208,13 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
                       ),
                       onPressed: model.friendshipStatus == 'none'
                           ? () async {
+                        final ok = await NetworkHelper.ensureInternet(
+                          context,
+                          message:
+                          'You cannot send a friend request while offline.',
+                        );
+                        if (!ok) return;
+
                         await model.sendFriendRequestToSearchedUser();
                       }
                           : null,
@@ -243,9 +243,16 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            onPressed: () {
+            onPressed: () async {
               final input = _uidController.text.trim();
               if (input.isEmpty) return;
+
+              final ok = await NetworkHelper.ensureInternet(
+                context,
+                message: 'You cannot search for friends while offline.',
+              );
+              if (!ok) return;
+
               model.searchUserByUid("User#$input");
             },
             child: const Text("Search"),

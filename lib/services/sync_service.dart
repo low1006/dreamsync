@@ -8,30 +8,11 @@ import 'package:dreamsync/services/encryption_service.dart';
 import 'package:dreamsync/util/local_database.dart';
 import 'package:dreamsync/util/network_helper.dart';
 
-/// Coordinates offline-first sync between local encrypted SQLite and Supabase.
-///
-/// Responsibilities:
-///   1. Push unsynced local records (encrypted) to Supabase.
-///   2. Restore encrypted records from Supabase into local DB.
-///
-/// Public API:
-///   [syncAll]                    — push all unsynced records (both tables).
-///   [syncSleepRecords]           — push unsynced sleep records only.
-///   [syncActivityRecords]        — push unsynced activity records only.
-///   [restoreFromCloud]           — restore both tables from encrypted cloud.
-///   [restoreSleepFromCloud]      — restore sleep only.
-///   [restoreActivityFromCloud]   — restore activity only.
-///   [isLocalEmpty]               — check if sleep_record is empty for user.
-///   [isActivityLocalEmpty]       — check if daily_activity is empty for user.
 class SyncService {
   final SupabaseClient _client = Supabase.instance.client;
   final EncryptionService _encryption = EncryptionService.instance;
 
   Future<Database> get _db async => LocalDatabase.instance.database;
-
-  // ===========================================================================
-  // SYNC ALL — push unsynced records to Supabase (encrypted)
-  // ===========================================================================
 
   Future<void> syncAll(String userId) async {
     final online = await NetworkHelper.hasInternet();
@@ -46,10 +27,6 @@ class SyncService {
     debugPrint('✅ SyncService: sync complete.');
   }
 
-  // ===========================================================================
-  // RESTORE ALL — decrypt cloud data into local DB
-  // ===========================================================================
-
   Future<void> restoreFromCloud(String userId) async {
     final online = await NetworkHelper.hasInternet();
     if (!online) {
@@ -62,10 +39,6 @@ class SyncService {
     await restoreActivityFromCloud(userId);
     debugPrint('✅ SyncService: cloud restore complete.');
   }
-
-  // ===========================================================================
-  // EMPTY CHECKS
-  // ===========================================================================
 
   Future<bool> isLocalEmpty(String userId) async {
     final db = await _db;
@@ -88,10 +61,6 @@ class SyncService {
     );
     return (count ?? 0) == 0;
   }
-
-  // ===========================================================================
-  // SLEEP — sync unsynced records
-  // ===========================================================================
 
   Future<void> syncSleepRecords(String userId) async {
     final online = await NetworkHelper.hasInternet();
@@ -147,10 +116,6 @@ class SyncService {
       debugPrint('❌ syncSleepRecords error: $e');
     }
   }
-
-  // ===========================================================================
-  // SLEEP — restore from cloud
-  // ===========================================================================
 
   Future<void> restoreSleepFromCloud(String userId) async {
     final online = await NetworkHelper.hasInternet();
@@ -212,10 +177,6 @@ class SyncService {
     }
   }
 
-  // ===========================================================================
-  // ACTIVITY — sync unsynced records
-  // ===========================================================================
-
   Future<void> syncActivityRecords(String userId) async {
     final online = await NetworkHelper.hasInternet();
     if (!online) {
@@ -261,7 +222,13 @@ class SyncService {
             whereArgs: [userId, record.date],
           );
 
-          debugPrint('   ✅ Synced activity ${record.date}');
+          debugPrint(
+            '   ✅ Synced activity ${record.date} '
+                '(screen=${record.screenTimeMinutes}, '
+                'exercise=${record.exerciseMinutes}, '
+                'food=${record.foodCalories}, '
+                'burned=${record.burnedCalories})',
+          );
         } catch (e) {
           debugPrint('   ⚠️ Failed to sync activity ${row['date']}: $e');
         }
@@ -270,10 +237,6 @@ class SyncService {
       debugPrint('❌ syncActivityRecords error: $e');
     }
   }
-
-  // ===========================================================================
-  // ACTIVITY — restore from cloud
-  // ===========================================================================
 
   Future<void> restoreActivityFromCloud(String userId) async {
     final online = await NetworkHelper.hasInternet();
@@ -312,6 +275,7 @@ class SyncService {
             'exercise_minutes': _toInt(decrypted['exercise_minutes']),
             'food_calories': _toInt(decrypted['food_calories']),
             'screen_time_minutes': _toInt(decrypted['screen_time_minutes']),
+            'burned_calories': _toInt(decrypted['burned_calories']),
           };
 
           await LocalDatabase.instance.insertRecord(
@@ -320,7 +284,13 @@ class SyncService {
             isSynced: true,
           );
 
-          debugPrint('   ✅ Restored activity $date');
+          debugPrint(
+            '   ✅ Restored activity $date '
+                '(screen=${localRow['screen_time_minutes']}, '
+                'exercise=${localRow['exercise_minutes']}, '
+                'food=${localRow['food_calories']}, '
+                'burned=${localRow['burned_calories']})',
+          );
         } catch (e) {
           debugPrint('   ⚠️ Failed to restore activity ${row['date']}: $e');
         }
@@ -329,10 +299,6 @@ class SyncService {
       debugPrint('❌ restoreActivityFromCloud error: $e');
     }
   }
-
-  // ===========================================================================
-  // PRIVATE — helpers
-  // ===========================================================================
 
   Map<String, dynamic> _sleepToEncryptableMap(SleepRecordModel r) {
     return {
@@ -352,6 +318,7 @@ class SyncService {
       'exercise_minutes': r.exerciseMinutes,
       'food_calories': r.foodCalories,
       'screen_time_minutes': r.screenTimeMinutes,
+      'burned_calories': r.burnedCalories,
     };
   }
 

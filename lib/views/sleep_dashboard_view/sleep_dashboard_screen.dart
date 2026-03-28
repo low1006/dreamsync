@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
-
+import 'package:dreamsync/services/permission_service.dart';
 import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_daily_tab.dart';
 import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_weekly_tab.dart';
 import 'package:dreamsync/widget/sleep_dashboard/states/sleep_dashboard_loading.dart';
@@ -53,6 +52,25 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     super.dispose();
   }
 
+  Future<void> _syncBehaviouralHealthData(String userId) async {
+    final dailyVM = context.read<DailyActivityViewModel>();
+
+    final hasHealthPermission =
+    await PermissionService.requestHealthPermission(context);
+
+    if (!hasHealthPermission) {
+      debugPrint(
+        '⚠️ Health Connect permission not granted. Exercise and burned calories not refreshed.',
+      );
+      return;
+    }
+
+    await dailyVM.fetchAndSaveExerciseFromHealthConnect(userId);
+    await dailyVM.fetchAndSaveBurnedCaloriesFromHealthConnect(userId);
+    await dailyVM.loadTodayData(userId);
+    await dailyVM.loadWeeklyData(userId);
+  }
+
   Future<void> _bootstrap(String userId) async {
     final sleepVM = context.read<SleepViewModel>();
     final dailyVM = context.read<DailyActivityViewModel>();
@@ -72,8 +90,12 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
       final liveScreenTime =
       await dailyVM.fetchAndSaveScreenTime(userId, achievementVM);
 
+      await _syncBehaviouralHealthData(userId);
+
       if (!mounted) return;
-      setState(() => _screenTime = liveScreenTime);
+      setState(() {
+        _screenTime = liveScreenTime;
+      });
 
       if (!_hasStartedBackgroundSync) {
         _hasStartedBackgroundSync = true;
@@ -182,6 +204,8 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     final liveScreenTime =
     await dailyVM.fetchAndSaveScreenTime(user.userId, achievementVM);
 
+    await _syncBehaviouralHealthData(user.userId);
+
     if (!mounted) return;
     setState(() {
       _screenTime = liveScreenTime;
@@ -191,7 +215,6 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Match exact Achievement Screen layout logic
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
     final text = isDark ? Colors.white : const Color(0xFF1E293B);
@@ -210,79 +233,94 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
     return Scaffold(
       backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        elevation: 0,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        iconTheme: IconThemeData(color: text),
-        title: Text(
-          'Sleep Dashboard',
-          style: TextStyle(fontWeight: FontWeight.bold, color: text),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: accent,
-          labelColor: accent,
-          unselectedLabelColor: text.withOpacity(0.5),
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          dividerColor: text.withOpacity(0.1),
-          tabs: const [
-            Tab(text: "Daily"),
-            Tab(text: "Weekly"),
-          ],
-        ),
-      ),
-      body: Consumer<SleepViewModel>(
-        builder: (context, viewModel, child) {
-          if (viewModel.isLoading || !_isInitialLoadDone) {
-            return SleepDashboardLoadingView(
-              accent: accent,
-              text: text,
-            );
-          }
-
-          if (viewModel.errorMessage.isNotEmpty) {
-            return SleepDashboardErrorView(
-              message: viewModel.errorMessage,
-              onRetry: () async {
-                final u = context.read<ProfileViewModel>().userProfile;
-                if (u == null) return;
-
-                setState(() {
-                  _isInitialLoadDone = false;
-                  _hasFetchedData = false;
-                  _hasStartedBackgroundSync = false;
-                });
-
-                await _bootstrap(u.userId);
-              },
-            );
-          }
-
-          return TabBarView(
-            controller: _tabController,
-            children: [
-              SleepDashboardDailyTab(
-                viewModel: viewModel,
-                dailyVM: dailyVM,
-                text: text,
-                accent: accent,
-                screenTime: _screenTime,
-                onRefresh: _fullRefresh,
-                onSubmitMood: _submitMood,
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              backgroundColor: innerBoxIsScrolled
+                  ? (isDark ? const Color(0xFF1E293B) : Colors.grey.shade100)
+                  : bg,
+              surfaceTintColor: Colors.transparent,
+              shadowColor: Colors.black.withValues(alpha: 0.12),
+              forceElevated: innerBoxIsScrolled,
+              elevation: innerBoxIsScrolled ? 1 : 0,
+              pinned: true,
+              centerTitle: true,
+              automaticallyImplyLeading: false,
+              iconTheme: IconThemeData(color: text),
+              title: Text(
+                'Sleep Dashboard',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: text,
+                ),
               ),
-              SleepDashboardWeeklyTab(
-                viewModel: viewModel,
-                dailyVM: dailyVM,
-                text: text,
-                accent: accent,
-                last7DaysLabels: _getLast7DaysLabels(),
-                onRefresh: _fullRefresh,
+              bottom: TabBar(
+                controller: _tabController,
+                indicatorColor: accent,
+                labelColor: accent,
+                unselectedLabelColor: text.withOpacity(0.5),
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                dividerColor: text.withOpacity(0.1),
+                tabs: const [
+                  Tab(text: "Daily"),
+                  Tab(text: "Weekly"),
+                ],
               ),
-            ],
-          );
+            ),
+          ];
         },
+        body: Consumer<SleepViewModel>(
+          builder: (context, viewModel, child) {
+            if (viewModel.isLoading || !_isInitialLoadDone) {
+              return SleepDashboardLoadingView(
+                accent: accent,
+                text: text,
+              );
+            }
+
+            if (viewModel.errorMessage.isNotEmpty) {
+              return SleepDashboardErrorView(
+                message: viewModel.errorMessage,
+                onRetry: () async {
+                  final u = context.read<ProfileViewModel>().userProfile;
+                  if (u == null) return;
+
+                  setState(() {
+                    _isInitialLoadDone = false;
+                    _hasFetchedData = false;
+                    _hasStartedBackgroundSync = false;
+                  });
+
+                  await _bootstrap(u.userId);
+                },
+              );
+            }
+
+            return TabBarView(
+              controller: _tabController,
+              children: [
+                SleepDashboardDailyTab(
+                  viewModel: viewModel,
+                  dailyVM: dailyVM,
+                  text: text,
+                  accent: accent,
+                  screenTime: _screenTime,
+                  onRefresh: _fullRefresh,
+                  onSubmitMood: _submitMood,
+                ),
+                SleepDashboardWeeklyTab(
+                  viewModel: viewModel,
+                  dailyVM: dailyVM,
+                  text: text,
+                  accent: accent,
+                  last7DaysLabels: _getLast7DaysLabels(),
+                  onRefresh: _fullRefresh,
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

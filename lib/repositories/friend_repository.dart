@@ -44,8 +44,24 @@ class FriendRepository {
     try {
       final response = await _client.from('friendships').select('''
         *,
-        sender:profile!sender_id(user_id, username, email, uid_text, sleep_goal_hours, streak),
-        receiver:profile!receiver_id(user_id, username, email, uid_text, sleep_goal_hours, streak)
+        sender:profile!sender_id(
+          user_id,
+          username,
+          email,
+          uid_text,
+          sleep_goal_hours,
+          streak,
+          avatar_asset_path
+        ),
+        receiver:profile!receiver_id(
+          user_id,
+          username,
+          email,
+          uid_text,
+          sleep_goal_hours,
+          streak,
+          avatar_asset_path
+        )
       ''').or('sender_id.eq.$myId,receiver_id.eq.$myId');
 
       final data = List<Map<String, dynamic>>.from(response);
@@ -73,11 +89,13 @@ class FriendRepository {
           await _cacheFriend(myId, profileData);
         } else if (item['status'] == 'pending' && receiverId == myId) {
           final senderProfile = item['sender'];
-          pending.add(FriendProfile.fromFriendshipRow(
-            profileData: senderProfile,
-            senderId: senderId,
-            receiverId: receiverId,
-          ));
+          pending.add(
+            FriendProfile.fromFriendshipRow(
+              profileData: senderProfile,
+              senderId: senderId,
+              receiverId: receiverId,
+            ),
+          );
         }
       }
 
@@ -122,7 +140,6 @@ class FriendRepository {
           .map((data) => UserModel.fromJson(data))
           .toList();
 
-      // cache accepted friends only; self is not stored in friend_cache
       for (final user in users) {
         if (user.userId != myId) {
           await _cacheLeaderboardUser(myId, user);
@@ -214,7 +231,7 @@ class FriendRepository {
         'user_id': myId,
         'friend_id': profileData['user_id'],
         'friend_name': profileData['username'] ?? 'Unknown',
-        'friend_avatar': null,
+        'friend_avatar': profileData['avatar_asset_path'],
         'email': profileData['email'] ?? '',
         'uid_text': profileData['uid_text'] ?? '',
         'sleep_goal_hours': profileData['sleep_goal_hours'] ?? 0,
@@ -233,7 +250,7 @@ class FriendRepository {
         'user_id': myId,
         'friend_id': user.userId,
         'friend_name': user.username,
-        'friend_avatar': null,
+        'friend_avatar': user.avatarAssetPath,
         'email': user.email,
         'uid_text': user.uidText,
         'sleep_goal_hours': user.sleepGoalHours,
@@ -262,6 +279,7 @@ class FriendRepository {
         streak: (row['streak'] as num?)?.toInt() ?? 0,
         senderId: '',
         receiverId: '',
+        avatarAssetPath: row['friend_avatar']?.toString(),
       );
     }).toList();
 
@@ -290,6 +308,7 @@ class FriendRepository {
         currentPoints: 0,
         sleepGoalHours: (row['sleep_goal_hours'] as num?)?.toDouble() ?? 0,
         streak: (row['streak'] as num?)?.toInt() ?? 0,
+        avatarAssetPath: row['friend_avatar']?.toString(),
       );
     }).toList();
 

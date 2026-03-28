@@ -59,3 +59,4 @@ flutter:
     - assets/ml/sleep_model.tflite
     - assets/ml/scaler_stats.json
     - assets/audio/
+    - assets/avatar/

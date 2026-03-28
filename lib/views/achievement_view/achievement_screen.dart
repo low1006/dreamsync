@@ -5,6 +5,7 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/views/achievement_view/reward_store_screen.dart';
+import 'package:dreamsync/widget/custom/user_avatar.dart';
 
 class AchievementScreen extends StatefulWidget {
   const AchievementScreen({super.key});
@@ -36,6 +37,116 @@ class _AchievementScreenState extends State<AchievementScreen>
     super.dispose();
   }
 
+  bool _isDaily(UserAchievementModel ua) {
+    return (ua.achievement?.category ?? '').toLowerCase() == 'daily';
+  }
+
+  bool _isClaimable(UserAchievementModel ua) {
+    return ua.isUnlocked && !ua.isClaimed;
+  }
+
+  bool _isClaimed(UserAchievementModel ua) {
+    return ua.isUnlocked && ua.isClaimed;
+  }
+
+  bool _isInProgress(UserAchievementModel ua) {
+    return !ua.isUnlocked && ua.currentProgress > 0;
+  }
+
+  int _dailyStatusOrder(UserAchievementModel ua) {
+    if (_isClaimable(ua)) return 0;
+    if (_isInProgress(ua)) return 1;
+    if (!_isClaimable(ua) && !_isClaimed(ua) && !ua.isUnlocked) return 2;
+    return 3; // claimed last
+  }
+
+  int _milestoneStatusOrder(UserAchievementModel ua) {
+    if (_isClaimable(ua)) return 0;
+    if (_isInProgress(ua)) return 1;
+    if (!ua.isUnlocked) return 2;
+    return 3; // claimed last
+  }
+
+  int _familyOrder(String criteriaType) {
+    switch (criteriaType) {
+      case 'streak_days':
+        return 1; // consecutive days
+      case 'total_logs':
+        return 2;
+      case 'total_hours':
+        return 3;
+      case 'sleep_score':
+        return 4;
+      case 'friends_count':
+        return 5;
+
+      case 'bedtime_consistency_daily':
+        return 1;
+      case 'no_screen_time_daily':
+        return 2;
+      case 'early_wake_daily':
+        return 3;
+      case 'sleep_hours_daily':
+        return 4;
+      case 'sleep_score_daily':
+        return 5;
+
+      default:
+        return 99;
+    }
+  }
+
+  int _compareDaily(UserAchievementModel a, UserAchievementModel b) {
+    final statusCompare =
+    _dailyStatusOrder(a).compareTo(_dailyStatusOrder(b));
+    if (statusCompare != 0) return statusCompare;
+
+    final familyCompare = _familyOrder(a.achievement?.criteriaType ?? '')
+        .compareTo(_familyOrder(b.achievement?.criteriaType ?? ''));
+    if (familyCompare != 0) return familyCompare;
+
+    final criteriaCompare = (a.achievement?.criteriaValue ?? 0)
+        .compareTo(b.achievement?.criteriaValue ?? 0);
+    if (criteriaCompare != 0) return criteriaCompare;
+
+    return (a.achievement?.title ?? '')
+        .toLowerCase()
+        .compareTo((b.achievement?.title ?? '').toLowerCase());
+  }
+
+  int _compareMilestones(UserAchievementModel a, UserAchievementModel b) {
+    final familyCompare = _familyOrder(a.achievement?.criteriaType ?? '')
+        .compareTo(_familyOrder(b.achievement?.criteriaType ?? ''));
+    if (familyCompare != 0) return familyCompare;
+
+    final criteriaCompare = (a.achievement?.criteriaValue ?? 0)
+        .compareTo(b.achievement?.criteriaValue ?? 0);
+    if (criteriaCompare != 0) return criteriaCompare;
+
+    final statusCompare =
+    _milestoneStatusOrder(a).compareTo(_milestoneStatusOrder(b));
+    if (statusCompare != 0) return statusCompare;
+
+    return (a.achievement?.title ?? '')
+        .toLowerCase()
+        .compareTo((b.achievement?.title ?? '').toLowerCase());
+  }
+
+  Map<String, List<UserAchievementModel>> _buildAchievementSections(
+      List<UserAchievementModel> achievements,
+      ) {
+    final daily = achievements.where(_isDaily).toList()
+      ..sort(_compareDaily);
+
+    final milestones = achievements.where((ua) => !_isDaily(ua)).toList()
+      ..sort(_compareMilestones);
+
+    return {
+      'Daily Tasks': daily,
+      'Milestones': milestones,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -45,46 +156,60 @@ class _AchievementScreenState extends State<AchievementScreen>
 
     return Scaffold(
       backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        automaticallyImplyLeading: false,
-        elevation: 0,
-        centerTitle: true,
-        title: Text("Achievements", style: TextStyle(color: text, fontWeight: FontWeight.bold)),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: accent,
-          labelColor: accent,
-          unselectedLabelColor: text.withValues(alpha: 0.5),
-          tabs: const [Tab(text: "Badges"), Tab(text: "Leaderboard")],
-        ),
-      ),
-
-      // ✅ STICKY STORE BUTTON (Bottom-Left)
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: accent,
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: const Icon(Icons.shopping_bag_outlined, color: Colors.white),
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const RewardStoreScreen()),
+          MaterialPageRoute(builder: (context) => const RewardStorePage()),
         ),
-        backgroundColor: Colors.amber,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.shopping_bag_outlined),
-        label: const Text("Store", style: TextStyle(fontWeight: FontWeight.bold)),
       ),
-
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildBadgesTab(context, text, accent),
-          _buildLeaderboardTab(context, text, accent),
-        ],
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              backgroundColor: bg,
+              surfaceTintColor:
+              isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+              scrolledUnderElevation: 1.5,
+              automaticallyImplyLeading: false,
+              elevation: 0,
+              pinned: true,
+              centerTitle: true,
+              title: Text(
+                "Achievements",
+                style: TextStyle(
+                  color: text,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              bottom: TabBar(
+                controller: _tabController,
+                indicatorColor: accent,
+                labelColor: accent,
+                unselectedLabelColor: text.withOpacity(0.5),
+                tabs: const [
+                  Tab(text: "Badges"),
+                  Tab(text: "Leaderboard"),
+                ],
+              ),
+            ),
+          ];
+        },
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildBadgesTab(context, text, accent),
+            _buildLeaderboardTab(context, text, accent),
+          ],
+        ),
       ),
     );
   }
-  // ─────────────────────────────────────────────
-  // BADGES TAB (WITH CLEAR SEPARATION)
-  // ─────────────────────────────────────────────
+
   Widget _buildBadgesTab(BuildContext context, Color text, Color accent) {
     return Consumer<AchievementViewModel>(
       builder: (context, vm, child) {
@@ -96,42 +221,43 @@ class _AchievementScreenState extends State<AchievementScreen>
           return Center(
             child: Text(
               "No achievements yet!",
-              style: TextStyle(color: text.withValues(alpha: 0.5)),
+              style: TextStyle(color: text.withOpacity(0.5)),
             ),
           );
         }
 
-        // ✅ 1. Separate the achievements based on their category
-        final dailyTasks = vm.userAchievements
-            .where((ua) => ua.achievement?.category == 'Daily')
-            .toList();
-
-        final permanentMilestones = vm.userAchievements
-            .where((ua) => ua.achievement?.category != 'Daily')
-            .toList();
+        final sections = _buildAchievementSections(vm.userAchievements);
+        final dailyTasks = sections['Daily Tasks'] ?? [];
+        final milestones = sections['Milestones'] ?? [];
 
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            // ✅ 2. Build Daily Section
             if (dailyTasks.isNotEmpty) ...[
               _buildSectionHeader("Daily Tasks", Icons.today, text, accent),
               const SizedBox(height: 12),
-              ...dailyTasks.map((ua) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _buildBadgeCard(ua, context, text, accent),
-              )),
+              ...dailyTasks.map(
+                    (ua) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _buildBadgeCard(ua, context, text, accent),
+                ),
+              ),
               const SizedBox(height: 20),
             ],
-
-            // ✅ 3. Build Permanent Milestones Section
-            if (permanentMilestones.isNotEmpty) ...[
-              _buildSectionHeader("Milestones", Icons.military_tech, text, accent),
+            if (milestones.isNotEmpty) ...[
+              _buildSectionHeader(
+                "Milestones",
+                Icons.military_tech,
+                text,
+                accent,
+              ),
               const SizedBox(height: 12),
-              ...permanentMilestones.map((ua) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _buildBadgeCard(ua, context, text, accent),
-              )),
+              ...milestones.map(
+                    (ua) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _buildBadgeCard(ua, context, text, accent),
+                ),
+              ),
             ],
           ],
         );
@@ -139,8 +265,12 @@ class _AchievementScreenState extends State<AchievementScreen>
     );
   }
 
-  // Helper Widget for Headers
-  Widget _buildSectionHeader(String title, IconData icon, Color text, Color accent) {
+  Widget _buildSectionHeader(
+      String title,
+      IconData icon,
+      Color text,
+      Color accent,
+      ) {
     return Row(
       children: [
         Icon(icon, color: accent, size: 22),
@@ -157,9 +287,12 @@ class _AchievementScreenState extends State<AchievementScreen>
     );
   }
 
-  // Extracted Badge Card Widget to keep the ListView clean
   Widget _buildBadgeCard(
-      UserAchievementModel userAchievement, BuildContext context, Color text, Color accent) {
+      UserAchievementModel userAchievement,
+      BuildContext context,
+      Color text,
+      Color accent,
+      ) {
     final badge = userAchievement.achievement;
     if (badge == null) return const SizedBox.shrink();
 
@@ -173,12 +306,12 @@ class _AchievementScreenState extends State<AchievementScreen>
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: userAchievement.isUnlocked
-              ? Colors.amber.withValues(alpha: 0.4)
-              : text.withValues(alpha: 0.05),
+              ? Colors.amber.withOpacity(0.4)
+              : text.withOpacity(0.05),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: Colors.black.withOpacity(0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -187,26 +320,23 @@ class _AchievementScreenState extends State<AchievementScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Badge icon
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: userAchievement.isUnlocked
-                  ? Colors.amber.withValues(alpha: 0.1)
-                  : text.withValues(alpha: 0.05),
+                  ? Colors.amber.withOpacity(0.1)
+                  : text.withOpacity(0.05),
               shape: BoxShape.circle,
             ),
             child: Icon(
               Icons.emoji_events,
               color: userAchievement.isUnlocked
                   ? Colors.amber
-                  : text.withValues(alpha: 0.3),
+                  : text.withOpacity(0.3),
               size: 28,
             ),
           ),
           const SizedBox(width: 16),
-
-          // Title, description, progress bar
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -214,19 +344,25 @@ class _AchievementScreenState extends State<AchievementScreen>
                 Text(
                   badge.title,
                   style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16, color: text),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: text,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   badge.description,
-                  style: TextStyle(color: text.withValues(alpha: 0.6), fontSize: 13),
+                  style: TextStyle(
+                    color: text.withOpacity(0.6),
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: progress,
-                    backgroundColor: text.withValues(alpha: 0.1),
+                    backgroundColor: text.withOpacity(0.1),
                     color: userAchievement.isUnlocked ? Colors.green : accent,
                     minHeight: 6,
                   ),
@@ -235,15 +371,14 @@ class _AchievementScreenState extends State<AchievementScreen>
                 Text(
                   "${userAchievement.currentProgress.toInt()} / ${badge.criteriaValue.toInt()}",
                   style: TextStyle(
-                      fontSize: 12,
-                      color: text.withValues(alpha: 0.5),
-                      fontWeight: FontWeight.bold),
+                    fontSize: 12,
+                    color: text.withOpacity(0.5),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
           ),
-
-          // Claim Button or Claimed Text
           if (userAchievement.isUnlocked)
             Padding(
               padding: const EdgeInsets.only(left: 12.0),
@@ -251,15 +386,19 @@ class _AchievementScreenState extends State<AchievementScreen>
                   ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.check_circle,
-                      color: Colors.green, size: 28),
+                  const Icon(
+                    Icons.check_circle,
+                    color: Colors.green,
+                    size: 28,
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     "Claimed",
                     style: TextStyle(
-                        color: Colors.green.shade600,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold),
+                      color: Colors.green.shade600,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               )
@@ -268,7 +407,9 @@ class _AchievementScreenState extends State<AchievementScreen>
                   backgroundColor: Colors.amber,
                   foregroundColor: Colors.black,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -287,9 +428,10 @@ class _AchievementScreenState extends State<AchievementScreen>
                   "Claim\n+${badge.xpReward.toInt()}",
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      height: 1.2),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    height: 1.2,
+                  ),
                 ),
               ),
             ),
@@ -298,11 +440,11 @@ class _AchievementScreenState extends State<AchievementScreen>
     );
   }
 
-  // ─────────────────────────────────────────────
-  // LEADERBOARD TAB
-  // ─────────────────────────────────────────────
   Widget _buildLeaderboardTab(
-      BuildContext context, Color text, Color accent) {
+      BuildContext context,
+      Color text,
+      Color accent,
+      ) {
     return Consumer2<AchievementViewModel, ProfileViewModel>(
       builder: (context, achievementVM, profileVM, child) {
         final currentUser = profileVM.userProfile;
@@ -332,16 +474,15 @@ class _AchievementScreenState extends State<AchievementScreen>
             final isMe = user.userId == currentUser.userId;
 
             return Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: isMe
-                    ? accent.withValues(alpha: 0.1)
+                    ? accent.withOpacity(0.1)
                     : Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
                 border: isMe
                     ? Border.all(color: accent, width: 1.5)
-                    : Border.all(color: text.withValues(alpha: 0.05)),
+                    : Border.all(color: text.withOpacity(0.05)),
               ),
               child: Row(
                 children: [
@@ -356,12 +497,19 @@ class _AchievementScreenState extends State<AchievementScreen>
                     child: Text(
                       "#$rank",
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontSize: 14),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
+                  UserAvatar(
+                    avatarPath: user.avatarAssetPath,
+                    size: 44,
+                    fallbackIconColor: accent,
+                  ),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -369,21 +517,26 @@ class _AchievementScreenState extends State<AchievementScreen>
                         Text(
                           isMe ? "${user.username} (You)" : user.username,
                           style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isMe ? accent : text,
-                              fontSize: 16),
+                            fontWeight: FontWeight.bold,
+                            color: isMe ? accent : text,
+                            fontSize: 16,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Row(
                           children: [
-                            const Icon(Icons.local_fire_department,
-                                size: 16, color: Colors.orange),
+                            const Icon(
+                              Icons.local_fire_department,
+                              size: 16,
+                              color: Colors.orange,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               "${user.streak} Day Streak",
                               style: TextStyle(
-                                  color: text.withValues(alpha: 0.6),
-                                  fontSize: 13),
+                                color: text.withOpacity(0.6),
+                                fontSize: 13,
+                              ),
                             ),
                           ],
                         ),
@@ -391,8 +544,7 @@ class _AchievementScreenState extends State<AchievementScreen>
                     ),
                   ),
                   if (isMe)
-                    Icon(Icons.star,
-                        color: Colors.amber.shade400, size: 24),
+                    Icon(Icons.star, color: Colors.amber.shade400, size: 24),
                 ],
               ),
             );
@@ -402,22 +554,25 @@ class _AchievementScreenState extends State<AchievementScreen>
     );
   }
 
-  Widget _buildNoFriendsView(UserModel currentUser, Color text,
-      Color accent, BuildContext context) {
+  Widget _buildNoFriendsView(
+      UserModel currentUser,
+      Color text,
+      Color accent,
+      BuildContext context,
+      ) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
             decoration: BoxDecoration(
               color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: text.withValues(alpha: 0.1)),
+              border: Border.all(color: text.withOpacity(0.1)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
+                  color: Colors.black.withOpacity(0.05),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -428,23 +583,28 @@ class _AchievementScreenState extends State<AchievementScreen>
                 Text(
                   "Your Current Streak",
                   style: TextStyle(
-                      fontSize: 14,
-                      color: text.withValues(alpha: 0.5),
-                      fontWeight: FontWeight.w600),
+                    fontSize: 14,
+                    color: text.withOpacity(0.5),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.local_fire_department,
-                        color: Colors.orange, size: 40),
+                    const Icon(
+                      Icons.local_fire_department,
+                      color: Colors.orange,
+                      size: 40,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       "${currentUser.streak}",
                       style: TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: text),
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                        color: text,
+                      ),
                     ),
                   ],
                 ),
@@ -458,7 +618,10 @@ class _AchievementScreenState extends State<AchievementScreen>
               "You haven't added any friends yet.\nAdd friends to compete on the leaderboard!",
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 15, color: text.withValues(alpha: 0.6), height: 1.5),
+                fontSize: 15,
+                color: text.withOpacity(0.6),
+                height: 1.5,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -467,16 +630,20 @@ class _AchievementScreenState extends State<AchievementScreen>
               backgroundColor: accent,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(
-                  horizontal: 24, vertical: 14),
+                horizontal: 24,
+                vertical: 14,
+              ),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+                borderRadius: BorderRadius.circular(16),
+              ),
               elevation: 4,
             ),
-            onPressed: () =>
-                Navigator.pushNamed(context, '/friend_list'),
+            onPressed: () => Navigator.pushNamed(context, '/friend_list'),
             icon: const Icon(Icons.person_add),
-            label: const Text("Find Friends",
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            label: const Text(
+              "Find Friends",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -487,6 +654,6 @@ class _AchievementScreenState extends State<AchievementScreen>
     if (rank == 1) return const Color(0xFFFFD700);
     if (rank == 2) return const Color(0xFFC0C0C0);
     if (rank == 3) return const Color(0xFFCD7F32);
-    return defaultColor.withValues(alpha: 0.5);
+    return defaultColor.withOpacity(0.5);
   }
 }

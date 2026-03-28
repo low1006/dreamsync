@@ -5,10 +5,17 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/services/nutrition_api_service.dart';
 import 'package:dreamsync/widget/custom/custom_bottom_sheet.dart'; // ← your reusable widget
+import 'package:dreamsync/util/network_helper.dart';
 
 class BehaviouralDialogs {
   // ── A1: Add Exercise ──────────────────────────────────────────────────────
-  static void showAddExerciseDialog(BuildContext context) {
+  static Future<void> showAddExerciseDialog(BuildContext context) async {
+    final ok = await NetworkHelper.ensureInternet(
+      context,
+      message: 'You cannot add exercise while offline.',
+    );
+    if (!ok) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -19,7 +26,13 @@ class BehaviouralDialogs {
   }
 
   // ── A2: Add Food ──────────────────────────────────────────────────────────
-  static void showAddFoodDialog(BuildContext context) {
+  static Future<void> showAddFoodDialog(BuildContext context) async {
+    final ok = await NetworkHelper.ensureInternet(
+      context,
+      message: 'You cannot add food while offline.',
+    );
+    if (!ok) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -65,6 +78,12 @@ class _ExerciseSheetContentState extends State<_ExerciseSheetContent> {
   Future<void> _save() async {
     final duration = int.tryParse(_durationController.text) ?? 0;
     if (duration <= 0) return;
+
+    final ok = await NetworkHelper.ensureInternet(
+      widget.parentContext,
+      message: 'You cannot save exercise while offline.',
+    );
+    if (!ok) return;
 
     final user = widget.parentContext.read<ProfileViewModel>().userProfile;
     if (user != null) {
@@ -156,6 +175,23 @@ class _FoodSheetContentState extends State<_FoodSheetContent> {
     setState(() => _isLoading = true);
 
     _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final hasInternet = await NetworkHelper.hasInternet();
+      NetworkHelper.isOffline.value = !hasInternet;
+
+      if (!hasInternet) {
+        if (mounted) {
+          setState(() {
+            _results = [];
+            _isLoading = false;
+          });
+          NetworkHelper.showOfflineSnackBar(
+            widget.parentContext,
+            message: 'Food search is unavailable while offline.',
+          );
+        }
+        return;
+      }
+
       final results = await NutritionApiService.searchFoods(query);
       if (mounted) {
         setState(() {
@@ -188,6 +224,13 @@ class _FoodSheetContentState extends State<_FoodSheetContent> {
 
   Future<void> _save() async {
     if (_selectedFood == null) return;
+
+    final ok = await NetworkHelper.ensureInternet(
+      widget.parentContext,
+      message: 'You cannot save food intake while offline.',
+    );
+    if (!ok) return;
+
     final total =
     ((_selectedFood!['calories'] ?? 0).toDouble() * _quantity).round();
     final user = widget.parentContext.read<ProfileViewModel>().userProfile;

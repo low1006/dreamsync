@@ -18,10 +18,9 @@ class UserRepository extends BaseRepository<UserModel> {
   );
 
   String _cacheKey(String userId) => 'cached_profile_$userId';
-
   Future<Database> get _db async => LocalDatabase.instance.database;
 
-  Future<void> _cacheProfile(UserModel user) async {
+  Future<void> _cacheProfile(UserModel user, {bool isSynced = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_cacheKey(user.userId), jsonEncode(user.toJson()));
@@ -41,7 +40,8 @@ class UserRepository extends BaseRepository<UserModel> {
           'current_points': user.currentPoints,
           'sleep_goal_hours': user.sleepGoalHours,
           'streak': user.streak,
-          'is_synced': 1,
+          'avatar_asset_path': user.avatarAssetPath,
+          'is_synced': isSynced ? 1 : 0,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -69,26 +69,7 @@ class UserRepository extends BaseRepository<UserModel> {
       if (raw == null || raw.isEmpty) return null;
 
       final user = UserModel.fromJson(jsonDecode(raw));
-
-      await db.insert(
-        'profile',
-        {
-          'user_id': user.userId,
-          'username': user.username,
-          'email': user.email,
-          'gender': user.gender,
-          'date_birth': user.dateBirth,
-          'weight': user.weight,
-          'height': user.height,
-          'uid_text': user.uidText,
-          'current_points': user.currentPoints,
-          'sleep_goal_hours': user.sleepGoalHours,
-          'streak': user.streak,
-          'is_synced': 1,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-
+      await _cacheProfile(user);
       return user;
     } catch (e) {
       debugPrint('⚠️ Failed to read cached profile: $e');
@@ -121,7 +102,7 @@ class UserRepository extends BaseRepository<UserModel> {
       }
       await client.auth.signOut();
     } catch (e) {
-      debugPrint("DELETE ERROR: $e");
+      debugPrint('DELETE ERROR: $e');
       await client.auth.signOut();
       rethrow;
     }
@@ -133,27 +114,19 @@ class UserRepository extends BaseRepository<UserModel> {
 
   Future<UserModel?> getProfileSafe(String userId) async {
     final online = await NetworkHelper.hasInternet();
-
     if (!online) {
-      final cached = await _getCachedProfile(userId);
-      if (cached != null) {
-        debugPrint('⚠️ Offline mode: using cached profile.');
-        return cached;
-      }
-      debugPrint('⚠️ Offline mode: no cached profile found.');
-      return null;
+      return _getCachedProfile(userId);
     }
 
     try {
       final profile = await getById(userId);
       if (profile != null) {
-        await _cacheProfile(profile);
+        await _cacheProfile(profile, isSynced: true);
       }
       return profile;
     } catch (e) {
-      debugPrint("❌ Failed to get profile from cloud: $e");
-      final cached = await _getCachedProfile(userId);
-      return cached;
+      debugPrint('❌ Failed to get profile from cloud: $e');
+      return _getCachedProfile(userId);
     }
   }
 
@@ -172,24 +145,44 @@ class UserRepository extends BaseRepository<UserModel> {
     if (current != null) {
       current.weight = weight;
       current.height = height;
-      await _cacheProfile(current);
+      await _cacheProfile(current, isSynced: false);
     }
 
     final online = await NetworkHelper.hasInternet();
-    if (!online) {
-      debugPrint('⚠️ Offline mode: profile update cached locally only.');
-      return;
+    if (!online) return;
+
+    await client
+        .from(tableName)
+        .update({'weight': weight, 'height': height})
+        .eq('user_id', userId)
+        .timeout(const Duration(seconds: 5));
+
+    if (current != null) {
+      await _cacheProfile(current, isSynced: true);
+    }
+  }
+
+  Future<void> updateAvatar({
+    required String userId,
+    required String? avatarAssetPath,
+  }) async {
+    final current = await _getCachedProfile(userId);
+    if (current != null) {
+      current.avatarAssetPath = avatarAssetPath;
+      await _cacheProfile(current, isSynced: false);
     }
 
-    try {
-      await client
-          .from(tableName)
-          .update({'weight': weight, 'height': height})
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
-    } catch (e) {
-      debugPrint("❌ Failed to update profile data: $e");
-      rethrow;
+    final online = await NetworkHelper.hasInternet();
+    if (!online) return;
+
+    await client
+        .from(tableName)
+        .update({'avatar_asset_path': avatarAssetPath})
+        .eq('user_id', userId)
+        .timeout(const Duration(seconds: 5));
+
+    if (current != null) {
+      await _cacheProfile(current, isSynced: true);
     }
   }
 
@@ -200,24 +193,20 @@ class UserRepository extends BaseRepository<UserModel> {
     final current = await _getCachedProfile(userId);
     if (current != null) {
       current.sleepGoalHours = sleepGoalHours;
-      await _cacheProfile(current);
+      await _cacheProfile(current, isSynced: false);
     }
 
     final online = await NetworkHelper.hasInternet();
-    if (!online) {
-      debugPrint('⚠️ Offline mode: sleep goal update cached locally only.');
-      return;
-    }
+    if (!online) return;
 
-    try {
-      await client
-          .from(tableName)
-          .update({'sleep_goal_hours': sleepGoalHours})
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
-    } catch (e) {
-      debugPrint("❌ Failed to update sleep goal: $e");
-      rethrow;
+    await client
+        .from(tableName)
+        .update({'sleep_goal_hours': sleepGoalHours})
+        .eq('user_id', userId)
+        .timeout(const Duration(seconds: 5));
+
+    if (current != null) {
+      await _cacheProfile(current, isSynced: true);
     }
   }
 
@@ -225,61 +214,41 @@ class UserRepository extends BaseRepository<UserModel> {
     final current = await _getCachedProfile(userId);
     if (current != null) {
       current.currentPoints = newPoints;
-      await _cacheProfile(current);
+      await _cacheProfile(current, isSynced: false);
     }
 
     final online = await NetworkHelper.hasInternet();
-    if (!online) {
-      debugPrint('⚠️ Offline mode: points update cached locally only.');
-      return;
-    }
+    if (!online) return;
 
-    try {
-      await client
-          .from(tableName)
-          .update({'current_points': newPoints})
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
-    } catch (e) {
-      debugPrint("❌ Failed to update points: $e");
-      rethrow;
+    await client
+        .from(tableName)
+        .update({'current_points': newPoints})
+        .eq('user_id', userId)
+        .timeout(const Duration(seconds: 5));
+
+    if (current != null) {
+      await _cacheProfile(current, isSynced: true);
     }
   }
 
   Future<void> updateStreak(String userId, int streak) async {
     final current = await _getCachedProfile(userId);
     if (current != null) {
-      final updated = UserModel(
-        userId: current.userId,
-        username: current.username,
-        email: current.email,
-        gender: current.gender,
-        dateBirth: current.dateBirth,
-        weight: current.weight,
-        height: current.height,
-        uidText: current.uidText,
-        currentPoints: current.currentPoints,
-        sleepGoalHours: current.sleepGoalHours,
-        streak: streak,
-      );
-      await _cacheProfile(updated);
+      current.streak = streak;
+      await _cacheProfile(current, isSynced: false);
     }
 
     final online = await NetworkHelper.hasInternet();
-    if (!online) {
-      debugPrint('⚠️ Offline mode: streak update cached locally only.');
-      return;
-    }
+    if (!online) return;
 
-    try {
-      await client
-          .from(tableName)
-          .update({'streak': streak})
-          .eq('user_id', userId)
-          .timeout(const Duration(seconds: 5));
-    } catch (e) {
-      debugPrint('❌ Failed to update streak: $e');
-      rethrow;
+    await client
+        .from(tableName)
+        .update({'streak': streak})
+        .eq('user_id', userId)
+        .timeout(const Duration(seconds: 5));
+
+    if (current != null) {
+      await _cacheProfile(current, isSynced: true);
     }
   }
 }

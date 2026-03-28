@@ -58,6 +58,11 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
           (e) => e.exerciseMinutes.toDouble(),
     );
 
+    final burnedCaloriesValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.burnedCalories.toDouble(),
+    );
+
     final foodValues = _normalizeTo7(
       dailyVM.weeklyData,
           (e) => e.foodCalories.toDouble(),
@@ -82,6 +87,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+
             Container(
               decoration: BoxDecoration(
                 color: cardColor,
@@ -135,6 +141,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                 ],
               ),
             ),
+
             if (hasSleepTrend) ...[
               const SizedBox(height: 20),
               Text(
@@ -155,7 +162,9 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                 isDecimal: true,
               ),
             ],
+
             const SizedBox(height: 24),
+
             Text(
               "Behavioural Data",
               style: TextStyle(
@@ -165,6 +174,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+
             Text(
               "Screen Time Trend",
               style: TextStyle(
@@ -182,7 +192,9 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               maxY: 8.0,
               isDecimal: true,
             ),
+
             const SizedBox(height: 24),
+
             Text(
               "Exercise Trend",
               style: TextStyle(
@@ -198,7 +210,27 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               color: Colors.orange,
               unit: "m",
             ),
+
             const SizedBox(height: 24),
+
+            Text(
+              "Calories Burned Trend",
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: text,
+              ),
+            ),
+            const SizedBox(height: 8),
+            WeeklyBarChart(
+              values: burnedCaloriesValues,
+              labels: last7DaysLabels,
+              color: Colors.redAccent,
+              unit: "k",
+            ),
+
+            const SizedBox(height: 24),
+
             Text(
               "Food Intake Trend",
               style: TextStyle(
@@ -214,6 +246,7 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               color: Colors.green,
               unit: "k",
             ),
+
             const SizedBox(height: 30),
           ],
         ),

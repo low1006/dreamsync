@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -21,9 +22,6 @@ import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.d
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/recommendation_viewmodel.dart';
 import 'package:dreamsync/viewmodels/advisor_viewmodel/chat_viewmodel.dart';
-import 'package:dreamsync/viewmodels/achievement_viewmodel/reward_store_viewmodel.dart';
-import 'package:dreamsync/repositories/inventory_repository.dart';
-import 'package:dreamsync/repositories/user_repository.dart';
 
 import 'package:dreamsync/views/schedule_view/alarm_ring_screen.dart';
 import 'package:dreamsync/views/main_screen.dart';
@@ -42,6 +40,13 @@ Future<void> main() async {
   await AndroidAlarmManager.initialize();
   await NotificationService().init();
 
+  // FIX: In debug builds, cancel all lingering notifications and clear the
+  // stale launch payload BEFORE runApp. This prevents the alarm ring screen
+  // from re-opening after a hot restart.
+  if (kDebugMode) {
+    await NotificationService().debugResetForDevelopment();
+  }
+
   runApp(
     MultiProvider(
       providers: [
@@ -54,12 +59,6 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => DailyActivityViewModel()),
         ChangeNotifierProvider(create: (_) => RecommendationViewModel()),
         ChangeNotifierProvider(create: (_) => ChatViewModel()),
-        ChangeNotifierProvider(
-          create: (_) => RewardStoreViewModel(
-            inventoryRepository: InventoryRepository(),
-            userRepository: UserRepository(),
-          ),
-        ),
       ],
       child: const MyApp(),
     ),
@@ -137,8 +136,6 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  /// Push any unsynced encrypted records to Supabase on app startup.
-  /// Runs once per app launch when user is authenticated.
   void _triggerStartupSync() {
     if (_hasSyncedOnStartup) return;
 
@@ -147,10 +144,9 @@ class _MyAppState extends State<MyApp> {
 
     _hasSyncedOnStartup = true;
 
-    // Run in background — don't block the UI
     Future.microtask(() async {
       try {
-        debugPrint('🚀 Startup: syncing unsynced encrypted records...');
+        debugPrint('🚀 Startup: syncing unsynced encrypted records.');
         await _syncService.syncAll(userId);
       } catch (e) {
         debugPrint('⚠️ Startup sync failed (will retry next launch): $e');
@@ -173,7 +169,6 @@ class _MyAppState extends State<MyApp> {
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       title: 'DreamSync',
-
       theme: ThemeData(
         useMaterial3: true,
         primaryColor: dreamSyncAccent,
@@ -210,7 +205,6 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
       themeMode: ThemeMode.system,
-
       routes: {
         '/alarm_ring': (context) => const AlarmRingScreen(),
       },
@@ -225,7 +219,6 @@ class _MyAppState extends State<MyApp> {
             return const MainScreen();
           }
 
-          // Reset sync flag on logout so next login triggers sync
           _hasSyncedOnStartup = false;
           return const LoginScreen();
         },

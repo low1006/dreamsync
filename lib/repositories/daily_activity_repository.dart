@@ -90,6 +90,7 @@ class DailyActivityRepository {
         exerciseMinutes: 0,
         foodCalories: 0,
         screenTimeMinutes: 0,
+        burnedCalories: 0,
       ),
     );
   }
@@ -120,6 +121,7 @@ class DailyActivityRepository {
         'exercise_minutes': record.exerciseMinutes,
         'food_calories': record.foodCalories,
         'screen_time_minutes': record.screenTimeMinutes,
+        'burned_calories': record.burnedCalories,
       };
 
       final encrypted = _encryption.encryptData(payload, record.userId);
@@ -151,6 +153,7 @@ class DailyActivityRepository {
       'exercise_minutes': record.exerciseMinutes,
       'food_calories': record.foodCalories,
       'screen_time_minutes': record.screenTimeMinutes,
+      'burned_calories': record.burnedCalories,
     };
   }
 
@@ -162,6 +165,7 @@ class DailyActivityRepository {
       'exercise_minutes': row['exercise_minutes'],
       'food_calories': row['food_calories'],
       'screen_time_minutes': row['screen_time_minutes'],
+      'burned_calories': row['burned_calories'],
     });
   }
 }

@@ -1,4 +1,4 @@
-enum StoreItemType { AUDIO, VIDEO, ITEM, UNKNOWN }
+enum StoreItemType { AVATAR, AUDIO, ITEM, UNKNOWN }
 
 class InventoryItem {
   final int id;
@@ -68,10 +68,10 @@ class StoreItem {
 
   static StoreItemType _parseType(String? typeStr) {
     switch ((typeStr ?? '').toUpperCase()) {
+      case 'AVATAR':
+        return StoreItemType.AVATAR;
       case 'AUDIO':
         return StoreItemType.AUDIO;
-      case 'VIDEO':
-        return StoreItemType.VIDEO;
       case 'ITEM':
         return StoreItemType.ITEM;
       default:
@@ -79,8 +79,13 @@ class StoreItem {
     }
   }
 
+  bool get isAvatar => type == StoreItemType.AVATAR;
+  bool get isConsumableShield => protectDays > 0;
+
   String get audioFile => metadata['file']?.toString() ?? 'classic.mp3';
   String get videoUrl => metadata['url']?.toString() ?? '';
-  int get freezeDays => _toInt(metadata['days_protected']);
+  int get protectDays => _toInt(metadata['days_protected']);
   String get iconName => metadata['icon']?.toString() ?? 'help_outline';
+
+  String get assetPath => metadata['file'].toString() ?? '';
 }

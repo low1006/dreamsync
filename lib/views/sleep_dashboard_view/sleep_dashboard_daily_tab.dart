@@ -174,17 +174,24 @@ class SleepDashboardDailyTab extends StatelessWidget {
                               ),
                               const SizedBox(height: 12),
                               Row(
-                                mainAxisAlignment:
-                                MainAxisAlignment.spaceEvenly,
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
                                   _buildLegendItem(
-                                      "Awake", const Color(0xFFFF7043), subText),
+                                    "Awake",
+                                    const Color(0xFFFF7043),
+                                    subText,
+                                  ),
                                   _buildLegendItem(
-                                      "REM", const Color(0xFF9C64FF), subText),
+                                    "REM",
+                                    const Color(0xFF9C64FF),
+                                    subText,
+                                  ),
                                   _buildLegendItem(
-                                      "Light", const Color(0xFF42A5F5), subText),
-                                  _buildLegendItem(
-                                      "Deep", accent, subText),
+                                    "Light",
+                                    const Color(0xFF42A5F5),
+                                    subText,
+                                  ),
+                                  _buildLegendItem("Deep", accent, subText),
                                 ],
                               ),
                             ],
@@ -235,7 +242,6 @@ class SleepDashboardDailyTab extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 if (noData)
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -300,7 +306,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
             BehaviouralCard(
               title: "Screen Time",
               value: screenTime,
-              subtitle: "Fetched from OS",
+              subtitle: "Foreground app usage today",
               icon: Icons.phone_android,
               iconColor: Colors.blueGrey,
             ),
@@ -323,16 +329,25 @@ class SleepDashboardDailyTab extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: BehaviouralCard(
-                    title: "Food Intake",
-                    value: "${dailyVM.foodCalories} kcal",
-                    subtitle: "Tap to add",
-                    icon: Icons.restaurant,
-                    iconColor: Colors.green,
-                    onTap: () =>
-                        BehaviouralDialogs.showAddFoodDialog(context),
+                    title: "Calories Burned",
+                    value: "${dailyVM.burnedCalories} kcal",
+                    subtitle: "Fetched from Health Connect",
+                    icon: Icons.local_fire_department,
+                    iconColor: Colors.redAccent,
                   ),
                 ),
               ],
+            ),
+
+            const SizedBox(height: 12),
+
+            BehaviouralCard(
+              title: "Food Intake",
+              value: "${dailyVM.foodCalories} kcal",
+              subtitle: "Tap to add",
+              icon: Icons.restaurant,
+              iconColor: Colors.green,
+              onTap: () => BehaviouralDialogs.showAddFoodDialog(context),
             ),
 
             const SizedBox(height: 30),

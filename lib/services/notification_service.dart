@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:do_not_disturb/do_not_disturb.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -42,6 +45,7 @@ Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
     final int snoozeCount = params['snoozeCount'] ?? 0;
     final bool isSmartAlarm = params['isSmartAlarm'] ?? false;
     final bool isSnoozeOn = params['isSnoozeOn'] ?? true;
+    final bool loop = params['loop'] ?? false;
 
     final payload = jsonEncode({
       'id': id,
@@ -51,6 +55,15 @@ Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
       'soundFile': currentSound,
     });
 
+    debugPrint(
+      '[callback] ⏰ Alarm fired: id=$id sound=$currentSound '
+          'snoozeCount=$snoozeCount loop=$loop',
+    );
+
+    // FIX: Clear the consumed-payload flag so the NEW alarm is recognized
+    // as fresh if the app relaunches via fullScreenIntent.
+    await NotificationService.clearConsumedLaunchPayload();
+
     await service.showAlarmNotification(
       id: id,
       title: params['title'] ?? 'Wake Up',
@@ -59,10 +72,9 @@ Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
       soundFile: currentSound,
     );
 
-    final bool loop = params['loop'] ?? false;
-    if (loop) {
-      await _rescheduleNextWeek(id, params);
-    }
+    debugPrint(
+      '[callback] ℹ️ Alarm shown only. Weekly reschedule will happen on STOP, not on FIRE.',
+    );
   } catch (e, st) {
     debugPrint('fireAlarmCallback error: $e');
     debugPrint('$st');
@@ -86,6 +98,18 @@ Future<void> _rescheduleNextWeek(int id, Map<String, dynamic> params) async {
     allowWhileIdle: true,
     rescheduleOnReboot: true,
     params: params,
+  );
+
+  NotificationService.registerScheduledAlarm(
+    id: id,
+    when: nextRun,
+    params: params,
+    source: 'weekly_reschedule_from_stop',
+  );
+
+  debugPrint(
+    '[main] 🔁 Weekly alarm rescheduled from STOP: '
+        'id=$id nextRun=${NotificationService.formatLogTime(nextRun)}',
   );
 }
 
@@ -135,6 +159,17 @@ Future<void> _rescheduleBedtimeNextWeek(
     rescheduleOnReboot: true,
     params: params,
   );
+
+  NotificationService.registerScheduledAlarm(
+    id: id,
+    when: nextRun,
+    params: params,
+    source: 'bedtime_reschedule',
+  );
+
+  debugPrint(
+    '🌙 Bedtime rescheduled: id=$id nextRun=${NotificationService.formatLogTime(nextRun)}',
+  );
 }
 
 class NotificationService {
@@ -162,20 +197,50 @@ class NotificationService {
 
   static const int smartAlarmMaxSnoozes = 2;
 
+  static final Map<int, DateTime> _scheduledAlarmTimes = <int, DateTime>{};
+  static final Map<int, Map<String, dynamic>> _scheduledAlarmParams =
+  <int, Map<String, dynamic>>{};
+
+  static const MethodChannel _audioChannel =
+  MethodChannel('com.dreamsync/audio');
+
+  // FIX: SharedPreferences key used to persist the consumed-payload flag
+  // across hot restarts (which reset static fields but NOT SharedPreferences).
+  static const String _consumedPayloadKey = 'consumed_launch_payload';
+
+  static Future<int> getSystemAlarmMaxSteps() async {
+    try {
+      final int max = await _audioChannel.invokeMethod('getAlarmMaxVolume');
+      return max > 0 ? max : 7;
+    } catch (e) {
+      debugPrint('⚠️ getSystemAlarmMaxSteps failed: $e — defaulting to 7');
+      return 7;
+    }
+  }
+
   static String normalizeSoundFile(String? soundFile) {
-    final raw = (soundFile == null || soundFile.trim().isEmpty)
+    String raw = (soundFile == null || soundFile.trim().isEmpty)
         ? 'classic.mp3'
-        : soundFile.trim();
+        : soundFile.trim().toLowerCase().replaceAll('\\', '/');
 
-    final lower = raw.toLowerCase().replaceAll(' ', '_');
-
-    if (lower.endsWith('.mp3') ||
-        lower.endsWith('.wav') ||
-        lower.endsWith('.ogg')) {
-      return lower;
+    if (raw.startsWith('assets/audio/')) {
+      raw = raw.substring('assets/audio/'.length);
+    } else if (raw.startsWith('audio/')) {
+      raw = raw.substring('audio/'.length);
+    } else if (raw.startsWith('assets/')) {
+      raw = raw.substring('assets/'.length);
+      if (raw.startsWith('audio/')) {
+        raw = raw.substring('audio/'.length);
+      }
     }
 
-    return '$lower.mp3';
+    raw = raw.replaceAll(' ', '_');
+
+    if (raw.endsWith('.mp3') || raw.endsWith('.wav') || raw.endsWith('.ogg')) {
+      return raw;
+    }
+
+    return '$raw.mp3';
   }
 
   static String soundResourceName(String? soundFile) {
@@ -184,6 +249,82 @@ class NotificationService {
 
   static String audioAssetPath(String? soundFile) {
     return 'audio/${normalizeSoundFile(soundFile)}';
+  }
+
+  static String formatLogTime(DateTime value) {
+    final y = value.year.toString().padLeft(4, '0');
+    final m = value.month.toString().padLeft(2, '0');
+    final d = value.day.toString().padLeft(2, '0');
+    final h = value.hour.toString().padLeft(2, '0');
+    final min = value.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $h:$min';
+  }
+
+  static void registerScheduledAlarm({
+    required int id,
+    required DateTime when,
+    required Map<String, dynamic> params,
+    required String source,
+  }) {
+    _scheduledAlarmTimes[id] = when;
+    _scheduledAlarmParams[id] = Map<String, dynamic>.from(params);
+
+    debugPrint(
+      '🗓️ [$source] Scheduled alarm registered: '
+          'id=$id '
+          'at=${formatLogTime(when)} '
+          'title=${params['title'] ?? 'Wake Up'} '
+          'sound=${params['soundFile'] ?? 'classic.mp3'} '
+          'loop=${params['loop'] ?? false}',
+    );
+  }
+
+  static void unregisterScheduledAlarm(int id) {
+    _scheduledAlarmTimes.remove(id);
+    _scheduledAlarmParams.remove(id);
+  }
+
+  static DateTime? latestScheduledTimeFor(int id) => _scheduledAlarmTimes[id];
+
+  static Map<String, dynamic>? latestScheduledParamsFor(int id) =>
+      _scheduledAlarmParams[id];
+
+  Map<String, dynamic>? getTrackedAlarmParams(int id) {
+    final params = _scheduledAlarmParams[id];
+    if (params == null) return null;
+    return Map<String, dynamic>.from(params);
+  }
+
+  static void debugPrintLatestSchedule(int id, {String prefix = 'ℹ️'}) {
+    final when = _scheduledAlarmTimes[id];
+    final params = _scheduledAlarmParams[id];
+
+    if (when == null) {
+      debugPrint('$prefix No tracked future schedule for id=$id');
+      return;
+    }
+
+    debugPrint(
+      '$prefix Latest tracked schedule for id=$id -> '
+          '${formatLogTime(when)} '
+          'title=${params?['title'] ?? 'Wake Up'} '
+          'sound=${params?['soundFile'] ?? 'classic.mp3'} '
+          'loop=${params?['loop'] ?? false}',
+    );
+  }
+
+  /// FIX: Clear the persisted consumed-payload flag.
+  /// Called when a NEW alarm fires so the fresh launch intent is not wrongly
+  /// treated as stale on the next app launch / hot restart.
+  static Future<void> clearConsumedLaunchPayload() async {
+    _hasConsumedLaunchPayload = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_consumedPayloadKey);
+      debugPrint('🧹 Cleared consumed launch payload flag (new alarm fired).');
+    } catch (e) {
+      debugPrint('⚠️ clearConsumedLaunchPayload error: $e');
+    }
   }
 
   Future<void> init() async {
@@ -244,6 +385,15 @@ class NotificationService {
     _pluginReady = true;
   }
 
+  /// FIX: getLaunchPayload now uses SharedPreferences to survive hot restarts.
+  ///
+  /// Problem: Hot restart resets the static [_hasConsumedLaunchPayload] to false,
+  /// but Android's Activity intent still holds the old alarm payload. This caused
+  /// the alarm ring screen to re-open every hot restart after any alarm.
+  ///
+  /// Solution: After consuming a launch payload, persist its value in
+  /// SharedPreferences. On subsequent launches / hot restarts, if the payload
+  /// matches the already-consumed one, skip it.
   Future<String?> getLaunchPayload() async {
     if (_hasConsumedLaunchPayload) return null;
 
@@ -251,8 +401,35 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
 
     if (details?.didNotificationLaunchApp == true) {
-      _hasConsumedLaunchPayload = true;
-      return details?.notificationResponse?.payload;
+      final payload = details?.notificationResponse?.payload;
+
+      // Guard against stale intents surviving hot restart:
+      // If we already handled this exact payload, skip it.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final lastConsumed = prefs.getString(_consumedPayloadKey);
+
+        if (lastConsumed != null && lastConsumed == payload) {
+          debugPrint(
+            '⏭️ Stale launch payload detected (already consumed). Skipping alarm screen.',
+          );
+          _hasConsumedLaunchPayload = true;
+          return null;
+        }
+
+        // Fresh payload — mark as consumed and persist.
+        _hasConsumedLaunchPayload = true;
+        if (payload != null) {
+          await prefs.setString(_consumedPayloadKey, payload);
+        }
+      } catch (e) {
+        debugPrint('⚠️ getLaunchPayload SharedPreferences error: $e');
+        // Fall through — still mark in-memory so it doesn't fire twice in the
+        // same session even if prefs fail.
+        _hasConsumedLaunchPayload = true;
+      }
+
+      return payload;
     }
     return null;
   }
@@ -354,6 +531,10 @@ class NotificationService {
         await stopNotification(alarmId);
         await stopNotification(snoozeId);
         await stopNotification(bedtimeId);
+
+        unregisterScheduledAlarm(alarmId);
+        unregisterScheduledAlarm(snoozeId);
+        unregisterScheduledAlarm(bedtimeId);
       }
 
       await stopNotification(_dndNotificationId);
@@ -364,30 +545,25 @@ class NotificationService {
     }
   }
 
-  Future<void> cancelAllAlarmNotificationsAndSchedules({
-    int maxBaseId = 10000,
-  }) async {
+  Future<void> cancelAllAlarmNotificationsAndSchedules() async {
     try {
-      for (int baseId = 0; baseId <= maxBaseId; baseId++) {
-        for (int i = 1; i <= 7; i++) {
-          final int alarmId = baseId + i;
-          final int snoozeId = alarmId + 100000;
-          final int bedtimeId = alarmId + 500000;
+      // Only cancel alarms that are actually tracked — avoids the brute-force
+      // loop over 210k+ IDs that floods logcat with "broadcast receiver not found".
+      final trackedIds = List<int>.from(_scheduledAlarmTimes.keys);
 
-          await AndroidAlarmManager.cancel(alarmId);
-          await AndroidAlarmManager.cancel(snoozeId);
-          await AndroidAlarmManager.cancel(bedtimeId);
-
-          await stopNotification(alarmId);
-          await stopNotification(snoozeId);
-          await stopNotification(bedtimeId);
-        }
+      for (final id in trackedIds) {
+        await AndroidAlarmManager.cancel(id);
+        await stopNotification(id);
+        unregisterScheduledAlarm(id);
+        debugPrint('🧹 Cancelled tracked alarm id=$id');
       }
 
+      // cancelAll() on the notification plugin wipes every notification this
+      // app has posted — covers any that weren't in-memory-tracked (e.g. from
+      // a previous session or a background isolate).
       await flutterLocalNotificationsPlugin.cancelAll();
-      await stopNotification(_dndNotificationId);
 
-      debugPrint('🧹 All alarm schedules and notifications cleared.');
+      debugPrint('🧹 All tracked alarm schedules and notifications cleared.');
     } catch (e) {
       debugPrint('cancelAllAlarmNotificationsAndSchedules error: $e');
     }
@@ -397,6 +573,8 @@ class NotificationService {
     if (!kDebugMode) return;
     await init();
     await cancelAllAlarmNotificationsAndSchedules();
+    // FIX: Also clear the persisted payload so stale intent is ignored.
+    await clearConsumedLaunchPayload();
   }
 
   String resolveNextSnoozeSoundFile({
@@ -433,6 +611,7 @@ class NotificationService {
     await stopNotification(snoozeId);
 
     await AndroidAlarmManager.cancel(snoozeId);
+    unregisterScheduledAlarm(snoozeId);
 
     final String nextSoundFile = resolveNextSnoozeSoundFile(
       currentSoundFile: soundFile,
@@ -459,10 +638,43 @@ class NotificationService {
       await stopNotification(originalId);
       await stopNotification(snoozeId);
 
-      await AndroidAlarmManager.cancel(originalId);
       await AndroidAlarmManager.cancel(snoozeId);
+      unregisterScheduledAlarm(snoozeId);
 
-      debugPrint('🛑 Alarm fully stopped: id=$originalId');
+      // FIX: Mark this alarm's launch payload as consumed so that a
+      // subsequent hot restart doesn't re-read the stale intent and
+      // re-open the alarm ring screen.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final currentPayload = prefs.getString(_consumedPayloadKey);
+        if (currentPayload != null) {
+          // The payload is already stored from getLaunchPayload(); it will
+          // be matched on the next restart and skipped. Nothing extra to do.
+          debugPrint(
+            '🛡️ Launch payload already persisted — hot restart is safe.',
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ handleStopAlarm prefs check error: $e');
+      }
+
+      final trackedParams = getTrackedAlarmParams(originalId);
+      final bool shouldLoop = trackedParams?['loop'] ?? false;
+
+      debugPrint(
+        '[main] 🛑 Alarm stopped by user: '
+            'currentId=$notificationId originalId=$originalId shouldLoop=$shouldLoop',
+      );
+
+      if (shouldLoop && trackedParams != null) {
+        await _rescheduleNextWeek(originalId, trackedParams);
+      } else {
+        debugPrint(
+          '[main] ℹ️ No weekly reschedule on STOP because loop=false or tracked params missing.',
+        );
+      }
+
+      debugPrintLatestSchedule(originalId, prefix: '[main] 📌');
     } catch (e) {
       debugPrint('handleStopAlarm error: $e');
     }
@@ -481,6 +693,7 @@ class NotificationService {
 
     await AndroidAlarmManager.cancel(snoozeId);
     await stopNotification(snoozeId);
+    unregisterScheduledAlarm(snoozeId);
 
     final params = <String, dynamic>{
       'title': 'Wake Up',
@@ -507,7 +720,16 @@ class NotificationService {
       params: params,
     );
 
-    debugPrint('😴 Snooze scheduled: id=$snoozeId at $snoozeTime');
+    registerScheduledAlarm(
+      id: snoozeId,
+      when: snoozeTime,
+      params: params,
+      source: 'snooze',
+    );
+
+    debugPrint(
+      '😴 Snooze scheduled: id=$snoozeId at ${formatLogTime(snoozeTime)}',
+    );
   }
 
   Future<void> scheduleAlarm({
@@ -539,6 +761,12 @@ class NotificationService {
       'Sun': DateTime.sunday,
     };
 
+    debugPrint(
+      '📝 Scheduling alarm baseId=$id title=$title '
+          'alarmEnabled=$isAlarmEnabled smartNotification=$isSmartNotification '
+          'smartAlarm=$isSmartAlarm snoozeOn=$isSnoozeOn sound=$normalizedSoundFile days=$days',
+    );
+
     for (final day in days) {
       final targetWeekday = weekdayMap[day];
       if (targetWeekday == null) continue;
@@ -550,30 +778,43 @@ class NotificationService {
           time.minute,
         );
 
+        final alarmId = id + targetWeekday;
+
+        final params = <String, dynamic>{
+          'title': title,
+          'body': 'Time to wake up!',
+          'hour': time.hour,
+          'minute': time.minute,
+          'loop': true,
+          'isSmartAlarm': isSmartAlarm,
+          'isSnoozeOn': isSnoozeOn,
+          'isSmartNotification': isSmartNotification,
+          'snoozeCount': 0,
+          'soundFile': normalizedSoundFile,
+        };
+
         await AndroidAlarmManager.oneShotAt(
           alarmDateTime,
-          id + targetWeekday,
+          alarmId,
           fireAlarmCallback,
           exact: true,
           wakeup: true,
           alarmClock: true,
           allowWhileIdle: true,
           rescheduleOnReboot: true,
-          params: {
-            'title': title,
-            'body': 'Time to wake up!',
-            'hour': time.hour,
-            'minute': time.minute,
-            'loop': true,
-            'isSmartAlarm': isSmartAlarm,
-            'isSnoozeOn': isSnoozeOn,
-            'isSmartNotification': isSmartNotification,
-            'snoozeCount': 0,
-            'soundFile': normalizedSoundFile,
-          },
+          params: params,
         );
 
-        debugPrint('Alarm scheduled for $day at $alarmDateTime');
+        registerScheduledAlarm(
+          id: alarmId,
+          when: alarmDateTime,
+          params: params,
+          source: 'weekly_alarm',
+        );
+
+        debugPrint(
+          '✅ Alarm scheduled for $day -> id=$alarmId at ${formatLogTime(alarmDateTime)}',
+        );
       }
 
       if (isSmartNotification) {
@@ -583,23 +824,36 @@ class NotificationService {
           bedTime.minute,
         );
 
+        final bedtimeId = (id + targetWeekday) + 500000;
+
+        final bedtimeParams = <String, dynamic>{
+          'hour': bedTime.hour,
+          'minute': bedTime.minute,
+          'loop': true,
+        };
+
         await AndroidAlarmManager.oneShotAt(
           bedtimeDateTime,
-          (id + targetWeekday) + 500000,
+          bedtimeId,
           fireBedtimeCallback,
           exact: true,
           wakeup: true,
           alarmClock: false,
           allowWhileIdle: true,
           rescheduleOnReboot: true,
-          params: {
-            'hour': bedTime.hour,
-            'minute': bedTime.minute,
-            'loop': true,
-          },
+          params: bedtimeParams,
         );
 
-        debugPrint('Bedtime DND scheduled for $day at $bedtimeDateTime');
+        registerScheduledAlarm(
+          id: bedtimeId,
+          when: bedtimeDateTime,
+          params: bedtimeParams,
+          source: 'bedtime',
+        );
+
+        debugPrint(
+          '🌙 Bedtime DND scheduled for $day -> id=$bedtimeId at ${formatLogTime(bedtimeDateTime)}',
+        );
       }
     }
   }

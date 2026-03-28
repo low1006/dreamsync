@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:dreamsync/models/friend_profile_model.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
+import 'package:dreamsync/widget/custom/user_avatar.dart';
 
 class RequestCard extends StatelessWidget {
   final FriendProfile request;
@@ -31,13 +32,12 @@ class RequestCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.waving_hand, color: Colors.orange, size: 24),
+          UserAvatar(
+            avatarPath: request.avatarAssetPath,
+            size: 48,
+            borderColor: Colors.orange.withOpacity(0.5),
+            borderWidth: 2,
+            fallbackIconColor: Colors.orange,
           ),
           const SizedBox(width: 16),
           Expanded(

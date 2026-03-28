@@ -20,23 +20,19 @@ class DailyActivityViewModel extends ChangeNotifier {
   int exerciseMinutes = 0;
   int foodCalories = 0;
   int screenTimeMinutes = 0;
+  int burnedCalories = 0;
 
   List<DailyActivityModel> weeklyData = [];
-
-  // ===========================================================================
-  // LOAD TODAY (with cloud restore on empty DB)
-  // ===========================================================================
 
   Future<void> loadTodayData(String userId) async {
     isLoading = true;
     notifyListeners();
 
     try {
-      // If we haven't checked cloud restore yet, do it once per session
       if (!_hasRestoredFromCloud) {
         _hasRestoredFromCloud = true;
         if (await _syncService.isActivityLocalEmpty(userId)) {
-          debugPrint('📦 Activity DB empty — restoring from encrypted cloud...');
+          debugPrint('📦 Activity DB empty — restoring from encrypted cloud.');
           await _syncService.restoreActivityFromCloud(userId);
         }
       }
@@ -49,9 +45,10 @@ class DailyActivityViewModel extends ChangeNotifier {
       exerciseMinutes = data?.exerciseMinutes ?? 0;
       foodCalories = data?.foodCalories ?? 0;
       screenTimeMinutes = data?.screenTimeMinutes ?? 0;
+      burnedCalories = data?.burnedCalories ?? 0;
 
       debugPrint(
-        "📍 Today data => date=$today, screen=$screenTimeMinutes, exercise=$exerciseMinutes, food=$foodCalories",
+        "📍 Today data => date=$today, screen=$screenTimeMinutes, exercise=$exerciseMinutes, food=$foodCalories, burned=$burnedCalories",
       );
     } catch (e) {
       debugPrint("❌ loadTodayData error: $e");
@@ -61,16 +58,13 @@ class DailyActivityViewModel extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
-  // ADD ACTIVITY (offline-first write + encrypted sync attempt)
-  // ===========================================================================
-
   Future<void> addActivity({
     required String userId,
     int? addExercise,
     int? addFood,
     int? setScreenTime,
     int? setExercise,
+    int? setBurnedCalories,
   }) async {
     final today = _getTodayDateString();
 
@@ -80,21 +74,23 @@ class DailyActivityViewModel extends ChangeNotifier {
     int nextExercise = existing?.exerciseMinutes ?? 0;
     int nextFood = existing?.foodCalories ?? 0;
     int nextScreen = existing?.screenTimeMinutes ?? 0;
+    int nextBurned = existing?.burnedCalories ?? 0;
 
     if (addExercise != null) nextExercise += addExercise;
     if (addFood != null) nextFood += addFood;
     if (setScreenTime != null) nextScreen = setScreenTime;
     if (setExercise != null) nextExercise = setExercise;
+    if (setBurnedCalories != null) nextBurned = setBurnedCalories;
 
     exerciseMinutes = nextExercise;
     foodCalories = nextFood;
     screenTimeMinutes = nextScreen;
+    burnedCalories = nextBurned;
 
     debugPrint(
-      "💾 Saving activity => date=$today, screen=$screenTimeMinutes, exercise=$exerciseMinutes, food=$foodCalories",
+      "💾 Saving activity => date=$today, screen=$screenTimeMinutes, exercise=$exerciseMinutes, food=$foodCalories, burned=$burnedCalories",
     );
 
-    // This saves locally first (is_synced=0) then attempts encrypted Supabase push
     await _repository.saveActivity(
       DailyActivityModel(
         userId: userId,
@@ -102,16 +98,13 @@ class DailyActivityViewModel extends ChangeNotifier {
         exerciseMinutes: exerciseMinutes,
         foodCalories: foodCalories,
         screenTimeMinutes: screenTimeMinutes,
+        burnedCalories: burnedCalories,
       ),
     );
 
     await _fetchWeeklyFromDB(userId);
     notifyListeners();
   }
-
-  // ===========================================================================
-  // SCREEN TIME
-  // ===========================================================================
 
   Future<String> fetchAndSaveScreenTime(
       String userId,
@@ -136,20 +129,24 @@ class DailyActivityViewModel extends ChangeNotifier {
         return formatScreenTime(screenTimeMinutes);
       }
 
-      int totalMinutes = await _screenTimeService.getDailyScreenTimeMinutes();
+      final screenTimeData = await _screenTimeService.getDailyScreenTimeData();
 
-      if (totalMinutes == -1) {
+      if (screenTimeData.milliseconds < 0) {
         return "Need Usage Access";
       }
 
+      final totalMinutes = screenTimeData.totalMinutes;
+
       debugPrint(
-        "📱 Fetched screen time from Native Android => date=$todayKey, totalMinutes=$totalMinutes",
+        "📱 Fetched screen time => date=$todayKey, "
+            "rawMs=${screenTimeData.milliseconds}, "
+            "minutes=${screenTimeData.totalMinutes}, "
+            "formatted=${screenTimeData.formatted}",
       );
 
       await addActivity(userId: userId, setScreenTime: totalMinutes);
       await prefs.setString('screen_time_last_fetch_date', todayKey);
 
-      // Retry any previously failed encrypted syncs
       await _syncService.syncActivityRecords(userId);
 
       final verify = await _repository.getTodayActivity(userId, todayKey);
@@ -157,18 +154,14 @@ class DailyActivityViewModel extends ChangeNotifier {
         "✅ Verify after save => date=$todayKey, savedScreen=${verify?.screenTimeMinutes}",
       );
 
-      return formatScreenTime(totalMinutes);
+      return screenTimeData.formatted;
     } catch (e) {
       debugPrint("❌ Error fetching screen time: $e");
       return "Error fetching data";
     }
   }
 
-  // ===========================================================================
-  // EXERCISE — HEALTH CONNECT
-  // ===========================================================================
-
-  Future<int> fetchTodayExerciseMinutesFromHealthConnect() async {
+  Future<int?> fetchTodayExerciseMinutesFromHealthConnect() async {
     try {
       _health.configure();
 
@@ -198,7 +191,7 @@ class DailyActivityViewModel extends ChangeNotifier {
 
       if (!granted) {
         debugPrint("⚠️ Exercise permission denied.");
-        return 0;
+        return null;
       }
 
       final data = await _health.getHealthDataFromTypes(
@@ -217,14 +210,11 @@ class DailyActivityViewModel extends ChangeNotifier {
         }
       }
 
-      debugPrint(
-        "🏃 Health Connect exercise total today => $totalMinutes minutes",
-      );
-
+      debugPrint("🏃 Health Connect exercise total today => $totalMinutes minutes");
       return totalMinutes;
     } catch (e) {
       debugPrint("❌ Error fetching exercise from Health Connect: $e");
-      return 0;
+      return null;
     }
   }
 
@@ -250,10 +240,14 @@ class DailyActivityViewModel extends ChangeNotifier {
 
       final totalMinutes = await fetchTodayExerciseMinutesFromHealthConnect();
 
+      if (totalMinutes == null) {
+        debugPrint("⚠️ Exercise not updated because permission/data fetch failed.");
+        return existing?.exerciseMinutes ?? exerciseMinutes;
+      }
+
       await addActivity(userId: userId, setExercise: totalMinutes);
       await prefs.setString('exercise_last_fetch_date', todayKey);
 
-      // Retry any previously failed encrypted syncs
       await _syncService.syncActivityRecords(userId);
 
       final verify = await _repository.getTodayActivity(userId, todayKey);
@@ -264,13 +258,119 @@ class DailyActivityViewModel extends ChangeNotifier {
       return totalMinutes;
     } catch (e) {
       debugPrint("❌ Error saving exercise from Health Connect: $e");
-      return 0;
+      return exerciseMinutes;
     }
   }
 
-  // ===========================================================================
-  // WEEKLY DATA
-  // ===========================================================================
+  Future<int?> fetchTodayBurnedCaloriesFromHealthConnect() async {
+    try {
+      _health.configure();
+
+      final now = DateTime.now();
+      final startOfToday = DateTime(now.year, now.month, now.day);
+
+      final types = <HealthDataType>[
+        HealthDataType.ACTIVE_ENERGY_BURNED,
+      ];
+
+      final permissions = <HealthDataAccess>[
+        HealthDataAccess.READ,
+      ];
+
+      final hasPermissions = await _health.hasPermissions(
+        types,
+        permissions: permissions,
+      );
+
+      bool granted = hasPermissions == true;
+      if (!granted) {
+        granted = await _health.requestAuthorization(
+          types,
+          permissions: permissions,
+        );
+      }
+
+      if (!granted) {
+        debugPrint("⚠️ Burned calories permission denied.");
+        return null;
+      }
+
+      final data = await _health.getHealthDataFromTypes(
+        startTime: startOfToday,
+        endTime: now,
+        types: types,
+      );
+
+      final cleaned = _health.removeDuplicates(data);
+
+      double totalCalories = 0;
+
+      for (final point in cleaned) {
+        final value = point.value;
+
+        if (value is NumericHealthValue) {
+          totalCalories += value.numericValue.toDouble();
+        } else {
+          final parsed = double.tryParse(value.toString());
+          if (parsed != null) {
+            totalCalories += parsed;
+          }
+        }
+      }
+
+      final rounded = totalCalories.round();
+      debugPrint("🔥 Health Connect burned calories today => $rounded kcal");
+      return rounded;
+    } catch (e) {
+      debugPrint("❌ Error fetching burned calories from Health Connect: $e");
+      return null;
+    }
+  }
+
+  Future<int> fetchAndSaveBurnedCaloriesFromHealthConnect(String userId) async {
+    try {
+      final todayKey = _getTodayDateString();
+      final prefs = await SharedPreferences.getInstance();
+      final lastFetchedDate =
+      prefs.getString('burned_calories_last_fetch_date');
+
+      await _repository.ensureTodayRow(userId, todayKey);
+      final existing = await _repository.getTodayActivity(userId, todayKey);
+
+      if (lastFetchedDate == todayKey &&
+          existing != null &&
+          existing.burnedCalories > 0) {
+        burnedCalories = existing.burnedCalories;
+        debugPrint(
+          "🔥 Using cached today burned calories => date=$todayKey, burned=$burnedCalories",
+        );
+        notifyListeners();
+        return burnedCalories;
+      }
+
+      final totalCalories = await fetchTodayBurnedCaloriesFromHealthConnect();
+
+      if (totalCalories == null) {
+        debugPrint("⚠️ Burned calories not updated because permission/data fetch failed.");
+        return existing?.burnedCalories ?? burnedCalories;
+      }
+
+      await addActivity(userId: userId, setBurnedCalories: totalCalories);
+      await prefs.setString('burned_calories_last_fetch_date', todayKey);
+
+      await _syncService.syncActivityRecords(userId);
+
+      final verify = await _repository.getTodayActivity(userId, todayKey);
+      debugPrint(
+        "✅ Verify burned calories after save => date=$todayKey, savedBurned=${verify?.burnedCalories}",
+      );
+
+      return totalCalories;
+    } catch (e) {
+      debugPrint("❌ Error saving burned calories from Health Connect: $e");
+      return burnedCalories;
+    }
+  }
 
   Future<void> loadWeeklyData(String userId) async {
     try {
@@ -300,7 +400,7 @@ class DailyActivityViewModel extends ChangeNotifier {
       debugPrint("📊 Weekly DB raw records count: ${records.length}");
       for (final r in records) {
         debugPrint(
-          "📊 Weekly row => date=${r.date}, screen=${r.screenTimeMinutes}, exercise=${r.exerciseMinutes}, food=${r.foodCalories}",
+          "📊 Weekly row => date=${r.date}, screen=${r.screenTimeMinutes}, exercise=${r.exerciseMinutes}, food=${r.foodCalories}, burned=${r.burnedCalories}",
         );
       }
 
@@ -322,6 +422,7 @@ class DailyActivityViewModel extends ChangeNotifier {
               exerciseMinutes: 0,
               foodCalories: 0,
               screenTimeMinutes: 0,
+              burnedCalories: 0,
             );
 
         filledRecords.add(row);
@@ -332,7 +433,7 @@ class DailyActivityViewModel extends ChangeNotifier {
       debugPrint("📊 Weekly filled data:");
       for (final r in weeklyData) {
         debugPrint(
-          "📊 Filled => date=${r.date}, screen=${r.screenTimeMinutes}, exercise=${r.exerciseMinutes}, food=${r.foodCalories}",
+          "📊 Filled => date=${r.date}, screen=${r.screenTimeMinutes}, exercise=${r.exerciseMinutes}, food=${r.foodCalories}, burned=${r.burnedCalories}",
         );
       }
     } catch (e) {
@@ -341,14 +442,16 @@ class DailyActivityViewModel extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
-  // HELPERS
-  // ===========================================================================
-
   String formatScreenTime(int totalMinutes) {
+    if (totalMinutes <= 0) return "0m";
+
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
-    return "${hours}h ${minutes}m";
+
+    if (hours > 0) {
+      return "${hours}h ${minutes}m";
+    }
+    return "${minutes}m";
   }
 
   String _getTodayDateString() {

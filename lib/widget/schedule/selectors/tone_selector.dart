@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dreamsync/models/inventory_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 
-class ToneSelector extends StatelessWidget {
+class ToneSelector extends StatefulWidget {
   final String currentToneFile;
   final List<InventoryItem> unlockedTones;
   final Function(int id, String name, String file) onToneSelected;
@@ -14,8 +14,13 @@ class ToneSelector extends StatelessWidget {
     required this.onToneSelected,
   });
 
+  @override
+  State<ToneSelector> createState() => _ToneSelectorState();
+}
+
+class _ToneSelectorState extends State<ToneSelector> {
   List<InventoryItem> get _availableAlarmTones {
-    return unlockedTones.where((item) {
+    return widget.unlockedTones.where((item) {
       final file = NotificationService.normalizeSoundFile(
         item.details.audioFile,
       );
@@ -23,9 +28,14 @@ class ToneSelector extends StatelessWidget {
     }).toList();
   }
 
-  void _selectAndClose(BuildContext context, int id, String name, String fileName) {
+  void _selectAndClose(
+      BuildContext context,
+      int id,
+      String name,
+      String fileName,
+      ) {
     final normalizedFile = NotificationService.normalizeSoundFile(fileName);
-    onToneSelected(id, name, normalizedFile);
+    widget.onToneSelected(id, name, normalizedFile);
     Navigator.pop(context);
   }
 
@@ -37,7 +47,7 @@ class ToneSelector extends StatelessWidget {
     const accent = Color(0xFF3B82F6);
 
     final currentNormalized = NotificationService.normalizeSoundFile(
-      currentToneFile,
+      widget.currentToneFile,
     );
 
     return Container(
@@ -95,7 +105,7 @@ class ToneSelector extends StatelessWidget {
                   context: context,
                   id: 1,
                   name: "Classic",
-                  subtitle: "Default",
+                  subtitle: "Default alarm tone",
                   fileName: "classic.mp3",
                   isSelected: currentNormalized == 'classic.mp3',
                   textColor: text,
@@ -113,7 +123,7 @@ class ToneSelector extends StatelessWidget {
                       context: context,
                       id: item.details.id,
                       name: item.details.name,
-                      subtitle: normalizedFile,
+                      subtitle: "Unlocked tone",
                       fileName: normalizedFile,
                       isSelected: currentNormalized == normalizedFile,
                       textColor: text,
@@ -167,39 +177,92 @@ class ToneSelector extends StatelessWidget {
     required Color textColor,
     required Color accentColor,
   }) {
-    return Card(
-      elevation: 0,
-      color: isSelected ? accentColor.withOpacity(0.08) : Colors.transparent,
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isSelected
-            ? BorderSide(color: accentColor.withOpacity(0.5), width: 1.5)
-            : BorderSide.none,
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
         onTap: () => _selectAndClose(context, id, name, fileName),
-        leading: CircleAvatar(
-          backgroundColor: accentColor.withOpacity(0.1),
-          child: Icon(Icons.music_note, color: accentColor, size: 22),
-        ),
-        title: Text(
-          name,
-          style: TextStyle(
-            color: textColor,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? accentColor.withOpacity(0.10)
+                : textColor.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isSelected
+                  ? accentColor
+                  : textColor.withOpacity(0.08),
+              width: isSelected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.music_note_rounded,
+                  color: accentColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor.withOpacity(0.55),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isSelected ? accentColor : Colors.transparent,
+                  border: Border.all(
+                    color: isSelected
+                        ? accentColor
+                        : textColor.withOpacity(0.22),
+                    width: 1.5,
+                  ),
+                ),
+                child: isSelected
+                    ? const Icon(
+                  Icons.check,
+                  color: Colors.white,
+                  size: 15,
+                )
+                    : null,
+              ),
+            ],
           ),
         ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(
-            color: textColor.withOpacity(0.5),
-            fontSize: 12,
-          ),
-        ),
-        trailing:
-        isSelected ? Icon(Icons.check_circle, color: accentColor) : null,
       ),
     );
   }

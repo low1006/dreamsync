@@ -4,24 +4,20 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthRepository {
   final SupabaseClient _client;
 
-  // Defaults to Supabase.instance.client so the ViewModel doesn't have to pass it
-  AuthRepository({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
+  AuthRepository({SupabaseClient? client})
+      : _client = client ?? Supabase.instance.client;
 
-  // ---------------------------------------------------------------------------
-  // LOGIN & AUTO-RESTORE
-  // ---------------------------------------------------------------------------
   Future<void> signInWithPasswordAndRestore(String email, String password) async {
     try {
       final response = await _client.auth.signInWithPassword(
-          email: email,
-          password: password
+        email: email,
+        password: password,
       );
 
       final userId = response.user?.id;
 
       if (userId != null) {
         try {
-          // Check if the account was pending deletion
           final row = await _client
               .from('profile')
               .select('deleted_at')
@@ -29,7 +25,7 @@ class AuthRepository {
               .maybeSingle();
 
           if (row != null && row['deleted_at'] != null) {
-            debugPrint("🔄 Pending deletion detected — auto-restoring account...");
+            debugPrint("🔄 Pending deletion detected — auto-restoring account.");
             await _client.rpc('restore_deleted_account');
             debugPrint("✅ Account auto-restored successfully");
           }
@@ -38,30 +34,22 @@ class AuthRepository {
         }
       }
     } on AuthException catch (e) {
-      // We attach a specific tag so the ViewModel knows it's an Auth error
-      // (like wrong password) vs a general network error
       throw Exception("AUTH_ERROR:${e.message}");
     } catch (e) {
       throw Exception(e.toString());
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // REQUEST ACCOUNT DELETION
-  // ---------------------------------------------------------------------------
   Future<void> requestAccountDeletion() async {
     await _client.rpc('delete_user_account');
     await _client.auth.signOut();
   }
 
-  // ---------------------------------------------------------------------------
-  // SEND OTP
-  // ---------------------------------------------------------------------------
   Future<void> sendVerificationOtp(String email) async {
     try {
       await _client.auth.signInWithOtp(
-          email: email,
-          shouldCreateUser: true
+        email: email,
+        shouldCreateUser: true,
       );
     } on AuthException catch (e) {
       throw Exception("AUTH_ERROR:${e.message}");
@@ -70,9 +58,6 @@ class AuthRepository {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // VERIFY OTP & CREATE PROFILE
-  // ---------------------------------------------------------------------------
   Future<void> verifyOtpAndRegister({
     required String email,
     required String token,
@@ -86,9 +71,9 @@ class AuthRepository {
   }) async {
     try {
       final verifyResponse = await _client.auth.verifyOTP(
-          token: token,
-          type: OtpType.email,
-          email: email
+        token: token,
+        type: OtpType.email,
+        email: email,
       );
 
       if (verifyResponse.session == null) {
@@ -97,10 +82,10 @@ class AuthRepository {
 
       final userId = verifyResponse.user!.id;
 
-      // Update auth user with their actual password
-      await _client.auth.updateUser(UserAttributes(password: password));
+      await _client.auth.updateUser(
+        UserAttributes(password: password),
+      );
 
-      // Create their profile record
       await _client.from('profile').upsert({
         'user_id': userId,
         'username': username,
@@ -113,8 +98,8 @@ class AuthRepository {
         'streak': 0,
         'current_points': 0,
         'deleted_at': null,
+        'avatar_asset_path': 'assets/avatar/default_avatar.jpg',
       });
-
     } on AuthException catch (e) {
       throw Exception("AUTH_ERROR:${e.message}");
     } catch (e) {

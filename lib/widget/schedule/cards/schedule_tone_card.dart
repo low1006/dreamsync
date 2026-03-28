@@ -8,11 +8,9 @@ class ScheduleToneCard extends StatelessWidget {
   final Color subText;
   final Color surface;
   final Color accent;
-
   final double alarmVolume;
+  final int systemAlarmMaxSteps;
   final ValueChanged<double>? onVolumeChanged;
-
-  // ✅ Restored Preview properties
   final bool isPreviewPlaying;
   final VoidCallback? onTogglePreview;
 
@@ -26,6 +24,7 @@ class ScheduleToneCard extends StatelessWidget {
     required this.surface,
     required this.accent,
     required this.alarmVolume,
+    this.systemAlarmMaxSteps = 15,
     this.onVolumeChanged,
     this.isPreviewPlaying = false,
     this.onTogglePreview,
@@ -33,6 +32,10 @@ class ScheduleToneCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final headerRadius = isEditing
+        ? const BorderRadius.vertical(top: Radius.circular(18))
+        : BorderRadius.circular(18);
+
     return Opacity(
       opacity: isEditing ? 1.0 : 0.7,
       child: Container(
@@ -44,66 +47,96 @@ class ScheduleToneCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IgnorePointer(
-              ignoring: !isEditing,
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: isEditing
-                    ? const BorderRadius.vertical(top: Radius.circular(18))
-                    : BorderRadius.circular(18),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: accent.withOpacity(0.12),
-                        child: Icon(Icons.music_note, color: accent),
+            InkWell(
+              onTap: isEditing ? onTap : null,
+              borderRadius: headerRadius,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.12),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Alarm Tone",
+                      child: Icon(
+                        Icons.music_note_rounded,
+                        color: accent,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            "Alarm Tone",
+                            style: TextStyle(
+                              color: text,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            isEditing
+                                ? "Tap to change tone"
+                                : "Currently selected",
+                            style: TextStyle(
+                              color: subText,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: 72,
+                        maxWidth: 150,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              toneName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
                               style: TextStyle(
                                 color: text,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              isEditing
-                                  ? "Tap to change"
-                                  : "Currently selected",
-                              style: TextStyle(
-                                color: subText,
-                                fontSize: 12.5,
-                              ),
+                          ),
+                          if (isEditing) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: accent,
+                              size: 22,
                             ),
                           ],
-                        ),
+                        ],
                       ),
-                      Text(
-                        toneName,
-                        style: TextStyle(
-                          color: text,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                      if (isEditing) ...[
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: accent),
-                      ],
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
-
             if (isEditing) ...[
               Divider(
                 height: 1,
@@ -112,6 +145,7 @@ class ScheduleToneCard extends StatelessWidget {
               ),
               _VolumeSection(
                 alarmVolume: alarmVolume,
+                systemAlarmMaxSteps: systemAlarmMaxSteps,
                 onVolumeChanged: onVolumeChanged,
                 isPreviewPlaying: isPreviewPlaying,
                 onTogglePreview: onTogglePreview,
@@ -129,6 +163,7 @@ class ScheduleToneCard extends StatelessWidget {
 
 class _VolumeSection extends StatelessWidget {
   final double alarmVolume;
+  final int systemAlarmMaxSteps;
   final ValueChanged<double>? onVolumeChanged;
   final bool isPreviewPlaying;
   final VoidCallback? onTogglePreview;
@@ -138,6 +173,7 @@ class _VolumeSection extends StatelessWidget {
 
   const _VolumeSection({
     required this.alarmVolume,
+    required this.systemAlarmMaxSteps,
     required this.onVolumeChanged,
     required this.isPreviewPlaying,
     required this.onTogglePreview,
@@ -146,22 +182,36 @@ class _VolumeSection extends StatelessWidget {
     required this.accent,
   });
 
+  double _snapToSystemStep(double rawValue) {
+    final value = rawValue.clamp(0.0, 1.0);
+
+    if (systemAlarmMaxSteps <= 0) return value;
+
+    final stepIndex = (value * systemAlarmMaxSteps)
+        .round()
+        .clamp(0, systemAlarmMaxSteps);
+
+    return stepIndex / systemAlarmMaxSteps;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final int volumePercent = (alarmVolume * 100).round();
+    final snappedValue = _snapToSystemStep(alarmVolume);
+    final volumePercent = (snappedValue * 100).round().clamp(0, 100);
 
     IconData volumeIcon;
-    if (alarmVolume <= 0.01) {
+    if (snappedValue <= 0.001) {
       volumeIcon = Icons.volume_off;
-    } else if (alarmVolume < 0.5) {
+    } else if (snappedValue < 0.5) {
       volumeIcon = Icons.volume_down;
     } else {
       volumeIcon = Icons.volume_up;
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -187,56 +237,63 @@ class _VolumeSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 2),
-
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: accent,
-              inactiveTrackColor: accent.withOpacity(0.15),
-              thumbColor: accent,
-              overlayColor: accent.withOpacity(0.12),
-              trackHeight: 5,
-              thumbShape:
-              const RoundSliderThumbShape(enabledThumbRadius: 9),
-            ),
-            child: Slider(
-              value: alarmVolume,
-              min: 0.0,
-              max: 1.0,
-              divisions: 20,
-              onChanged: onVolumeChanged,
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 26, right: 4),
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: accent,
+                inactiveTrackColor: accent.withOpacity(0.15),
+                thumbColor: accent,
+                overlayColor: accent.withOpacity(0.12),
+                trackHeight: 5,
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 9,
+                ),
+              ),
+              child: Slider(
+                value: snappedValue,
+                min: 0.0,
+                max: 1.0,
+                divisions: systemAlarmMaxSteps > 0 ? systemAlarmMaxSteps : 15,
+                onChanged: onVolumeChanged == null
+                    ? null
+                    : (raw) => onVolumeChanged!(_snapToSystemStep(raw)),
+              ),
             ),
           ),
-
-          const SizedBox(height: 8),
-
-          // ✅ Restored Preview Button
-          Center(
+          const SizedBox(height: 2),
+          Padding(
+            padding: const EdgeInsets.only(left: 26),
+            child: Text(
+              "Preview uses the selected tone",
+              style: TextStyle(
+                color: subText,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 18),
             child: TextButton.icon(
               onPressed: onTogglePreview,
               icon: Icon(
-                isPreviewPlaying ? Icons.stop_circle : Icons.play_circle,
+                isPreviewPlaying
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_fill,
                 color: isPreviewPlaying ? Colors.redAccent : accent,
-                size: 20,
               ),
               label: Text(
-                isPreviewPlaying
-                    ? "Stop Preview"
-                    : "Preview at This Volume",
+                isPreviewPlaying ? "Stop preview" : "Preview selected tone",
                 style: TextStyle(
                   color: isPreviewPlaying ? Colors.redAccent : accent,
                   fontWeight: FontWeight.w600,
-                  fontSize: 13,
                 ),
               ),
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                backgroundColor: isPreviewPlaying
-                    ? Colors.redAccent.withOpacity(0.1)
-                    : accent.withOpacity(0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/friend_profile_model.dart';
+import 'package:dreamsync/widget/custom/user_avatar.dart';
 
 class FriendCard extends StatelessWidget {
   final FriendProfile friend;
@@ -30,24 +31,12 @@ class FriendCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: accent.withOpacity(0.5), width: 2),
-              ),
-              child: CircleAvatar(
-                radius: 24,
-                backgroundColor: accent.withOpacity(0.1),
-                child: Text(
-                  friend.username[0].toUpperCase(),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: accent,
-                    fontSize: 20,
-                  ),
-                ),
-              ),
+            UserAvatar(
+              avatarPath: friend.avatarAssetPath,
+              size: 48,
+              borderColor: accent.withOpacity(0.5),
+              borderWidth: 2,
+              fallbackIconColor: accent,
             ),
             const SizedBox(width: 16),
             Expanded(

@@ -18,8 +18,8 @@ class LocalDatabase {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   static const String _keyName = 'dreamsync_db_key';
   static const String _dbFileName = 'dreamsync_secure.db';
+  static const int _dbVersion = 2;
 
-  /// Only tables that hold sensitive / local-only data.
   static const List<String> allTables = [
     'sleep_record',
     'daily_activities',
@@ -30,10 +30,6 @@ class LocalDatabase {
     'friend_cache',
     'profile',
   ];
-
-  // ===========================================================================
-  // DATABASE LIFECYCLE
-  // ===========================================================================
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -68,10 +64,6 @@ class LocalDatabase {
     }
   }
 
-  // ===========================================================================
-  // ENCRYPTION KEY
-  // ===========================================================================
-
   Future<String> _getEncryptionKey() async {
     String? key = await _secureStorage.read(key: _keyName);
 
@@ -85,10 +77,6 @@ class LocalDatabase {
     return key;
   }
 
-  // ===========================================================================
-  // INIT / OPEN / UPGRADE
-  // ===========================================================================
-
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
@@ -98,7 +86,7 @@ class LocalDatabase {
       return await _openDB(path, password);
     } catch (e) {
       debugPrint('⚠️ DB open failed (key mismatch or corrupt): $e');
-      debugPrint('🗑️ Deleting corrupt DB and recreating...');
+      debugPrint('🗑️ Deleting corrupt DB and recreating.');
 
       for (final suffix in ['', '-wal', '-shm']) {
         final f = File('$path$suffix');
@@ -109,17 +97,17 @@ class LocalDatabase {
       }
 
       await _secureStorage.delete(key: _keyName);
-      debugPrint('🔐 Old key deleted. Generating a fresh key...');
-      final freshPassword = await _getEncryptionKey();
+      debugPrint('🔐 Old key deleted.');
 
-      return await _openDB(path, freshPassword);
+      final newPassword = await _getEncryptionKey();
+      return await _openDB(path, newPassword);
     }
   }
 
-  Future<Database> _openDB(String path, String password) {
-    return openDatabase(
+  Future<Database> _openDB(String path, String password) async {
+    return await openDatabase(
       path,
-      version: 10,
+      version: _dbVersion,
       password: password,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
@@ -127,26 +115,23 @@ class LocalDatabase {
   }
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < newVersion) {
-      debugPrint(
-        '🔄 Upgrading DB from v$oldVersion → v$newVersion. Recreating tables...',
-      );
-      for (final table in allTables) {
-        await db.execute('DROP TABLE IF EXISTS $table');
-      }
-
-      // Drop legacy tables that no longer exist in the schema
-      for (final legacy in [
-        'schedule',
-        'user_achievement',
-        'achievement_definition',
-        'friend_cache',
-      ]) {
-        await db.execute('DROP TABLE IF EXISTS $legacy');
-      }
-
-      await _createDB(db, newVersion);
+    debugPrint(
+      '⚠️ LocalDatabase upgrade: dropping all tables from v$oldVersion to v$newVersion.',
+    );
+    for (final table in allTables) {
+      await db.execute('DROP TABLE IF EXISTS $table');
     }
+
+    for (final legacy in [
+      'schedule',
+      'user_achievement',
+      'achievement_definition',
+      'friend_cache',
+    ]) {
+      await db.execute('DROP TABLE IF EXISTS $legacy');
+    }
+
+    await _createDB(db, newVersion);
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -162,10 +147,6 @@ class LocalDatabase {
     debugPrint('✅ Database schema v$version initialized from assets.');
   }
 
-  // ===========================================================================
-  // SANITIZE
-  // ===========================================================================
-
   Map<String, dynamic> _sanitizeRecord(Map<String, dynamic> record) {
     return record.map((key, value) {
       if (value is bool) return MapEntry(key, value ? 1 : 0);
@@ -175,10 +156,6 @@ class LocalDatabase {
       return MapEntry(key, value);
     });
   }
-
-  // ===========================================================================
-  // INSERT
-  // ===========================================================================
 
   Future<void> insertRecord(
       String table,
@@ -219,10 +196,6 @@ class LocalDatabase {
     });
   }
 
-  // ===========================================================================
-  // SYNC HELPERS
-  // ===========================================================================
-
   Future<List<Map<String, dynamic>>> getUnsyncedRecords(String table) async {
     final db = await instance.database;
     return await db.query(table, where: 'is_synced = ?', whereArgs: [0]);
@@ -248,100 +221,18 @@ class LocalDatabase {
     );
   }
 
-  // ===========================================================================
-  // QUERY HELPERS
-  // ===========================================================================
-
-  Future<void> debugPrintTable(String table, {int limit = 50}) async {
+  Future<int> clearTable(String table) async {
     final db = await instance.database;
-    final rows = await db.query(table, limit: limit);
-    debugPrint('🔍 [$table] — ${rows.length} row(s):');
-    for (int i = 0; i < rows.length; i++) {
-      debugPrint('  [$i] ${rows[i]}');
-    }
+    return await db.delete(table);
   }
 
-  Future<int> getRowCount(String table) async {
+  Future<void> clearAllUserData() async {
     final db = await instance.database;
-    return Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM $table'),
-    ) ??
-        0;
-  }
-
-  Future<void> debugPrintAllTableCounts() async {
-    debugPrint('📊 DreamSync DB — table row counts:');
-    for (final table in allTables) {
-      final count = await getRowCount(table);
-      debugPrint('   $table: $count row(s)');
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getAllRows(
-      String table, {
-        int limit = 200,
-      }) async {
-    final db = await instance.database;
-    return await db.query(table, limit: limit);
-  }
-
-  Future<void> updateField(
-      String table,
-      dynamic id,
-      String field,
-      dynamic value,
-      ) async {
-    final db = await instance.database;
-    await db.update(
-      table,
-      {field: value},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> updateFields(
-      String table,
-      dynamic id,
-      Map<String, dynamic> fields,
-      ) async {
-    final db = await instance.database;
-    await db.update(
-      table,
-      _sanitizeRecord(fields),
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> deleteRecord(String table, dynamic id) async {
-    final db = await instance.database;
-    await db.delete(
-      table,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<List<Map<String, dynamic>>> getAllByUser(
-      String table,
-      String userId,
-      ) async {
-    final db = await instance.database;
-    return await db.query(table, where: 'user_id = ?', whereArgs: [userId]);
-  }
-
-  Future<List<Map<String, dynamic>>> getRecordsByDateRange(
-      String userId,
-      String startDate,
-      String endDate,
-      ) async {
-    final db = await instance.database;
-    return await db.query(
-      'sleep_record',
-      where: 'user_id = ? AND date >= ? AND date <= ?',
-      whereArgs: [userId, startDate, endDate],
-      orderBy: 'date ASC',
-    );
+    await db.transaction((txn) async {
+      for (final table in allTables) {
+        await txn.delete(table);
+      }
+    });
+    debugPrint('🧹 All local encrypted user data cleared.');
   }
 }

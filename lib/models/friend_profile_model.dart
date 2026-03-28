@@ -6,6 +6,7 @@ class FriendProfile {
   final int streak;
   final String senderId;
   final String receiverId;
+  final String? avatarAssetPath;
 
   FriendProfile({
     required this.username,
@@ -15,6 +16,7 @@ class FriendProfile {
     this.streak = 0,
     required this.senderId,
     required this.receiverId,
+    this.avatarAssetPath,
   });
 
   factory FriendProfile.fromFriendshipRow({
@@ -26,10 +28,12 @@ class FriendProfile {
       username: profileData['username'] ?? '',
       email: profileData['email'] ?? '',
       uidText: profileData['uid_text'],
-      sleepGoalHours: (profileData['sleep_goal_hours'] as num?)?.toDouble() ?? 8.0,
+      sleepGoalHours:
+      (profileData['sleep_goal_hours'] as num?)?.toDouble() ?? 8.0,
       streak: (profileData['streak'] as num?)?.toInt() ?? 0,
       senderId: senderId,
       receiverId: receiverId,
+      avatarAssetPath: profileData['avatar_asset_path'],
     );
   }
 }

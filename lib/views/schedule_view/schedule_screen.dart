@@ -50,7 +50,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   // Tracks the phone's physical hardware volume
   double _hardwareAlarmVolume = 1.0;
 
-  // ✅ Restored the audio player for the preview
+  // ─── FIX: Real device alarm volume step count ───
+  // Queried from AudioManager via platform channel instead of hardcoded 15.
+  int _systemAlarmMaxSteps = 7; // safe default until queried
+
   final AudioPlayer _volumePreviewPlayer = AudioPlayer();
   bool _isPreviewPlaying = false;
 
@@ -66,9 +69,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isAlarmOn = true;
     _isSnoozeOn = true;
 
+    // Read the current hardware alarm volume
     FlutterVolumeController.getVolume(stream: AudioStream.alarm).then((vol) {
       if (mounted && vol != null) {
         setState(() => _hardwareAlarmVolume = vol);
+      }
+    });
+
+    // ─── FIX: Query real device alarm max steps on startup ───
+    NotificationService.getSystemAlarmMaxSteps().then((steps) {
+      if (mounted) {
+        setState(() => _systemAlarmMaxSteps = steps);
+        debugPrint('🔊 Device alarm stream has $_systemAlarmMaxSteps steps');
       }
     });
 
@@ -79,7 +91,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   void dispose() {
-    _volumePreviewPlayer.dispose(); // ✅ Dispose safely
+    _volumePreviewPlayer.dispose();
     super.dispose();
   }
 
@@ -194,7 +206,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   void _toggleEditMode() {
     if (_isEditing) {
-      _stopVolumePreview(); // ✅ Stop preview when saving
+      _stopVolumePreview();
       _saveSchedule();
     } else {
       setState(() => _isEditing = true);
@@ -327,10 +339,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       ),
     );
   }
+
   void _openToneSelector() {
     if (!_isEditing) return;
 
-    _stopVolumePreview(); // ✅ Stop preview when opening sheet
+    _stopVolumePreview();
 
     final inventoryVM = context.read<InventoryViewModel>();
     final allItems = inventoryVM.myItems;
@@ -358,13 +371,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  // ✅ PREVIEW LOGIC: Fixed to force AudioContext right before playing
   Future<void> _startVolumePreview() async {
     if (_isPreviewPlaying) return;
 
     try {
-      // 1. Force the audio context to the ALARM stream so it ignores Media Mute
-      await _volumePreviewPlayer.setAudioContext( AudioContext(
+      // Force the audio context to the ALARM stream so it ignores Media Mute
+      await _volumePreviewPlayer.setAudioContext(AudioContext(
         android: AudioContextAndroid(
           usageType: AndroidUsageType.alarm,
           contentType: AndroidContentType.sonification,
@@ -375,11 +387,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ),
       ));
 
-      // 2. Set the software player volume to MAX (because the hardware slider controls the real volume!)
+      // Set the software player volume to MAX (the hardware slider controls real volume)
       await _volumePreviewPlayer.setVolume(1.0);
       await _volumePreviewPlayer.setReleaseMode(ReleaseMode.loop);
 
-      // 3. Play the exact sound asset
+      // Play the exact sound asset
       await _volumePreviewPlayer.play(
         AssetSource(NotificationService.audioAssetPath(_currentToneFile)),
       );
@@ -406,7 +418,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  // ✅ Modifies physical device hardware volume!
+  // Modifies physical device hardware volume via flutter_volume_controller
   void _onVolumeChanged(double value) {
     setState(() => _hardwareAlarmVolume = value);
     try {
@@ -603,7 +615,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       if (!_isEditing) return;
                       setState(() => _isSmartAlarm = v);
                     },
-                    enabled: _isEditing, // Only editable when saving
+                    enabled: _isEditing,
                     text: text,
                     subText: subText,
                     icon: Icons.auto_mode,
@@ -617,7 +629,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       if (!_isEditing) return;
                       setState(() => _isSmartNotification = v);
                     },
-                    enabled: _isEditing, // Only editable when saving
+                    enabled: _isEditing,
                     text: text,
                     subText: subText,
                     icon: Icons.do_not_disturb_on,
@@ -645,7 +657,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       if (!_isEditing) return;
                       setState(() => _isSnoozeOn = v);
                     },
-                    enabled: _isEditing, // Only editable when saving
+                    enabled: _isEditing,
                     text: text,
                     subText: subText,
                     icon: Icons.snooze,
@@ -661,6 +673,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     surface: surface,
                     accent: accent,
                     alarmVolume: _hardwareAlarmVolume,
+                    systemAlarmMaxSteps: _systemAlarmMaxSteps, // ← FIX: real device steps
                     onVolumeChanged: _onVolumeChanged,
                     isPreviewPlaying: _isPreviewPlaying,
                     onTogglePreview: _toggleVolumePreview,

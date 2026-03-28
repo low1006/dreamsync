@@ -1,10 +1,11 @@
 class DailyActivityModel {
-  final String? id; // maps to activity_id in local DB
+  final String? id;
   final String userId;
   final String date;
   final int exerciseMinutes;
   final int foodCalories;
   final int screenTimeMinutes;
+  final int burnedCalories;
 
   const DailyActivityModel({
     this.id,
@@ -13,6 +14,7 @@ class DailyActivityModel {
     required this.exerciseMinutes,
     required this.foodCalories,
     required this.screenTimeMinutes,
+    required this.burnedCalories,
   });
 
   factory DailyActivityModel.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class DailyActivityModel {
       exerciseMinutes: _toInt(json['exercise_minutes']),
       foodCalories: _toInt(json['food_calories']),
       screenTimeMinutes: _toInt(json['screen_time_minutes']),
+      burnedCalories: _toInt(json['burned_calories']),
     );
   }
 
@@ -34,6 +37,7 @@ class DailyActivityModel {
       'exercise_minutes': exerciseMinutes,
       'food_calories': foodCalories,
       'screen_time_minutes': screenTimeMinutes,
+      'burned_calories': burnedCalories,
     };
   }
 
@@ -44,6 +48,7 @@ class DailyActivityModel {
     int? exerciseMinutes,
     int? foodCalories,
     int? screenTimeMinutes,
+    int? burnedCalories,
   }) {
     return DailyActivityModel(
       id: id ?? this.id,
@@ -52,6 +57,7 @@ class DailyActivityModel {
       exerciseMinutes: exerciseMinutes ?? this.exerciseMinutes,
       foodCalories: foodCalories ?? this.foodCalories,
       screenTimeMinutes: screenTimeMinutes ?? this.screenTimeMinutes,
+      burnedCalories: burnedCalories ?? this.burnedCalories,
     );
   }
 

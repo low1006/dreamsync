@@ -8,6 +8,7 @@ import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
 
 import 'package:dreamsync/repositories/sleep_repository.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
+import 'package:dreamsync/repositories/inventory_repository.dart';
 
 import 'package:dreamsync/services/sleep_health_service.dart';
 import 'package:dreamsync/services/sleep_summary_service.dart';
@@ -22,6 +23,7 @@ enum SleepFilter { daily, weekly }
 class SleepViewModel extends ChangeNotifier {
   final SleepRepository _repository = SleepRepository();
   final UserRepository _userRepository = UserRepository();
+  final InventoryRepository _inventoryRepository = InventoryRepository();
   final SleepHealthService _healthService = SleepHealthService();
   final SleepSummaryService _summaryService = SleepSummaryService();
   final SleepAchievementService _achievementService = SleepAchievementService();
@@ -68,10 +70,6 @@ class SleepViewModel extends ChangeNotifier {
   String? pendingFeedbackDate;
   bool isSubmittingMoodFeedback = false;
 
-  // ===========================================================================
-  // LOAD FROM LOCAL DB (with cloud restore if empty)
-  // ===========================================================================
-
   Future<void> loadFromDatabase({
     required String userId,
   }) async {
@@ -81,7 +79,6 @@ class SleepViewModel extends ChangeNotifier {
     _safeNotify();
 
     try {
-      // If local DB is empty for this user, restore from encrypted cloud backup
       if (await _syncService.isLocalEmpty(userId)) {
         debugPrint('📦 Local DB empty — restoring from encrypted cloud...');
         await _syncService.restoreFromCloud(userId);
@@ -99,10 +96,6 @@ class SleepViewModel extends ChangeNotifier {
       _safeNotify();
     }
   }
-
-  // ===========================================================================
-  // HEALTH CONNECT SYNC
-  // ===========================================================================
 
   Future<void> loadSleepData({
     BuildContext? context,
@@ -174,7 +167,9 @@ class SleepViewModel extends ChangeNotifier {
         requestIfNeeded: context != null,
       );
       if (!granted) {
-        if (showLoading) errorMessage = context != null ? 'Permission denied.' : '';
+        if (showLoading) {
+          errorMessage = context != null ? 'Permission denied.' : '';
+        }
         return;
       }
 
@@ -206,24 +201,29 @@ class SleepViewModel extends ChangeNotifier {
         existingByDate: existingByDate,
       );
 
-      // This saves locally + attempts encrypted Supabase sync
       await _repository.saveDailySummaries(summaries);
 
       await _loadDailyFromDatabase(userId);
       await _fetchWeeklyDataFromDatabase(userId);
 
       final allRecords = await _repository.getAllSleepRecords(userId);
+
+      // Fetch friend count from the same source owned by AchievementViewModel.
+      final friendCount = await achievementVM.fetchFriendCount();
+
       final streak = await _achievementService.updateAchievements(
+        userId: userId,
+        inventoryRepository: _inventoryRepository,
         allRecords: allRecords,
         wakeTimeByDay: _wakeTimeByDay,
         dailySleepScore: dailySleepScore,
         achievementVM: achievementVM,
+        friendCount: friendCount,
       );
+
       await _userRepository.updateStreak(userId, streak);
 
       await _checkMoodFeedbackNeeded(userId);
-
-      // Push any remaining unsynced records (from previous failed attempts)
       await _syncService.syncAll(userId);
 
       _lastLoadedUserId = userId;
@@ -260,10 +260,6 @@ class SleepViewModel extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
-  // MOOD FEEDBACK
-  // ===========================================================================
-
   Future<void> submitMoodFeedback(MoodFeedback mood) async {
     final date = pendingFeedbackDate;
     final userId = _lastLoadedUserId;
@@ -288,10 +284,6 @@ class SleepViewModel extends ChangeNotifier {
       _safeNotify();
     }
   }
-
-  // ===========================================================================
-  // PRIVATE — local DB reads
-  // ===========================================================================
 
   Future<void> _loadDailyFromDatabase(String userId) async {
     final row = await _repository.getLatestDailyRecord(userId);
@@ -323,12 +315,14 @@ class SleepViewModel extends ChangeNotifier {
     final latestDateStr = row['date'] as String;
     final latestRecordDate = DateTime.tryParse(latestDateStr) ?? DateTime(1970);
     final latestDateOnly = DateTime(
-        latestRecordDate.year, latestRecordDate.month, latestRecordDate.day);
+      latestRecordDate.year,
+      latestRecordDate.month,
+      latestRecordDate.day,
+    );
 
     final now = DateTime.now();
     final expectedDate = now.hour < 12
-        ? DateTime(now.year, now.month, now.day)
-        .subtract(const Duration(days: 1))
+        ? DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1))
         : DateTime(now.year, now.month, now.day);
 
     isDataPendingSync = latestDateOnly.isBefore(expectedDate);
@@ -367,11 +361,9 @@ class SleepViewModel extends ChangeNotifier {
       ];
 
       if (weeklyData.isNotEmpty) {
-        final total =
-        weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
+        final total = weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
         final avgMinutes = (total / weeklyData.length).round();
-        final avgScore =
-        (weeklyData.fold<int>(0, (sum, e) => sum + e.sleepScore) /
+        final avgScore = (weeklyData.fold<int>(0, (sum, e) => sum + e.sleepScore) /
             weeklyData.length)
             .round();
 
@@ -388,10 +380,8 @@ class SleepViewModel extends ChangeNotifier {
 
   Future<void> _checkMoodFeedbackNeeded(String userId) async {
     try {
-      final cutoff =
-      _dateKey(DateTime.now().subtract(const Duration(days: 1)));
-      final row =
-      await _repository.getLatestRecordForMoodCheck(userId, cutoff);
+      final cutoff = _dateKey(DateTime.now().subtract(const Duration(days: 1)));
+      final row = await _repository.getLatestRecordForMoodCheck(userId, cutoff);
 
       if (row == null) {
         showMoodFeedbackPrompt = false;
@@ -409,10 +399,6 @@ class SleepViewModel extends ChangeNotifier {
       showMoodFeedbackPrompt = false;
     }
   }
-
-  // ===========================================================================
-  // PRIVATE — helpers
-  // ===========================================================================
 
   List<SleepChartPoint> _parseHypnogram(String? raw) {
     if (raw == null || raw.isEmpty) return [];
