@@ -37,7 +37,7 @@ class ScheduleToneCard extends StatelessWidget {
         : BorderRadius.circular(18);
 
     return Opacity(
-      opacity: isEditing ? 1.0 : 0.7,
+      opacity: isEditing ? 1.0 : 0.45,
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -266,37 +266,37 @@ class _VolumeSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(left: 26),
             child: Text(
-              "Preview uses the selected tone",
+              "Slide to adjust — tone plays automatically",
               style: TextStyle(
                 color: subText,
                 fontSize: 12,
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.only(left: 18),
-            child: TextButton.icon(
-              onPressed: onTogglePreview,
-              icon: Icon(
-                isPreviewPlaying
-                    ? Icons.stop_circle_outlined
-                    : Icons.play_circle_fill,
-                color: isPreviewPlaying ? Colors.redAccent : accent,
-              ),
-              label: Text(
-                isPreviewPlaying ? "Stop preview" : "Preview selected tone",
-                style: TextStyle(
-                  color: isPreviewPlaying ? Colors.redAccent : accent,
-                  fontWeight: FontWeight.w600,
+          if (isPreviewPlaying) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 18),
+              child: TextButton.icon(
+                onPressed: onTogglePreview,
+                icon: Icon(
+                  Icons.stop_circle_outlined,
+                  color: Colors.redAccent,
+                ),
+                label: Text(
+                  "Stop preview",
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
             ),
-          ),
+          ],
         ],
       ),
     );

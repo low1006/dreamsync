@@ -11,6 +11,9 @@ import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_daily_tab.d
 import 'package:dreamsync/views/sleep_dashboard_view/sleep_dashboard_weekly_tab.dart';
 import 'package:dreamsync/widget/sleep_dashboard/states/sleep_dashboard_loading.dart';
 import 'package:dreamsync/widget/sleep_dashboard/states/sleep_dashboard_error.dart';
+import 'package:dreamsync/util/app_theme.dart';
+import 'package:dreamsync/util/parsers.dart';
+import 'package:dreamsync/widget/custom/onboarding_dialog.dart';
 
 class SleepDashboardScreen extends StatefulWidget {
   const SleepDashboardScreen({super.key});
@@ -52,7 +55,16 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
     super.dispose();
   }
 
-  Future<void> _syncBehaviouralHealthData(String userId) async {
+  Future<bool> _syncBehaviouralHealthData(String userId) async {
+    // Skip HC permission dialog if onboarding guide is still showing
+    // (prevents two dialogs colliding on first launch).
+    // HC sync will happen on next pull-to-refresh or background sync.
+    final onboardingPending = await OnboardingDialog.shouldShow();
+    if (onboardingPending) {
+      debugPrint('⏭️ Skipping Health Connect permission — onboarding in progress.');
+      return false;
+    }
+
     final dailyVM = context.read<DailyActivityViewModel>();
 
     final hasHealthPermission =
@@ -62,13 +74,14 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
       debugPrint(
         '⚠️ Health Connect permission not granted. Exercise and burned calories not refreshed.',
       );
-      return;
+      return false;
     }
 
     await dailyVM.fetchAndSaveExerciseFromHealthConnect(userId);
     await dailyVM.fetchAndSaveBurnedCaloriesFromHealthConnect(userId);
     await dailyVM.loadTodayData(userId);
     await dailyVM.loadWeeklyData(userId);
+    return true;
   }
 
   Future<void> _bootstrap(String userId) async {
@@ -83,19 +96,29 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
       if (!mounted) return;
       setState(() {
-        _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
+        _screenTime = Parsers.formatScreenTime(dailyVM.screenTimeMinutes);
         _isInitialLoadDone = true;
       });
 
       final liveScreenTime =
       await dailyVM.fetchAndSaveScreenTime(userId, achievementVM);
 
-      await _syncBehaviouralHealthData(userId);
+      final didSync = await _syncBehaviouralHealthData(userId);
 
       if (!mounted) return;
       setState(() {
         _screenTime = liveScreenTime;
       });
+
+      // Show sync complete toast only if HC sync actually ran
+      if (mounted && didSync) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Health Connect sync complete'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
 
       if (!_hasStartedBackgroundSync) {
         _hasStartedBackgroundSync = true;
@@ -137,7 +160,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
 
       if (!mounted) return;
       setState(() {
-        _screenTime = dailyVM.formatScreenTime(dailyVM.screenTimeMinutes);
+        _screenTime = Parsers.formatScreenTime(dailyVM.screenTimeMinutes);
       });
     } catch (e) {
       debugPrint("❌ Sleep dashboard background refresh error: $e");
@@ -211,14 +234,23 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
       _screenTime = liveScreenTime;
       _lastBackgroundSyncAt = DateTime.now();
     });
+
+    // Show refresh complete toast
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Data refreshed successfully'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
 
     final user = context.watch<ProfileViewModel>().userProfile;
     final dailyVM = context.watch<DailyActivityViewModel>();
@@ -238,7 +270,7 @@ class _SleepDashboardScreenState extends State<SleepDashboardScreen>
           return [
             SliverAppBar(
               backgroundColor: innerBoxIsScrolled
-                  ? (isDark ? const Color(0xFF1E293B) : Colors.grey.shade100)
+                  ? AppTheme.surface(context)
                   : bg,
               surfaceTintColor: Colors.transparent,
               shadowColor: Colors.black.withValues(alpha: 0.12),

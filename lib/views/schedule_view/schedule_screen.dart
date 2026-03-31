@@ -1,3 +1,5 @@
+import "package:dreamsync/util/app_theme.dart";
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -7,12 +9,10 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_viewmodel.dart';
 import 'package:dreamsync/viewmodels/schedule_viewmodel/recommendation_viewmodel.dart';
 
-
 import 'package:dreamsync/models/schedule_model.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/viewmodels/inventory_viewmodel.dart';
 import 'package:dreamsync/models/inventory_model.dart';
-
 
 // Widgets
 import 'package:dreamsync/widget/schedule/selectors/tone_selector.dart';
@@ -20,6 +20,7 @@ import 'package:dreamsync/widget/schedule/schedule_setting_tile.dart';
 import 'package:dreamsync/widget/schedule/cards/schedule_recommendation_card.dart';
 import 'package:dreamsync/widget/schedule/schedule_time_section.dart';
 import 'package:dreamsync/widget/schedule/cards/schedule_tone_card.dart';
+import 'package:dreamsync/widget/schedule/cards/schedule_snooze_card.dart';
 import 'package:dreamsync/util/time_formatter.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -42,20 +43,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   late bool _isSmartNotification;
   late bool _isAlarmOn;
   late bool _isSnoozeOn;
+  int _snoozeDurationMinutes = 5;
 
   int _currentToneId = 1;
   String _currentToneName = "Classic";
   String _currentToneFile = "classic.mp3";
 
-  // Tracks the phone's physical hardware volume
   double _hardwareAlarmVolume = 1.0;
-
-  // ─── FIX: Real device alarm volume step count ───
-  // Queried from AudioManager via platform channel instead of hardcoded 15.
-  int _systemAlarmMaxSteps = 7; // safe default until queried
+  int _systemAlarmMaxSteps = 7;
 
   final AudioPlayer _volumePreviewPlayer = AudioPlayer();
   bool _isPreviewPlaying = false;
+  Timer? _volumePreviewAutoStop;
+  Timer? _volumeSliderDebounce;
 
   @override
   void initState() {
@@ -69,14 +69,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isAlarmOn = true;
     _isSnoozeOn = true;
 
-    // Read the current hardware alarm volume
     FlutterVolumeController.getVolume(stream: AudioStream.alarm).then((vol) {
       if (mounted && vol != null) {
         setState(() => _hardwareAlarmVolume = vol);
       }
     });
 
-    // ─── FIX: Query real device alarm max steps on startup ───
     NotificationService.getSystemAlarmMaxSteps().then((steps) {
       if (mounted) {
         setState(() => _systemAlarmMaxSteps = steps);
@@ -91,6 +89,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   void dispose() {
+    _volumePreviewAutoStop?.cancel();
+    _volumeSliderDebounce?.cancel();
     _volumePreviewPlayer.dispose();
     super.dispose();
   }
@@ -125,13 +125,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  /// Syncs local state from the ViewModel.
-  ///
-  /// Pass [overrideSchedule] after a save so the UI is populated from the
-  /// just-saved model rather than whatever Supabase returned (which may be
-  /// stale/empty in offline mode and would overwrite the user's edits).
-  void _syncFromViewModel(ScheduleViewModel vm, {ScheduleModel? overrideSchedule}) {
-    final schedule = overrideSchedule ?? (vm.schedules.isNotEmpty ? vm.schedules.first : null);
+  void _syncFromViewModel(
+      ScheduleViewModel vm, {
+        ScheduleModel? overrideSchedule,
+      }) {
+    final schedule =
+        overrideSchedule ?? (vm.schedules.isNotEmpty ? vm.schedules.first : null);
     if (schedule == null) return;
 
     _existingId = schedule.id;
@@ -141,6 +140,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _isAlarmOn = schedule.isActive;
     _isSmartAlarm = schedule.isSmartAlarm;
     _isSnoozeOn = schedule.isSnoozeOn;
+    _snoozeDurationMinutes = schedule.snoozeDurationMinutes;
     _currentToneId = schedule.toneId;
     _currentToneName = schedule.toneName;
     _currentToneFile = schedule.toneFile;
@@ -179,6 +179,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         isSmartNotification: _isSmartNotification,
         isSmartAlarm: _isSmartAlarm,
         soundFile: _currentToneFile,
+        snoozeDurationMinutes: _snoozeDurationMinutes,
       );
     } else {
       await NotificationService().cancelAlarm(baseNotificationId);
@@ -188,9 +189,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _quickUpdate(bool isAlarmActive) async {
     if (_existingId == null || _existingId!.isEmpty) return;
 
-    await context
-        .read<ScheduleViewModel>()
-        .toggleSchedule(_existingId!, isAlarmActive);
+    await context.read<ScheduleViewModel>().toggleSchedule(
+      _existingId!,
+      isAlarmActive,
+    );
 
     await _rescheduleAlarm();
 
@@ -198,7 +200,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isAlarmActive ? "Alarm Enabled" : "Alarm Disabled"),
-        duration: const Duration(seconds: 1),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -250,10 +251,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
 
     if (validationResult.status == ScheduleSaveStatus.validationError) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(validationResult.message),
-          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -281,9 +283,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (confirm != true) return;
     }
 
-    // Capture the model we intend to save BEFORE calling the VM so that after
-    // save we can sync the UI from this known-correct model rather than from
-    // whatever Supabase returns (which may be stale/empty in offline mode).
     final scheduleBeingSaved = ScheduleModel(
       id: _existingId ?? '',
       label: "Main Schedule",
@@ -294,6 +293,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       isSmartAlarm: _isSmartAlarm,
       isSmartNotification: _isSmartNotification,
       isSnoozeOn: _isSnoozeOn,
+      snoozeDurationMinutes: _snoozeDurationMinutes,
       toneId: _currentToneId,
       toneName: _currentToneName,
       toneFile: _currentToneFile,
@@ -308,6 +308,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       isSmartAlarm: _isSmartAlarm,
       isSmartNotification: _isSmartNotification,
       isSnoozeOn: _isSnoozeOn,
+      snoozeDurationMinutes: _snoozeDurationMinutes,
       toneId: _currentToneId,
       toneName: _currentToneName,
       toneFile: _currentToneFile,
@@ -318,14 +319,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(saveResult.message),
-          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
     }
 
-    // FIX: Always sync from the model we saved, never from the VM's schedules
-    // list directly — the list may be stale after an offline round-trip.
     _syncFromViewModel(scheduleVM, overrideSchedule: scheduleBeingSaved);
     await _rescheduleAlarm();
 
@@ -349,7 +348,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final allItems = inventoryVM.myItems;
 
     final audioItems = allItems
-        .where((i) => i.details.type == StoreItemType.AUDIO)
+        .where((i) => i.details.type == StoreItemType.audio)
         .toList();
 
     showModalBottomSheet(
@@ -371,38 +370,46 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Future<void> _startVolumePreview() async {
-    if (_isPreviewPlaying) return;
+  Future<void> _startVolumePreview({Duration? autoStopAfter}) async {
+    _volumePreviewAutoStop?.cancel();
 
     try {
-      // Force the audio context to the ALARM stream so it ignores Media Mute
-      await _volumePreviewPlayer.setAudioContext(AudioContext(
-        android: AudioContextAndroid(
-          usageType: AndroidUsageType.alarm,
-          contentType: AndroidContentType.sonification,
-        ),
-        iOS: AudioContextIOS(
-          category: AVAudioSessionCategory.playback,
-          options: {AVAudioSessionOptions.duckOthers},
-        ),
-      ));
+      if (!_isPreviewPlaying) {
+        await _volumePreviewPlayer.setAudioContext(
+          AudioContext(
+            android: AudioContextAndroid(
+              usageType: AndroidUsageType.alarm,
+              contentType: AndroidContentType.sonification,
+            ),
+            iOS: AudioContextIOS(
+              category: AVAudioSessionCategory.playback,
+              options: {AVAudioSessionOptions.duckOthers},
+            ),
+          ),
+        );
 
-      // Set the software player volume to MAX (the hardware slider controls real volume)
-      await _volumePreviewPlayer.setVolume(1.0);
-      await _volumePreviewPlayer.setReleaseMode(ReleaseMode.loop);
+        await _volumePreviewPlayer.setVolume(1.0);
+        await _volumePreviewPlayer.setReleaseMode(ReleaseMode.loop);
 
-      // Play the exact sound asset
-      await _volumePreviewPlayer.play(
-        AssetSource(NotificationService.audioAssetPath(_currentToneFile)),
-      );
+        await _volumePreviewPlayer.play(
+          AssetSource(NotificationService.audioAssetPath(_currentToneFile)),
+        );
 
-      setState(() => _isPreviewPlaying = true);
+        if (mounted) setState(() => _isPreviewPlaying = true);
+      }
+
+      if (autoStopAfter != null) {
+        _volumePreviewAutoStop = Timer(autoStopAfter, () {
+          _stopVolumePreview();
+        });
+      }
     } catch (e) {
       debugPrint('Volume preview error: $e');
     }
   }
 
   Future<void> _stopVolumePreview() async {
+    _volumePreviewAutoStop?.cancel();
     if (!_isPreviewPlaying) return;
     try {
       await _volumePreviewPlayer.stop();
@@ -418,7 +425,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  // Modifies physical device hardware volume via flutter_volume_controller
   void _onVolumeChanged(double value) {
     setState(() => _hardwareAlarmVolume = value);
     try {
@@ -426,6 +432,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     } catch (e) {
       debugPrint("Failed to set hardware volume: $e");
     }
+
+    _volumeSliderDebounce?.cancel();
+    _volumeSliderDebounce = Timer(const Duration(milliseconds: 200), () {
+      _startVolumePreview(autoStopAfter: const Duration(seconds: 3));
+    });
   }
 
   Duration _recommendedDuration(double hours) {
@@ -473,12 +484,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Widget build(BuildContext context) {
     final recommendationVM = context.watch<RecommendationViewModel>();
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
-    final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
-    final subText = isDark ? Colors.white70 : Colors.grey.shade600;
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
+    final surface = AppTheme.surface(context);
+    final subText = AppTheme.subText(context);
 
     return Scaffold(
       backgroundColor: bg,
@@ -515,7 +525,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. Prominent Master Toggle (Always Editable for convenience)
             Container(
               decoration: BoxDecoration(
                 color: surface,
@@ -525,9 +534,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 title: Text(
                   "Alarm Enabled",
                   style: TextStyle(
-                      color: text,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18),
+                    color: text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
                 subtitle: Text(
                   _isAlarmOn ? "Alarm is active" : "Alarm is off",
@@ -542,8 +552,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // 2. Core Time Settings
             ScheduleTimeSection(
               bedTime: _bedTime,
               wakeTime: _wakeTime,
@@ -566,21 +574,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 });
               },
             ),
-
             const SizedBox(height: 20),
-
             ScheduleRecommendationCard(
               recommendationVM: recommendationVM,
-              isDark: isDark,
+              isDark: AppTheme.isDark(context),
               text: text,
               accent: accent,
               onRefresh: () => _loadRecommendation(forceRefresh: true),
               onApply: _applyRecommendation,
             ),
-
             const SizedBox(height: 30),
-
-            // 3. Advanced Settings with Edit Mode Restrictions
             Theme(
               data: Theme.of(context).copyWith(
                 dividerColor: Colors.transparent,
@@ -598,13 +601,22 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
                 children: [
                   const SizedBox(height: 10),
-
-                  // --- GROUP 1: SMART FEATURES ---
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: Text("SMART FEATURES", style: TextStyle(color: subText, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
+                      child: Text(
+                        "SMART FEATURES",
+                        style: TextStyle(
+                          color: subText,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                     ),
                   ),
                   ScheduleSettingTile(
@@ -623,7 +635,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ),
                   ScheduleSettingTile(
                     title: "Do Not Disturb",
-                    subtitle: "Silence calls and notifications during bedtime",
+                    subtitle:
+                    "Silence calls and notifications during bedtime",
                     value: _isSmartNotification,
                     onChanged: (v) {
                       if (!_isEditing) return;
@@ -635,33 +648,47 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     icon: Icons.do_not_disturb_on,
                     iconColor: Colors.blueAccent,
                   ),
-
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
                     child: Divider(color: subText.withOpacity(0.2)),
                   ),
-
-                  // --- GROUP 2: SOUND & SNOOZE ---
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: Text("SOUND & SNOOZE", style: TextStyle(color: subText, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
+                      child: Text(
+                        "SOUND & SNOOZE",
+                        style: TextStyle(
+                          color: subText,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                     ),
                   ),
-                  ScheduleSettingTile(
-                    title: "Snooze",
-                    subtitle: "Allow alarm snoozing",
-                    value: _isSnoozeOn,
-                    onChanged: (v) {
+                  ScheduleSnoozeCard(
+                    isEditing: _isEditing,
+                    isSnoozeOn: _isSnoozeOn,
+                    snoozeDurationMinutes: _snoozeDurationMinutes,
+                    onToggleSnooze: (v) {
                       if (!_isEditing) return;
                       setState(() => _isSnoozeOn = v);
                     },
-                    enabled: _isEditing,
+                    onSnoozeDurationChanged: (v) {
+                      if (!_isEditing) return;
+                      setState(() => _snoozeDurationMinutes = v.round());
+                    },
                     text: text,
                     subText: subText,
-                    icon: Icons.snooze,
-                    iconColor: Colors.orange,
+                    surface: surface,
+                    accent: accent,
                   ),
                   const SizedBox(height: 8),
                   ScheduleToneCard(
@@ -673,7 +700,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     surface: surface,
                     accent: accent,
                     alarmVolume: _hardwareAlarmVolume,
-                    systemAlarmMaxSteps: _systemAlarmMaxSteps, // ← FIX: real device steps
+                    systemAlarmMaxSteps: _systemAlarmMaxSteps,
                     onVolumeChanged: _onVolumeChanged,
                     isPreviewPlaying: _isPreviewPlaying,
                     onTogglePreview: _toggleVolumePreview,

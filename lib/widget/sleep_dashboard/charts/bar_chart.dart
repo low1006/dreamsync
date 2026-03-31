@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/util/time_formatter.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class WeeklyBarChart extends StatelessWidget {
   final List<double> values;
@@ -14,7 +15,7 @@ class WeeklyBarChart extends StatelessWidget {
     required this.values,
     required this.labels,
     this.unit = "",
-    this.color = Colors.indigoAccent,
+    this.color = AppTheme.accent,
     this.maxY = 0,
     this.isDecimal = false,
   });
@@ -26,22 +27,21 @@ class WeeklyBarChart extends StatelessWidget {
 
     if (calculatedMax == 0) calculatedMax = 1;
 
+    // Resolve theme-aware colors once for the whole widget.
+    final Color axisColor = AppTheme.border(context);
+    final Color subTextColor = AppTheme.subText(context);
+    final Color textColor = AppTheme.text(context);
+    final Color emptyBarColor = AppTheme.isDark(context)
+        ? Colors.white.withOpacity(0.12)
+        : Colors.grey.shade300;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 16, 6, 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
+      decoration: AppTheme.cardDecoration(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Y-axis labels ──────────────────────────────────────
           SizedBox(
             width: 42,
             height: 126,
@@ -53,7 +53,7 @@ class WeeklyBarChart extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   child: Text(
                     _formatAxisValue(calculatedMax),
-                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    style: TextStyle(fontSize: 8, color: subTextColor),
                     maxLines: 1,
                   ),
                 ),
@@ -61,7 +61,7 @@ class WeeklyBarChart extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   child: Text(
                     _formatAxisValue(calculatedMax / 2),
-                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    style: TextStyle(fontSize: 8, color: subTextColor),
                     maxLines: 1,
                   ),
                 ),
@@ -69,23 +69,26 @@ class WeeklyBarChart extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   child: Text(
                     _formatAxisValue(0),
-                    style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    style: TextStyle(fontSize: 8, color: subTextColor),
                     maxLines: 1,
                   ),
                 ),
               ],
             ),
           ),
+
           const SizedBox(width: 4),
+
+          // ── Bars + X-axis labels ───────────────────────────────
           Expanded(
             child: Column(
               children: [
                 Container(
                   height: 126,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     border: Border(
-                      left: BorderSide(color: Colors.black26, width: 1.5),
-                      bottom: BorderSide(color: Colors.black26, width: 1.5),
+                      left: BorderSide(color: axisColor, width: 1.5),
+                      bottom: BorderSide(color: axisColor, width: 1.5),
                     ),
                   ),
                   child: Row(
@@ -101,6 +104,7 @@ class WeeklyBarChart extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
+                              // Value label above bar
                               SizedBox(
                                 height: 24,
                                 child: Center(
@@ -115,25 +119,22 @@ class WeeklyBarChart extends StatelessWidget {
                                       style: TextStyle(
                                         fontSize: 8,
                                         fontWeight: FontWeight.w600,
-                                        color: isToday
-                                            ? color
-                                            : Colors.grey.shade600,
+                                        color: isToday ? color : subTextColor,
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
                               const SizedBox(height: 4),
+
+                              // Bar itself
                               Container(
-                                height:
-                                values[index] == 0 ? 2 : 94 * heightFactor,
+                                height: values[index] == 0 ? 2 : 94 * heightFactor,
                                 width: 14,
                                 decoration: BoxDecoration(
                                   color: values[index] == 0
-                                      ? Colors.grey.shade300
-                                      : (isToday
-                                      ? color
-                                      : color.withOpacity(0.4)),
+                                      ? emptyBarColor
+                                      : (isToday ? color : color.withOpacity(0.4)),
                                   borderRadius: const BorderRadius.only(
                                     topLeft: Radius.circular(4),
                                     topRight: Radius.circular(4),
@@ -147,7 +148,10 @@ class WeeklyBarChart extends StatelessWidget {
                     }),
                   ),
                 ),
+
                 const SizedBox(height: 6),
+
+                // ── Day labels ─────────────────────────────────────
                 Row(
                   children: List.generate(labels.length, (index) {
                     final bool isToday = index == labels.length - 1;
@@ -159,10 +163,8 @@ class WeeklyBarChart extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 9,
-                          fontWeight:
-                          isToday ? FontWeight.bold : FontWeight.w500,
-                          color:
-                          isToday ? Colors.black87 : Colors.grey.shade600,
+                          fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+                          color: isToday ? textColor : subTextColor,
                         ),
                       ),
                     );

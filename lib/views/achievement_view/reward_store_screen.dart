@@ -7,6 +7,7 @@ import 'package:dreamsync/repositories/inventory_repository.dart';
 import 'package:dreamsync/repositories/user_repository.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/reward_store_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class RewardStorePage extends StatelessWidget {
   const RewardStorePage({super.key});
@@ -90,11 +91,10 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
-    final cardColor = Theme.of(context).cardColor;
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
+    final cardColor = AppTheme.card(context);
 
     return PopScope(
       onPopInvokedWithResult: (_, __) {
@@ -239,14 +239,14 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
 
     for (final item in items) {
       switch (item.type) {
-        case StoreItemType.AVATAR:
+        case StoreItemType.avatar:
           grouped['Avatar']!.add(item);
           break;
-        case StoreItemType.AUDIO:
+        case StoreItemType.audio:
           grouped['Audio']!.add(item);
           break;
-        case StoreItemType.ITEM:
-        case StoreItemType.UNKNOWN:
+        case StoreItemType.item:
+        case StoreItemType.unknown:
           grouped['Items']!.add(item);
           break;
       }
@@ -269,12 +269,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF60A5FA),
-            Color(0xFF2563EB),
-          ],
-        ),
+        color: accent,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -367,7 +362,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: AppTheme.shadow(context),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -464,7 +459,7 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
       );
     }
 
-    if (item.type == StoreItemType.AUDIO) {
+    if (item.type == StoreItemType.audio) {
       final isPlaying = vm.isPreviewing(item);
 
       return Material(
@@ -525,10 +520,10 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
     required Color accent,
   }) {
     if (isClaimed) {
-      return const Text(
+      return Text(
         'Claimed',
         style: TextStyle(
-          color: Colors.green,
+          color: accent,
           fontWeight: FontWeight.bold,
         ),
       );
@@ -596,29 +591,29 @@ class _RewardStoreScreenState extends State<RewardStoreScreen> {
 
   IconData _iconForType(StoreItemType type) {
     switch (type) {
-      case StoreItemType.AVATAR:
+      case StoreItemType.avatar:
         return Icons.person;
-      case StoreItemType.AUDIO:
+      case StoreItemType.audio:
         return Icons.play_circle_fill;
-      case StoreItemType.ITEM:
+      case StoreItemType.item:
         return Icons.inventory_2_outlined;
-      case StoreItemType.UNKNOWN:
+      case StoreItemType.unknown:
         return Icons.help_outline;
     }
   }
 
   String _subtitleForItem(StoreItem item) {
     switch (item.type) {
-      case StoreItemType.AVATAR:
+      case StoreItemType.avatar:
         return 'Avatar reward';
-      case StoreItemType.AUDIO:
+      case StoreItemType.audio:
         return 'Audio reward';
-      case StoreItemType.ITEM:
+      case StoreItemType.item:
         if (item.protectDays > 0) {
           return 'Protects streak for ${item.protectDays} day(s)';
         }
         return 'Special reward item';
-      case StoreItemType.UNKNOWN:
+      case StoreItemType.unknown:
         return 'Reward item';
     }
   }

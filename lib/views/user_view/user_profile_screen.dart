@@ -5,12 +5,17 @@ import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/repositories/inventory_repository.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
+// Added AuthViewModel import so we can clear errors safely before navigating
+import 'package:dreamsync/viewmodels/user_viewmodel/auth_viewmodel.dart';
 import 'package:dreamsync/views/user_view/friend_list_screen.dart';
+import 'package:dreamsync/views/auth_view/reset_password_screen.dart';
 import 'package:dreamsync/widget/user/cards/avatar_picker_card.dart';
 import 'package:dreamsync/widget/user/profile_action_button.dart';
 import 'package:dreamsync/widget/user/profile_avatar_section.dart';
 import 'package:dreamsync/widget/user/cards/profile_info_card.dart';
 import 'package:dreamsync/widget/custom/user_avatar.dart';
+import 'package:dreamsync/util/app_theme.dart';
+import 'package:dreamsync/widget/custom/onboarding_dialog.dart';
 
 class UserScreen extends StatefulWidget {
   const UserScreen({super.key});
@@ -197,7 +202,6 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
           content: Text(
             authorized ? 'Health Connect Linked!' : 'Permission Denied',
           ),
-          backgroundColor: authorized ? Colors.green : Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -237,7 +241,6 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Profile saved successfully'),
-        backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -257,22 +260,18 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
   }
 
   void _showDeleteConfirm(ProfileViewModel viewModel) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = Theme.of(context).cardColor;
-    final textColor = Theme.of(context).colorScheme.onSurface;
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: bgColor,
+        backgroundColor: AppTheme.card(context),
         title: Text(
           'Delete Account?',
-          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+          style: TextStyle(color: AppTheme.text(context), fontWeight: FontWeight.bold),
         ),
         content: Text(
           'This is permanent. All sleep logs and points will be erased after 30 days of inactivity.',
           style: TextStyle(
-            color: isDark ? Colors.white70 : Colors.black54,
+            color: AppTheme.subText(context),
           ),
         ),
         actions: [
@@ -282,7 +281,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.error,
               foregroundColor: Colors.white,
             ),
             onPressed: () {
@@ -301,11 +300,10 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
     final profileVM = context.watch<ProfileViewModel>();
     final user = profileVM.userProfile;
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
-    final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
+    final surface = AppTheme.surface(context);
 
     if (!_isEditing && user != null) {
       _syncTempFromUser(user);
@@ -329,6 +327,11 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
           style: TextStyle(color: text, fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            onPressed: () => OnboardingDialog.show(context),
+            icon: Icon(Icons.help_outline, color: AppTheme.subText(context), size: 26),
+            tooltip: 'Help & Guide',
+          ),
           if (user != null)
             Padding(
               padding: const EdgeInsets.only(right: 16),
@@ -407,7 +410,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 24),
                   child: Text(
-                    'Tap the save icon above to save changes.',
+                    'Tap the save icons above to save changes.',
                     style: TextStyle(
                       color: text.withOpacity(0.5),
                       fontStyle: FontStyle.italic,
@@ -431,7 +434,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: const BoxDecoration(
-                          color: Color(0xFFEF4444),
+                          color: AppTheme.error,
                           shape: BoxShape.circle,
                         ),
                         constraints: const BoxConstraints(
@@ -452,6 +455,30 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
                 ],
               ),
               const SizedBox(height: 12),
+
+              // ── Change Password Button (CRASH FIX APPLIED HERE) ──
+              ProfileActionButton(
+                label: 'Change Password',
+                icon: Icons.lock_reset,
+                color: text.withOpacity(0.7),
+                isEditing: _isEditing,
+                onTap: () {
+                  // 1. Close the keyboard to prevent view overflow errors during pop
+                  FocusScope.of(context).unfocus();
+
+                  // 2. Pre-clear state before navigating so we don't accidentally notifyListeners() while returning
+                  context.read<AuthViewModel>().clearError();
+
+                  // 3. Force push directly to the root navigator (escapes the bottom tabs to prevent back-stack crashing)
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ResetPasswordScreen(),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 12),
               ProfileActionButton(
                 label: 'Logout',
                 icon: Icons.logout,
@@ -463,7 +490,7 @@ class _UserScreenState extends State<UserScreen> with WidgetsBindingObserver {
               ProfileActionButton(
                 label: 'Delete Account',
                 icon: Icons.delete_forever,
-                color: const Color(0xFFEF4444),
+                color: AppTheme.error,
                 isEditing: _isEditing,
                 isDestructive: true,
                 onTap: () => _showDeleteConfirm(profileVM),

@@ -45,11 +45,27 @@ class AuthRepository {
     await _client.auth.signOut();
   }
 
-  Future<void> sendVerificationOtp(String email) async {
+  Future<void> sendVerificationOtp({required String email, required String password}) async {
     try {
-      await _client.auth.signInWithOtp(
-        email: email,
-        shouldCreateUser: true,
+      await _client.auth.signUp(
+        email: email.trim(),
+        password: password,
+      );
+    } on AuthException catch (e) {
+      if (e.message.toLowerCase().contains('user already registered')) {
+        throw Exception("AUTH_ERROR:An account with this email already exists. Please login.");
+      }
+      throw Exception("AUTH_ERROR:${e.message}");
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<void> resendSignupOtp({required String email}) async {
+    try {
+      await _client.auth.resend(
+        type: OtpType.signup,
+        email: email.trim(),
       );
     } on AuthException catch (e) {
       throw Exception("AUTH_ERROR:${e.message}");
@@ -71,9 +87,9 @@ class AuthRepository {
   }) async {
     try {
       final verifyResponse = await _client.auth.verifyOTP(
-        token: token,
-        type: OtpType.email,
-        email: email,
+        token: token.trim(),
+        type: OtpType.signup,
+        email: email.trim(),
       );
 
       if (verifyResponse.session == null) {
@@ -82,14 +98,10 @@ class AuthRepository {
 
       final userId = verifyResponse.user!.id;
 
-      await _client.auth.updateUser(
-        UserAttributes(password: password),
-      );
-
       await _client.from('profile').upsert({
         'user_id': userId,
         'username': username,
-        'email': email,
+        'email': email.trim(),
         'gender': gender,
         'date_birth': dateBirth,
         'weight': weight,
@@ -98,8 +110,58 @@ class AuthRepository {
         'streak': 0,
         'current_points': 0,
         'deleted_at': null,
-        'avatar_asset_path': 'assets/avatar/default_avatar.jpg',
+        'avatar_asset_path': 'assets/images/avatar/default_avatar.jpg',
       });
+    } on AuthException catch (e) {
+      throw Exception("AUTH_ERROR:${e.message}");
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<void> sendPasswordResetOtp(String email) async {
+    try {
+      await _client.auth.resetPasswordForEmail(email.trim());
+    } on AuthException catch (e) {
+      throw Exception("AUTH_ERROR:${e.message}");
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<void> verifyResetOtpAndUpdatePassword({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) async {
+    try {
+      final verifyResponse = await _client.auth.verifyOTP(
+        email: email.trim(),
+        token: token.trim(),
+        type: OtpType.recovery,
+      );
+
+      if (verifyResponse.session == null) {
+        throw Exception("Invalid reset OTP code. Please try again.");
+      }
+
+      try {
+        await _client.auth.updateUser(
+          UserAttributes(password: newPassword),
+        );
+      } on AuthException catch (e) {
+        // 🔴 FIX: Explicitly catch the "same password" error and send it to the UI
+        if (e.message.toLowerCase().contains("different from the old password") ||
+            e.message.toLowerCase().contains("should be different")) {
+          throw Exception("AUTH_ERROR:New password must be different from your old password.");
+        } else {
+          rethrow;
+        }
+      }
+
+      // Ensures the user is logged out after a password change to force re-authentication
+      await _client.auth.signOut();
+
     } on AuthException catch (e) {
       throw Exception("AUTH_ERROR:${e.message}");
     } catch (e) {

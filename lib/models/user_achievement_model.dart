@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 import 'achievement_model.dart';
 
 class UserAchievementModel {
@@ -26,9 +27,9 @@ class UserAchievementModel {
       userAchievementId: json['user_achievement_id']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
       achievementId: json['achievement_id']?.toString() ?? '',
-      currentProgress: _toDouble(json['current_progress']),
-      isUnlocked: _toBool(json['is_unlocked']),
-      isClaimed: _toBool(json['is_claimed']),
+      currentProgress: Parsers.toDouble(json['current_progress']),
+      isUnlocked: Parsers.toBool(json['is_unlocked']),
+      isClaimed: Parsers.toBool(json['is_claimed']),
       dateClaim:  _parseDate(json['date_claimed']),
       achievement: json['achievement'] != null
           ? AchievementModel.fromJson(json['achievement'])
@@ -46,22 +47,6 @@ class UserAchievementModel {
       'is_claimed': isClaimed,
       if (dateClaim != null) 'date_claimed': dateClaim!.toIso8601String(),
     };
-  }
-
-  static double _toDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0.0;
-  }
-
-  static bool _toBool(dynamic value) {
-    if (value == null) return false;
-    if (value is bool) return value;
-    if (value is int) return value == 1;
-    final text = value.toString().toLowerCase().trim();
-    return text == 'true' || text == '1';
   }
 
   static DateTime? _parseDate(dynamic value) {

@@ -18,7 +18,7 @@ class LocalDatabase {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   static const String _keyName = 'dreamsync_db_key';
   static const String _dbFileName = 'dreamsync_secure.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 4;
 
   static const List<String> allTables = [
     'sleep_record',
@@ -116,22 +116,55 @@ class LocalDatabase {
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
     debugPrint(
-      '⚠️ LocalDatabase upgrade: dropping all tables from v$oldVersion to v$newVersion.',
+      '⚠️ LocalDatabase upgrade: v$oldVersion → v$newVersion.',
     );
-    for (final table in allTables) {
-      await db.execute('DROP TABLE IF EXISTS $table');
+
+    // v2 → v3: Add caffeine, sugar, alcohol columns to daily_activities
+    if (oldVersion < 3) {
+      try {
+        await db.execute(
+          'ALTER TABLE daily_activities ADD COLUMN caffeine_intake_mg REAL DEFAULT 0',
+        );
+        await db.execute(
+          'ALTER TABLE daily_activities ADD COLUMN sugar_intake_g REAL DEFAULT 0',
+        );
+        await db.execute(
+          'ALTER TABLE daily_activities ADD COLUMN alcohol_intake_g REAL DEFAULT 0',
+        );
+        debugPrint('✅ Added caffeine/sugar/alcohol columns to daily_activities.');
+      } catch (e) {
+        // Columns may already exist if user reinstalled — ignore duplicate errors
+        debugPrint('⚠️ Migration v3 ALTER TABLE: $e (may be harmless)');
+      }
     }
 
-    for (final legacy in [
-      'schedule',
-      'user_achievement',
-      'achievement_definition',
-      'friend_cache',
-    ]) {
-      await db.execute('DROP TABLE IF EXISTS $legacy');
+    // v3 → v4: Add snooze_duration_minutes column to sleep_schedule
+    if (oldVersion < 4) {
+      try {
+        await db.execute(
+          'ALTER TABLE sleep_schedule ADD COLUMN snooze_duration_minutes INTEGER DEFAULT 5',
+        );
+        debugPrint('✅ Added snooze_duration_minutes column to sleep_schedule.');
+      } catch (e) {
+        debugPrint('⚠️ Migration v4 ALTER TABLE: $e (may be harmless)');
+      }
     }
 
-    await _createDB(db, newVersion);
+    // Fallback: if upgrading from v1 or unknown, drop and recreate everything
+    if (oldVersion < 2) {
+      for (final table in allTables) {
+        await db.execute('DROP TABLE IF EXISTS $table');
+      }
+      for (final legacy in [
+        'schedule',
+        'user_achievement',
+        'achievement_definition',
+        'friend_cache',
+      ]) {
+        await db.execute('DROP TABLE IF EXISTS $legacy');
+      }
+      await _createDB(db, newVersion);
+    }
   }
 
   Future<void> _createDB(Database db, int version) async {

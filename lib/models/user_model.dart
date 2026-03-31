@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 class UserModel {
   final String userId;
   final String username;
@@ -54,12 +55,12 @@ class UserModel {
       email: (json['email'] ?? '').toString(),
       gender: (json['gender'] ?? '').toString(),
       dateBirth: (json['date_birth'] ?? '').toString(),
-      weight: _toDouble(json['weight']),
-      height: _toDouble(json['height']),
+      weight: Parsers.toDouble(json['weight']),
+      height: Parsers.toDouble(json['height']),
       uidText: (json['uid_text'] ?? '').toString(),
-      currentPoints: _toInt(json['current_points']),
-      sleepGoalHours: _toDouble(json['sleep_goal_hours'], fallback: 8.0),
-      streak: _toInt(json['streak']),
+      currentPoints: Parsers.toInt(json['current_points']),
+      sleepGoalHours: Parsers.toDouble(json['sleep_goal_hours'], fallback: 8.0),
+      streak: Parsers.toInt(json['streak']),
       avatarAssetPath: (avatar == null || avatar.isEmpty) ? null : avatar,
     );
   }
@@ -79,21 +80,5 @@ class UserModel {
       'streak': streak,
       'avatar_asset_path': avatarAssetPath,
     };
-  }
-
-  static double _toDouble(dynamic value, {double fallback = 0.0}) {
-    if (value == null) return fallback;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? fallback;
-  }
-
-  static int _toInt(dynamic value, {int fallback = 0}) {
-    if (value == null) return fallback;
-    if (value is int) return value;
-    if (value is double) return value.round();
-    if (value is num) return value.toInt();
-    return int.tryParse(value.toString()) ?? fallback;
   }
 }

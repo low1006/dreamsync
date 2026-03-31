@@ -15,6 +15,8 @@ import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
 import 'package:dreamsync/util/network_helper.dart';
 import 'package:dreamsync/widget/custom/offline_status_banner.dart';
+import 'package:dreamsync/util/app_theme.dart';
+import 'package:dreamsync/widget/custom/onboarding_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -26,10 +28,11 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 2;
   bool _hasFetchedInitialData = false;
+  bool _hasCheckedOnboarding = false;
 
   final List<Widget> _pages = const [
     ScheduleScreen(),
-    ChatScreen(),
+    ChatBotScreen(),
     SleepDashboardScreen(),
     AchievementScreen(),
     UserScreen(),
@@ -61,8 +64,20 @@ class _MainScreenState extends State<MainScreen> {
     _hasFetchedInitialData = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _prefetchInitialData(user.userId);
+      _startupSequence(user.userId);
     });
+  }
+
+  /// Runs onboarding first (if needed), then prefetches data.
+  /// This prevents the onboarding dialog and Health Connect permission
+  /// dialog from colliding on first launch.
+  Future<void> _startupSequence(String userId) async {
+    // Step 1: Show onboarding if first launch (blocks until dismissed)
+    await _showOnboardingIfNeeded();
+
+    // Step 2: Only after onboarding is done, start data fetch
+    if (!mounted) return;
+    await _prefetchInitialData(userId);
   }
 
   Future<void> _prefetchInitialData(String userId) async {
@@ -78,6 +93,20 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {
       debugPrint("❌ Background prefetch error: $e");
     }
+  }
+
+  Future<void> _showOnboardingIfNeeded() async {
+    if (_hasCheckedOnboarding) return;
+    _hasCheckedOnboarding = true;
+
+    final shouldDisplay = await OnboardingDialog.shouldShow();
+    if (!shouldDisplay || !mounted) return;
+
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
+    OnboardingDialog.show(context);
+    await OnboardingDialog.markAsSeen();
   }
 
   void _onItemTapped(int index) {
@@ -98,15 +127,13 @@ class _MainScreenState extends State<MainScreen> {
         if (!mounted || _hasFetchedInitialData) return;
 
         _hasFetchedInitialData = true;
-        _prefetchInitialData(user.userId);
+        _startupSequence(user.userId);
       });
     }
 
-    // ✅ Match exact Achievement Screen logic
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final accent = const Color(0xFF3B82F6);
-    final unselected = isDark ? Colors.white54 : Colors.black54;
+    final bg = AppTheme.bg(context);
+    final accent = AppTheme.accent;
+    final unselected = AppTheme.subText(context);
 
     return Scaffold(
       body: Column(

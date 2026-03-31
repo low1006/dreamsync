@@ -67,27 +67,30 @@ class ScheduleTimeSection extends StatelessWidget {
         ),
         const SizedBox(height: 30),
         Center(
-          child: Column(
-            children: [
-              Text(
-                "REPEAT ON",
-                style: TextStyle(
-                  color: text.withOpacity(0.5),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
+          child: Opacity(
+            opacity: isEditing ? 1.0 : 0.45,
+            child: Column(
+              children: [
+                Text(
+                  "REPEAT ON",
+                  style: TextStyle(
+                    color: text.withOpacity(0.5),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              DaySelector(
-                selectedDays: selectedDays,
-                activeColor: accent,
-                textColor: text,
-                isEditing: isEditing,
-                onToggle: onToggleDay,
-              ),
-            ],
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
+        ),
+        DaySelector(
+          selectedDays: selectedDays,
+          activeColor: accent,
+          textColor: text,
+          isEditing: isEditing,
+          onToggle: onToggleDay,
         ),
       ],
     );

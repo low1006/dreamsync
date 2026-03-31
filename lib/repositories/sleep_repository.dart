@@ -105,9 +105,16 @@ class SleepRepository {
 
     try {
       for (final r in records) {
-        final normalized = r.id == null
-            ? r.copyWith(id: '${r.userId}_${r.date}')
-            : r;
+        final normalized = r.id == null ? r.copyWith(id: '${r.userId}_${r.date}') : r;
+
+        debugPrint(
+          '💾 Local save sleep_record => '
+              'id=${normalized.id} | user=${normalized.userId} | date=${normalized.date} | '
+              'total=${normalized.totalMinutes}m (${(normalized.totalMinutes / 60).toStringAsFixed(2)}h) | '
+              'score=${normalized.sleepScore} | '
+              'deep=${normalized.deepMinutes}m | light=${normalized.lightMinutes}m | '
+              'rem=${normalized.remMinutes}m | awake=${normalized.awakeMinutes}m',
+        );
 
         await LocalDatabase.instance.insertRecord(
           'sleep_record',
@@ -119,15 +126,15 @@ class SleepRepository {
       debugPrint('✅ ${records.length} sleep record(s) saved locally.');
 
       final online = await NetworkHelper.hasInternet();
+      debugPrint('🌐 Internet available for sleep sync => $online');
+
       if (!online) {
         debugPrint('⚠️ Offline mode: sleep sync skipped.');
         return;
       }
 
       for (final r in records) {
-        final normalized = r.id == null
-            ? r.copyWith(id: '${r.userId}_${r.date}')
-            : r;
+        final normalized = r.id == null ? r.copyWith(id: '${r.userId}_${r.date}') : r;
         await _syncOneRecord(normalized);
       }
     } catch (e) {
@@ -192,6 +199,8 @@ class SleepRepository {
       orderBy: 'date ASC',
     );
 
+    debugPrint('🔁 Pending sleep records to sync => ${rows.length}');
+
     for (final row in rows) {
       final record = SleepRecordModel.fromJson(Map<String, dynamic>.from(row));
       await _syncOneRecord(record);
@@ -211,7 +220,22 @@ class SleepRepository {
         'mood_feedback': record.moodFeedback,
       };
 
+      debugPrint(
+        '☁️ Syncing sleep_record => '
+            'user=${record.userId} | date=${record.date} | '
+            'total=${record.totalMinutes}m (${(record.totalMinutes / 60).toStringAsFixed(2)}h) | '
+            'score=${record.sleepScore} | '
+            'deep=${record.deepMinutes}m | light=${record.lightMinutes}m | '
+            'rem=${record.remMinutes}m | awake=${record.awakeMinutes}m',
+      );
+
       final encrypted = _encryption.encryptData(payload, record.userId);
+
+      debugPrint(
+        '🔐 Encrypted payload ready => date=${record.date} | '
+            'encrypted_payload_length=${(encrypted['encrypted_payload']?.toString().length ?? 0)} | '
+            'iv_length=${(encrypted['iv']?.toString().length ?? 0)}',
+      );
 
       await _client.from('sleep_record').upsert({
         'user_id': record.userId,
@@ -226,7 +250,7 @@ class SleepRepository {
         record.date,
       );
 
-      debugPrint('✅ Sleep synced: ${record.date}');
+      debugPrint('✅ Sleep synced successfully => ${record.date}');
     } catch (e) {
       debugPrint('⚠️ Encrypted sync failed for ${record.date}: $e');
     }

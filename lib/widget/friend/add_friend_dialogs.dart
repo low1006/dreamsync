@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dreamsync/viewmodels/user_viewmodel/friend_viewmodel.dart';
 import 'package:dreamsync/util/network_helper.dart';
+import 'package:dreamsync/util/app_theme.dart';
 import 'package:dreamsync/widget/custom/user_avatar.dart';
+import 'package:dreamsync/widget/custom/custom_bottom_sheet.dart';
 
 class AddFriendDialog extends StatelessWidget {
   final Color bg;
@@ -29,182 +32,242 @@ class AddFriendDialog extends StatelessWidget {
     viewModel.searchedUser = null;
     viewModel.errorMessage = null;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => ChangeNotifierProvider.value(
         value: viewModel,
-        child: AddFriendDialog(
-          bg: bg,
-          surface: surface,
-          text: text,
-          accent: accent,
-        ),
+        child: const _AddFriendSheetContent(),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<FriendViewModel>(
-      builder: (context, model, child) {
-        return _AddFriendDialogContent(
-          model: model,
-          bg: bg,
-          surface: surface,
-          text: text,
-          accent: accent,
-        );
-      },
-    );
+    return const SizedBox.shrink();
   }
 }
 
-class _AddFriendDialogContent extends StatefulWidget {
-  final FriendViewModel model;
-  final Color bg;
-  final Color surface;
-  final Color text;
-  final Color accent;
-
-  const _AddFriendDialogContent({
-    required this.model,
-    required this.bg,
-    required this.surface,
-    required this.text,
-    required this.accent,
-  });
+class _AddFriendSheetContent extends StatefulWidget {
+  const _AddFriendSheetContent();
 
   @override
-  State<_AddFriendDialogContent> createState() =>
-      _AddFriendDialogContentState();
+  State<_AddFriendSheetContent> createState() => _AddFriendSheetContentState();
 }
 
-class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
+class _AddFriendSheetContentState extends State<_AddFriendSheetContent> {
   final _uidController = TextEditingController();
+  final _searchFocus = FocusNode();
+  Timer? _debounce;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _uidController.dispose();
+    _searchFocus.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) {
+      final model = context.read<FriendViewModel>();
+      model.searchedUser = null;
+      model.errorMessage = null;
+      return;
+    }
+
+    _debounce = Timer(const Duration(milliseconds: 800), () async {
+      final hasInternet = await NetworkHelper.hasInternet();
+      NetworkHelper.isOffline.value = !hasInternet;
+
+      if (!hasInternet) {
+        if (mounted) {
+          NetworkHelper.showOfflineSnackBar(
+            context,
+            message: 'User search is unavailable while offline.',
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        context.read<FriendViewModel>().searchUserByUid("User#$cleanQuery");
+      }
+    });
+  }
+
+  void _clearSelection() {
+    final model = context.read<FriendViewModel>();
+    model.searchedUser = null;
+    model.errorMessage = null;
+    _uidController.clear();
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) _searchFocus.requestFocus();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final model = widget.model;
-    final bg = widget.bg;
-    final surface = widget.surface;
-    final text = widget.text;
-    final accent = widget.accent;
+    final model = context.watch<FriendViewModel>();
+    final themeText = AppTheme.text(context);
+    final themeSubText = AppTheme.subText(context);
+    final themeSurface = AppTheme.surface(context);
+    final themeBorder = AppTheme.border(context);
 
-    return AlertDialog(
-      backgroundColor: surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      title: Text(
-        "Add Friend",
-        style: TextStyle(color: text, fontWeight: FontWeight.bold),
-      ),
+    return CustomBottomSheet(
+      title: 'Add Friend',
+      icon: Icons.person_add,
+      showBottomButton: false, // <-- This completely hides the generic Save button!
       content: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: text.withOpacity(0.1)),
-            ),
-            child: TextField(
-              controller: _uidController,
-              keyboardType: TextInputType.text,
-              style: TextStyle(color: text),
-              decoration: InputDecoration(
-                hintText: "Enter UID (e.g. 1234)",
-                hintStyle: TextStyle(color: text.withOpacity(0.4)),
-                prefixIcon: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Text(
-                    "User#",
-                    style: TextStyle(
-                      color: accent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                prefixIconConstraints:
-                const BoxConstraints(minWidth: 0, minHeight: 0),
-                border: InputBorder.none,
-                contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          // ── Search field ──
+          TextField(
+            controller: _uidController,
+            focusNode: _searchFocus,
+            autofocus: true,
+            keyboardType: TextInputType.text,
+            style: TextStyle(color: themeText),
+            onChanged: _onSearchChanged,
+            decoration: InputDecoration(
+              hintText: 'Enter UID (e.g. 01B23C)',
+              hintStyle: TextStyle(color: themeSubText),
+              filled: true,
+              fillColor: themeText.withOpacity(0.05),
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
               ),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(left: 16.0, right: 8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "User#",
+                      style: TextStyle(
+                        color: AppTheme.accent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              suffixIcon: model.isLoading
+                  ? const Padding(
+                padding: EdgeInsets.all(14),
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppTheme.accent),
+              )
+                  : _uidController.text.isNotEmpty
+                  ? IconButton(
+                icon: Icon(Icons.close, color: themeSubText),
+                onPressed: _clearSelection,
+              )
+                  : null,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          if (model.isLoading)
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: CircularProgressIndicator(color: accent),
-            ),
-
+          // ── Error Banner ──
           if (model.errorMessage != null && !model.isLoading)
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
+                color: AppTheme.error.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.error.withOpacity(0.3)),
               ),
-              child: Text(
-                model.errorMessage!,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                textAlign: TextAlign.center,
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline,
+                      color: AppTheme.error, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      model.errorMessage!,
+                      style:
+                      const TextStyle(color: AppTheme.error, fontSize: 13),
+                    ),
+                  ),
+                ],
               ),
             ),
 
+          // ── Selected / Found User Chip with Inline Button ──
           if (model.searchedUser != null && !model.isLoading)
             Container(
               margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: bg,
+                color: themeSurface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: accent.withOpacity(0.3)),
+                border: Border.all(color: themeBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
                 children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: UserAvatar(
-                      avatarPath: model.searchedUser!.avatarAssetPath,
-                      size: 44,
-                      fallbackIconColor: accent,
-                    ),
-                    title: Text(
-                      model.searchedUser!.username,
-                      style: TextStyle(
-                        color: text,
-                        fontWeight: FontWeight.bold,
+                  Row(
+                    children: [
+                      UserAvatar(
+                        avatarPath: model.searchedUser!.avatarAssetPath,
+                        size: 48,
+                        fallbackIconColor: AppTheme.accent,
                       ),
-                    ),
-                    subtitle: Text(
-                      "UID: ${model.searchedUser!.uidText}",
-                      style: TextStyle(
-                        color: text.withOpacity(0.5),
-                        fontSize: 12,
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              model.searchedUser!.username,
+                              style: TextStyle(
+                                color: themeText,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              "UID: ${model.searchedUser!.uidText}",
+                              style: TextStyle(
+                                color: themeSubText,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
+                  // Inline Action Button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                        _getButtonColor(model.friendshipStatus, accent),
+                        backgroundColor: _getButtonColor(model.friendshipStatus),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
                       ),
                       onPressed: model.friendshipStatus == 'none'
                           ? () async {
@@ -216,9 +279,22 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
                         if (!ok) return;
 
                         await model.sendFriendRequestToSearchedUser();
+
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Friend request sent!'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
                       }
                           : null,
-                      child: Text(_getButtonText(model.friendshipStatus)),
+                      child: Text(
+                        _getButtonText(model.friendshipStatus),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ],
@@ -226,49 +302,17 @@ class _AddFriendDialogContentState extends State<_AddFriendDialogContent> {
             ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            "Close",
-            style: TextStyle(color: text.withOpacity(0.6)),
-          ),
-        ),
-        if (model.searchedUser == null)
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: accent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: () async {
-              final input = _uidController.text.trim();
-              if (input.isEmpty) return;
-
-              final ok = await NetworkHelper.ensureInternet(
-                context,
-                message: 'You cannot search for friends while offline.',
-              );
-              if (!ok) return;
-
-              model.searchUserByUid("User#$input");
-            },
-            child: const Text("Search"),
-          ),
-      ],
     );
   }
 
-  Color _getButtonColor(String? status, Color accent) {
+  Color _getButtonColor(String? status) {
     switch (status) {
       case 'accepted':
-        return Colors.green;
+        return AppTheme.success;
       case 'pending':
-        return Colors.orange;
+        return AppTheme.warning;
       default:
-        return accent;
+        return AppTheme.accent;
     }
   }
 

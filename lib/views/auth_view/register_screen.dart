@@ -6,6 +6,7 @@ import 'package:dreamsync/widget/custom/custom_button.dart';
 import 'package:dreamsync/widget/custom/custom_dropdown.dart';
 import 'package:dreamsync/widget/custom/custom_slider.dart';
 import 'package:dreamsync/views/auth_view/otp_screen.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -26,6 +27,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _gender;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AuthViewModel>().clearError();
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _usernameController.dispose();
@@ -36,7 +46,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now().subtract(const Duration(days: 365 * 12)),
       firstDate: DateTime(1900),
@@ -52,8 +62,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = AppTheme.bg(context);
+    final textColor = AppTheme.text(context);
+    final secondaryTextColor = AppTheme.subText(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Sign Up")),
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        title: const Text("Sign Up"),
+        backgroundColor: bgColor,
+        elevation: 0,
+      ),
       body: Consumer<AuthViewModel>(
         builder: (context, viewModel, child) {
           return SingleChildScrollView(
@@ -61,10 +80,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Form(
               key: _formKey,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const SizedBox(height: 12),
+
+                  Center(
+                    child: Column(
+                      children: [
+                        Image.asset(
+                          'assets/icons/dreamSync_icon.png',
+                          height: 120,
+                          fit: BoxFit.contain,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          "Create Account",
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Start your sleep journey with DreamSync",
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: secondaryTextColor,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
                   CustomTextField(
                     controller: _emailController,
                     label: 'Email',
+                    keyboardType: TextInputType.emailAddress,
                     validator: viewModel.validateEmail,
                   ),
                   const SizedBox(height: 16),
@@ -129,30 +185,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     min: 30,
                     max: 150,
                     unit: "kg",
-                    onChanged: (val) =>
-                        viewModel.updateAttribute('weight', val),
+                    onChanged: (val) => viewModel.updateAttribute('weight', val),
                   ),
+                  const SizedBox(height: 12),
+
                   CustomSlider(
                     label: "Height",
                     value: viewModel.height,
                     min: 100,
                     max: 250,
                     unit: "cm",
-                    onChanged: (val) =>
-                        viewModel.updateAttribute('height', val),
+                    onChanged: (val) => viewModel.updateAttribute('height', val),
                   ),
 
-                  const SizedBox(height: 8),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "Default Sleep Goal: 8 hours",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
+                  const SizedBox(height: 12),
+
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "Default Sleep Goal: 8 hours",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 24),
 
                   if (viewModel.errorMessage != null)
@@ -160,7 +225,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       padding: const EdgeInsets.only(bottom: 16.0),
                       child: Text(
                         viewModel.errorMessage!,
-                        style: const TextStyle(color: Colors.red),
+                        style: const TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontSize: 14,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -169,30 +237,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     text: "Next",
                     isLoading: viewModel.isLoading,
                     onPressed: () async {
-                      if (_formKey.currentState!.validate()) {
-                        final otpSent = await viewModel.sendVerificationOtp(
-                          _emailController.text.trim(),
-                        );
+                      FocusScope.of(context).unfocus();
 
-                        if (otpSent && context.mounted) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => OtpScreen(
-                                email: _emailController.text.trim(),
-                                password: _passwordController.text.trim(),
-                                username: _usernameController.text.trim(),
-                                gender: _gender!,
-                                dateBirth: _dateBirthController.text,
-                                weight: viewModel.weight,
-                                height: viewModel.height,
-                                sleepGoal: 8.0,
-                              ),
+                      if (!_formKey.currentState!.validate()) return;
+
+                      // FIX IMPLEMENTED HERE: pass both email and password
+                      // so Supabase can register the user securely upfront.
+                      final otpSent = await viewModel.sendVerificationOtp(
+                        email: _emailController.text.trim(),
+                        password: _passwordController.text,
+                      );
+
+                      if (!mounted) return;
+
+                      if (otpSent) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => OtpScreen(
+                              email: _emailController.text.trim(),
+                              password: _passwordController.text.trim(),
+                              username: _usernameController.text.trim(),
+                              gender: _gender!,
+                              dateBirth: _dateBirthController.text,
+                              weight: viewModel.weight,
+                              height: viewModel.height,
+                              sleepGoal: 8.0,
                             ),
-                          );
-                        }
+                          ),
+                        );
                       }
                     },
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    child: RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                          fontFamily: 'Roboto',
+                          fontSize: 15,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: "Already have an account? ",
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                            ),
+                          ),
+                          TextSpan(
+                            text: "Login",
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.secondary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),

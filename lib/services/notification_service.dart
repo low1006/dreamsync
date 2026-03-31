@@ -46,6 +46,7 @@ Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
     final bool isSmartAlarm = params['isSmartAlarm'] ?? false;
     final bool isSnoozeOn = params['isSnoozeOn'] ?? true;
     final bool loop = params['loop'] ?? false;
+    final int snoozeDurationMinutes = params['snoozeDurationMinutes'] ?? 5;
 
     final payload = jsonEncode({
       'id': id,
@@ -53,6 +54,7 @@ Future<void> fireAlarmCallback(int id, Map<String, dynamic> params) async {
       'isSnoozeOn': isSnoozeOn,
       'snoozeCount': snoozeCount,
       'soundFile': currentSound,
+      'snoozeDurationMinutes': snoozeDurationMinutes,
     });
 
     debugPrint(
@@ -202,7 +204,7 @@ class NotificationService {
   <int, Map<String, dynamic>>{};
 
   static const MethodChannel _audioChannel =
-  MethodChannel('com.dreamsync/audio');
+  MethodChannel('com.dreamsync/audios');
 
   // FIX: SharedPreferences key used to persist the consumed-payload flag
   // across hot restarts (which reset static fields but NOT SharedPreferences).
@@ -223,14 +225,14 @@ class NotificationService {
         ? 'classic.mp3'
         : soundFile.trim().toLowerCase().replaceAll('\\', '/');
 
-    if (raw.startsWith('assets/audio/')) {
-      raw = raw.substring('assets/audio/'.length);
-    } else if (raw.startsWith('audio/')) {
-      raw = raw.substring('audio/'.length);
+    if (raw.startsWith('assets/audios/')) {
+      raw = raw.substring('assets/audios/'.length);
+    } else if (raw.startsWith('audios/')) {
+      raw = raw.substring('audios/'.length);
     } else if (raw.startsWith('assets/')) {
       raw = raw.substring('assets/'.length);
-      if (raw.startsWith('audio/')) {
-        raw = raw.substring('audio/'.length);
+      if (raw.startsWith('audios/')) {
+        raw = raw.substring('audios/'.length);
       }
     }
 
@@ -248,7 +250,7 @@ class NotificationService {
   }
 
   static String audioAssetPath(String? soundFile) {
-    return 'audio/${normalizeSoundFile(soundFile)}';
+    return 'audios/${normalizeSoundFile(soundFile)}';
   }
 
   static String formatLogTime(DateTime value) {
@@ -601,6 +603,7 @@ class NotificationService {
     required bool isSmartAlarm,
     required bool isSnoozeOn,
     required String soundFile,
+    int snoozeDurationMinutes = 5,
   }) async {
     final int originalId =
     notificationId > 100000 ? notificationId - 100000 : notificationId;
@@ -625,6 +628,7 @@ class NotificationService {
       isSmartAlarm: isSmartAlarm,
       isSnoozeOn: isSnoozeOn,
       soundFile: nextSoundFile,
+      snoozeDurationMinutes: snoozeDurationMinutes,
     );
   }
 
@@ -686,9 +690,10 @@ class NotificationService {
     required bool isSmartAlarm,
     required bool isSnoozeOn,
     required String soundFile,
+    int snoozeDurationMinutes = 5,
   }) async {
     final int snoozeId = originalId + 100000;
-    final DateTime snoozeTime = DateTime.now().add(const Duration(minutes: 1));
+    final DateTime snoozeTime = DateTime.now().add(Duration(minutes: snoozeDurationMinutes));
     final normalizedSoundFile = normalizeSoundFile(soundFile);
 
     await AndroidAlarmManager.cancel(snoozeId);
@@ -706,6 +711,7 @@ class NotificationService {
       'isSmartNotification': false,
       'snoozeCount': currentSnoozeCount + 1,
       'soundFile': normalizedSoundFile,
+      'snoozeDurationMinutes': snoozeDurationMinutes,
     };
 
     await AndroidAlarmManager.oneShotAt(
@@ -743,6 +749,7 @@ class NotificationService {
     required bool isSmartNotification,
     required bool isSmartAlarm,
     required String soundFile,
+    int snoozeDurationMinutes = 5,
   }) async {
     await init();
     await cancelAlarm(id);
@@ -791,6 +798,7 @@ class NotificationService {
           'isSmartNotification': isSmartNotification,
           'snoozeCount': 0,
           'soundFile': normalizedSoundFile,
+          'snoozeDurationMinutes': snoozeDurationMinutes,
         };
 
         await AndroidAlarmManager.oneShotAt(

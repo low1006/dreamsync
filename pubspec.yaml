@@ -50,6 +50,12 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/dreamSync_app_icon.png"
 
 flutter:
   uses-material-design: true
@@ -58,5 +64,18 @@ flutter:
     - assets/sql/schema.sql
     - assets/ml/sleep_model.tflite
     - assets/ml/scaler_stats.json
-    - assets/audio/
-    - assets/avatar/
+    - assets/audios/
+    - assets/icons/dreamSync_icon.png
+    - assets/icons/dreamSync_app_icon.png
+    - assets/images/avatar/
+    - assets/images/onboarding/step1.jpg
+    - assets/images/onboarding/step2.jpg
+    - assets/images/onboarding/step3.jpg
+    - assets/images/onboarding/step4.jpg
+    - assets/images/onboarding/step5.jpg
+    - assets/images/onboarding/step6.jpg
+    - assets/images/onboarding/step7.jpg
+    - assets/images/onboarding/step8.jpg
+    - assets/images/onboarding/step9.jpg
+    - assets/images/onboarding/step10.jpg
+    - assets/images/onboarding/step11.jpg

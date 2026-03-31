@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS daily_activities (
   screen_time_minutes INTEGER NOT NULL DEFAULT 0 CHECK (screen_time_minutes >= 0),
   burned_calories INTEGER NOT NULL DEFAULT 0 CHECK (burned_calories >= 0),
   is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
+  caffeine_intake_mg REAL DEFAULT 0,
+  sugar_intake_g REAL DEFAULT 0,
+  alcohol_intake_g REAL DEFAULT 0,
   UNIQUE(user_id, date)
 );
 
@@ -82,6 +85,7 @@ CREATE TABLE IF NOT EXISTS sleep_schedule (
   is_smart_notification INTEGER NOT NULL DEFAULT 0 CHECK (is_smart_notification IN (0, 1)),
   item_id INTEGER NOT NULL DEFAULT 1,
   is_snooze_on INTEGER NOT NULL DEFAULT 1 CHECK (is_snooze_on IN (0, 1)),
+  snooze_duration_minutes INTEGER NOT NULL DEFAULT 5 CHECK (snooze_duration_minutes >= 1 AND snooze_duration_minutes <= 15),
   is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
   UNIQUE(user_id, target_bed_time, target_wake_time, days)
 );

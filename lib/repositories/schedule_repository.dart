@@ -37,6 +37,7 @@ class ScheduleRepository {
     required bool isSmartNotification,
     required int itemId,
     required bool isSnoozeOn,
+    int snoozeDurationMinutes = 5,
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) {
@@ -56,6 +57,7 @@ class ScheduleRepository {
       'is_smart_notification': isSmartNotification ? 1 : 0,
       'item_id': itemId,
       'is_snooze_on': isSnoozeOn ? 1 : 0,
+      'snooze_duration_minutes': snoozeDurationMinutes,
     };
 
     await LocalDatabase.instance.insertRecord(
@@ -87,6 +89,7 @@ class ScheduleRepository {
         'is_smart_notification': schedule.isSmartNotification ? 1 : 0,
         'item_id': schedule.toneId,
         'is_snooze_on': schedule.isSnoozeOn ? 1 : 0,
+        'snooze_duration_minutes': schedule.snoozeDurationMinutes,
         'is_synced': 0,
       },
       where: 'schedule_id = ?',
@@ -210,6 +213,7 @@ class ScheduleRepository {
         'is_smart_notification': row['is_smart_notification'] == 1,
         'item_id': row['item_id'],
         'is_snooze_on': row['is_snooze_on'] == 1,
+        'snooze_duration_minutes': row['snooze_duration_minutes'] ?? 5,
       }, onConflict: 'user_id');
 
       final db = await _db;

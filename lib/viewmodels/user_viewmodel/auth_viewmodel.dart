@@ -27,13 +27,29 @@ class AuthViewModel extends ChangeNotifier {
   void _setLoading(bool loading) {
     if (_isDisposed) return;
     isLoading = loading;
-    if (loading) errorMessage = null;
+    if (loading) {
+      errorMessage = null;
+    }
     notifyListeners();
   }
 
   void _setError(String? message) {
     if (_isDisposed) return;
     errorMessage = message;
+    notifyListeners();
+  }
+
+  void clearError() {
+    if (_isDisposed) return;
+    if (errorMessage == null) return;
+    errorMessage = null;
+    notifyListeners();
+  }
+
+  void resetAuthState() {
+    if (_isDisposed) return;
+    isLoading = false;
+    errorMessage = null;
     notifyListeners();
   }
 
@@ -47,6 +63,8 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> signIn(String email, String password) async {
+    clearError();
+
     final prefs = await SharedPreferences.getInstance();
 
     final lockoutTimestamp = prefs.getInt('lockout_timestamp');
@@ -85,28 +103,17 @@ class AuthViewModel extends ChangeNotifier {
       } else {
         _setError(errorStr.replaceAll('Exception: ', ''));
       }
-    }
-    _setLoading(false);
-  }
-
-  Future<bool> requestAccountDeletion() async {
-    _setLoading(true);
-    try {
-      await _repository.requestAccountDeletion();
+    } finally {
       _setLoading(false);
-      return true;
-    } catch (e) {
-      _setError("Failed to request account deletion.");
-      _setLoading(false);
-      return false;
     }
   }
 
-  Future<bool> sendVerificationOtp(String email) async {
+  // UPDATED: Now requires password so we can use proper signUp
+  Future<bool> sendVerificationOtp({required String email, required String password}) async {
+    clearError();
     _setLoading(true);
     try {
-      await _repository.sendVerificationOtp(email.trim());
-      _setLoading(false);
+      await _repository.sendVerificationOtp(email: email.trim(), password: password);
       return true;
     } catch (e) {
       final errorStr = e.toString();
@@ -115,8 +122,9 @@ class AuthViewModel extends ChangeNotifier {
       } else {
         _setError('Failed to send OTP.');
       }
-      _setLoading(false);
       return false;
+    } finally {
+      _setLoading(false);
     }
   }
 
@@ -131,6 +139,7 @@ class AuthViewModel extends ChangeNotifier {
     required double height,
     required double sleepGoal,
   }) async {
+    clearError();
     _setLoading(true);
     try {
       await _repository.verifyOtpAndRegister(
@@ -142,9 +151,8 @@ class AuthViewModel extends ChangeNotifier {
         dateBirth: dateBirth,
         weight: weight,
         height: height,
-        sleepGoal: defaultSleepGoal,
+        sleepGoal: sleepGoal,
       );
-      _setLoading(false);
       return true;
     } catch (e) {
       final errorStr = e.toString();
@@ -153,16 +161,74 @@ class AuthViewModel extends ChangeNotifier {
       } else {
         _setError(errorStr.replaceAll('Exception: ', ''));
       }
-      _setLoading(false);
       return false;
+    } finally {
+      _setLoading(false);
     }
   }
 
+  // UPDATED: Calls the new proper resend logic
   Future<void> resendOtp(String email) async {
+    clearError();
     try {
-      await _repository.sendVerificationOtp(email.trim());
+      await _repository.resendSignupOtp(email: email.trim());
     } catch (e) {
       _setError("Failed to resend OTP.");
+    }
+  }
+
+  Future<bool> sendResetPasswordOtp(String email) async {
+    clearError();
+    _setLoading(true);
+    try {
+      await _repository.sendPasswordResetOtp(email.trim());
+      return true;
+    } catch (e) {
+      final errorStr = e.toString();
+      if (errorStr.contains('AUTH_ERROR')) {
+        _setError(errorStr.split('AUTH_ERROR:').last.trim());
+      } else {
+        _setError('Failed to send reset OTP.');
+      }
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<bool> verifyResetOtpAndUpdatePassword({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) async {
+    clearError();
+    _setLoading(true);
+    try {
+      await _repository.verifyResetOtpAndUpdatePassword(
+        email: email.trim(),
+        token: token.trim(),
+        newPassword: newPassword,
+      );
+      return true;
+    } catch (e) {
+      final errorStr = e.toString();
+      if (errorStr.contains('AUTH_ERROR')) {
+        _setError(errorStr.split('AUTH_ERROR:').last.trim());
+      } else {
+        _setError(errorStr.replaceAll('Exception: ', ''));
+      }
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> resendResetPasswordOtp(String email) async {
+    clearError();
+    try {
+      await _repository.sendPasswordResetOtp(email.trim());
+    } catch (e) {
+      _setError("Failed to resend reset OTP.");
     }
   }
 
@@ -198,6 +264,13 @@ class AuthViewModel extends ChangeNotifier {
   String? validateConfirmPassword(String? value, String originalPassword) {
     if (value == null || value.isEmpty) return 'Please confirm your password';
     if (value != originalPassword) return 'Passwords do not match';
+    return null;
+  }
+
+  String? validateOtp(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter the OTP';
+    }
     return null;
   }
 

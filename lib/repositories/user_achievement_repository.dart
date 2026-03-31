@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:dreamsync/models/achievement_model.dart';
 import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/util/local_database.dart';
 import 'package:dreamsync/util/network_helper.dart';

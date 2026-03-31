@@ -6,6 +6,7 @@ import 'package:dreamsync/models/user_achievement_model.dart';
 import 'package:dreamsync/models/user_model.dart';
 import 'package:dreamsync/views/achievement_view/reward_store_screen.dart';
 import 'package:dreamsync/widget/custom/user_avatar.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class AchievementScreen extends StatefulWidget {
   const AchievementScreen({super.key});
@@ -38,15 +39,16 @@ class _AchievementScreenState extends State<AchievementScreen>
   }
 
   bool _isDaily(UserAchievementModel ua) {
-    return (ua.achievement?.category ?? '').toLowerCase() == 'daily';
+    final category = (ua.achievement?.category ?? '').toLowerCase().trim();
+    if (category == 'daily') return true;
+
+    // Fallback: if category is empty/wrong, check criteria_type suffix
+    final criteriaType = (ua.achievement?.criteriaType ?? '').toLowerCase();
+    return criteriaType.endsWith('_daily');
   }
 
   bool _isClaimable(UserAchievementModel ua) {
     return ua.isUnlocked && !ua.isClaimed;
-  }
-
-  bool _isClaimed(UserAchievementModel ua) {
-    return ua.isUnlocked && ua.isClaimed;
   }
 
   bool _isInProgress(UserAchievementModel ua) {
@@ -54,17 +56,17 @@ class _AchievementScreenState extends State<AchievementScreen>
   }
 
   int _dailyStatusOrder(UserAchievementModel ua) {
-    if (_isClaimable(ua)) return 0;
-    if (_isInProgress(ua)) return 1;
-    if (!_isClaimable(ua) && !_isClaimed(ua) && !ua.isUnlocked) return 2;
-    return 3; // claimed last
+    if (_isClaimable(ua)) return 0;   // Claimable
+    if (_isInProgress(ua)) return 1;  // In progress
+    if (!ua.isUnlocked) return 2;     // Locked
+    return 3;                          // Claimed
   }
 
   int _milestoneStatusOrder(UserAchievementModel ua) {
-    if (_isClaimable(ua)) return 0;
-    if (_isInProgress(ua)) return 1;
-    if (!ua.isUnlocked) return 2;
-    return 3; // claimed last
+    if (_isClaimable(ua)) return 0;   // Claimable
+    if (_isInProgress(ua)) return 1;  // In progress
+    if (!ua.isUnlocked) return 2;     // Locked
+    return 3;                          // Claimed
   }
 
   int _familyOrder(String criteriaType) {
@@ -115,17 +117,20 @@ class _AchievementScreenState extends State<AchievementScreen>
   }
 
   int _compareMilestones(UserAchievementModel a, UserAchievementModel b) {
+    // 1. Status first: Claimable → In Progress → Locked → Claimed
+    final statusCompare =
+    _milestoneStatusOrder(a).compareTo(_milestoneStatusOrder(b));
+    if (statusCompare != 0) return statusCompare;
+
+    // 2. Group by family within same status
     final familyCompare = _familyOrder(a.achievement?.criteriaType ?? '')
         .compareTo(_familyOrder(b.achievement?.criteriaType ?? ''));
     if (familyCompare != 0) return familyCompare;
 
+    // 3. Sort by criteria value (lower targets first within family)
     final criteriaCompare = (a.achievement?.criteriaValue ?? 0)
         .compareTo(b.achievement?.criteriaValue ?? 0);
     if (criteriaCompare != 0) return criteriaCompare;
-
-    final statusCompare =
-    _milestoneStatusOrder(a).compareTo(_milestoneStatusOrder(b));
-    if (statusCompare != 0) return statusCompare;
 
     return (a.achievement?.title ?? '')
         .toLowerCase()
@@ -149,10 +154,9 @@ class _AchievementScreenState extends State<AchievementScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
 
     return Scaffold(
       backgroundColor: bg,
@@ -173,7 +177,7 @@ class _AchievementScreenState extends State<AchievementScreen>
             SliverAppBar(
               backgroundColor: bg,
               surfaceTintColor:
-              isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+              AppTheme.surface(context),
               scrolledUnderElevation: 1.5,
               automaticallyImplyLeading: false,
               elevation: 0,

@@ -166,7 +166,7 @@ class RewardStoreViewModel extends ChangeNotifier {
     return _equippedAvatarPath == item.assetPath;
   }
 
-  bool isAudioItem(StoreItem item) => item.type == StoreItemType.AUDIO;
+  bool isAudioItem(StoreItem item) => item.type == StoreItemType.audio;
 
   bool isPreviewing(StoreItem item) {
     return isAudioItem(item) &&
@@ -334,7 +334,7 @@ class RewardStoreViewModel extends ChangeNotifier {
       return value.substring('assets/'.length);
     }
 
-    if (value.startsWith('audio/')) {
+    if (value.startsWith('audios/')) {
       return value;
     }
 
@@ -365,10 +365,10 @@ class RewardStoreViewModel extends ChangeNotifier {
 
       await _audioPlayer.play(AssetSource(assetPath));
     } catch (e) {
-      debugPrint('Reward store audio preview failed: $e');
+      debugPrint('Reward store audios preview failed: $e');
       _isPreviewingAudio = false;
       _currentlyPreviewingAudioFile = null;
-      _errorMessage = 'Failed to play audio preview.';
+      _errorMessage = 'Failed to play audios preview.';
       _safeNotify();
     }
   }

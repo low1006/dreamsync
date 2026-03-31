@@ -20,42 +20,42 @@ class DaySelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final allDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: allDays.map((day) {
-        final isSelected = selectedDays.contains(day);
+    return IgnorePointer(
+      ignoring: !isEditing,
+      child: Opacity(
+        opacity: isEditing ? 1.0 : 0.45,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: allDays.map((day) {
+            final isSelected = selectedDays.contains(day);
 
-        // Disabled appearance if not editing
-        final opacity = isEditing ? 1.0 : (isSelected ? 1.0 : 0.3);
-
-        return InkWell(
-          onTap: () => onToggle(day),
-          borderRadius: BorderRadius.circular(30),
-          child: Opacity(
-            opacity: opacity,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 40, height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isSelected ? activeColor : Colors.transparent,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSelected ? activeColor : textColor.withOpacity(isEditing ? 0.2 : 0.05),
+            return InkWell(
+              onTap: () => onToggle(day),
+              borderRadius: BorderRadius.circular(30),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 40, height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? activeColor : Colors.transparent,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? activeColor : textColor.withOpacity(0.2),
+                  ),
+                ),
+                child: Text(
+                  day[0],
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : textColor.withOpacity(0.7),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              child: Text(
-                day[0],
-                style: TextStyle(
-                  color: isSelected ? Colors.white : textColor.withOpacity(0.7),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
+            );
+          }).toList(),
+        ),
+      ),
     );
   }
 }

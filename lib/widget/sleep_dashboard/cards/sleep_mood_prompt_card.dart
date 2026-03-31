@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dreamsync/models/sleep_model/mood_feedback.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class SleepMoodPromptCard extends StatelessWidget {
   final String? pendingFeedbackDate;
@@ -32,7 +33,7 @@ class SleepMoodPromptCard extends StatelessWidget {
         children: [
           const Row(
             children: [
-              Icon(Icons.mood, color: Colors.indigoAccent),
+              Icon(Icons.mood, color: AppTheme.accent),
               SizedBox(width: 10),
               Expanded(
                 child: Text(

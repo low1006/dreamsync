@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 class AchievementModel {
   final String achievementID;
   final String title;
@@ -24,8 +25,8 @@ class AchievementModel {
       description: (json['description'] ?? '').toString(),
       category: (json['category'] ?? '').toString(),
       criteriaType: (json['criteria_type'] ?? '').toString(),
-      criteriaValue: _toDouble(json['criteria_value']),
-      xpReward: _toDouble(json['xp_reward']),
+      criteriaValue: Parsers.toDouble(json['criteria_value']),
+      xpReward: Parsers.toDouble(json['xp_reward']),
     );
   }
 
@@ -39,13 +40,5 @@ class AchievementModel {
       'criteria_value': criteriaValue,
       'xp_reward': xpReward,
     };
-  }
-
-  static double _toDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0.0;
   }
 }

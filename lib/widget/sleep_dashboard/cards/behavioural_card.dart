@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class BehaviouralCard extends StatelessWidget {
   final String title;
@@ -20,31 +21,12 @@ class BehaviouralCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
-    final titleColor = isDark ? Colors.white70 : Colors.grey;
-    final valueColor = isDark ? Colors.white : Colors.black87;
-    final subtitleColor = isDark
-        ? Colors.indigoAccent.shade100
-        : Colors.indigoAccent;
-    final shadowColor = Colors.black.withOpacity(isDark ? 0.20 : 0.05);
-
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(AppTheme.radiusXL),
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: shadowColor,
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: AppTheme.cardDecoration(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -53,9 +35,9 @@ class BehaviouralCard extends StatelessWidget {
               children: [
                 Icon(icon, color: iconColor, size: 28),
                 if (onTap != null)
-                  const Icon(
+                  Icon(
                     Icons.add_circle_outline,
-                    color: Colors.indigoAccent,
+                    color: AppTheme.accent,
                     size: 20,
                   ),
               ],
@@ -66,7 +48,7 @@ class BehaviouralCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: titleColor,
+                color: AppTheme.subText(context),
               ),
             ),
             const SizedBox(height: 4),
@@ -75,7 +57,7 @@ class BehaviouralCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: valueColor,
+                color: AppTheme.text(context),
               ),
             ),
             const SizedBox(height: 4),
@@ -83,7 +65,7 @@ class BehaviouralCard extends StatelessWidget {
               subtitle,
               style: TextStyle(
                 fontSize: 12,
-                color: subtitleColor,
+                color: AppTheme.accent,
               ),
             ),
           ],

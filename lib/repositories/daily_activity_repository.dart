@@ -91,6 +91,9 @@ class DailyActivityRepository {
         foodCalories: 0,
         screenTimeMinutes: 0,
         burnedCalories: 0,
+        caffeineIntakeMg: 0,
+        sugarIntakeG: 0,
+        alcoholIntakeG: 0,
       ),
     );
   }
@@ -122,6 +125,9 @@ class DailyActivityRepository {
         'food_calories': record.foodCalories,
         'screen_time_minutes': record.screenTimeMinutes,
         'burned_calories': record.burnedCalories,
+        'caffeine_intake_mg': record.caffeineIntakeMg,
+        'sugar_intake_g': record.sugarIntakeG,
+        'alcohol_intake_g': record.alcoholIntakeG,
       };
 
       final encrypted = _encryption.encryptData(payload, record.userId);
@@ -154,6 +160,9 @@ class DailyActivityRepository {
       'food_calories': record.foodCalories,
       'screen_time_minutes': record.screenTimeMinutes,
       'burned_calories': record.burnedCalories,
+      'caffeine_intake_mg': record.caffeineIntakeMg,
+      'sugar_intake_g': record.sugarIntakeG,
+      'alcohol_intake_g': record.alcoholIntakeG,
     };
   }
 
@@ -166,6 +175,9 @@ class DailyActivityRepository {
       'food_calories': row['food_calories'],
       'screen_time_minutes': row['screen_time_minutes'],
       'burned_calories': row['burned_calories'],
+      'caffeine_intake_mg': row['caffeine_intake_mg'],
+      'sugar_intake_g': row['sugar_intake_g'],
+      'alcohol_intake_g': row['alcohol_intake_g'],
     });
   }
 }

@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-class SleepScoreGaugePainter extends CustomPainter {
+class SleepScoreGauge extends CustomPainter {
   final int score;
   final Color themeColor;
+  final Color textColor;
+  final Color subTextColor;
+  final Color trackColor;
 
-  SleepScoreGaugePainter({required this.score, required this.themeColor});
+  SleepScoreGauge({
+    required this.score,
+    required this.themeColor,
+    this.textColor = Colors.black87,
+    this.subTextColor = Colors.grey,
+    this.trackColor = const Color(0xFFE0E0E0),
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -21,7 +30,7 @@ class SleepScoreGaugePainter extends CustomPainter {
     final Rect rect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
 
     final paintTrack = Paint()
-      ..color = Colors.grey.shade200
+      ..color = trackColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
@@ -38,10 +47,10 @@ class SleepScoreGaugePainter extends CustomPainter {
     final textPainterScore = TextPainter(
       text: TextSpan(
         text: score.toString(),
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 42,
           fontWeight: FontWeight.w900,
-          color: Colors.black87,
+          color: textColor,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -53,12 +62,12 @@ class SleepScoreGaugePainter extends CustomPainter {
     );
 
     final textPainterLabel = TextPainter(
-      text: const TextSpan(
+      text: TextSpan(
         text: "Sleep Score",
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w500,
-          color: Colors.grey,
+          color: subTextColor,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -69,14 +78,14 @@ class SleepScoreGaugePainter extends CustomPainter {
       Offset(centerX - textPainterLabel.width / 2, centerY + textPainterScore.height - 20),
     );
 
-    const textStyleNumbers = TextStyle(fontSize: 10, color: Colors.grey);
+    final textStyleNumbers = TextStyle(fontSize: 10, color: subTextColor);
     final textPainterZero = TextPainter(
-      text: const TextSpan(text: "0", style: textStyleNumbers),
+      text: TextSpan(text: "0", style: textStyleNumbers),
       textDirection: TextDirection.ltr,
     )..layout();
 
     final textPainterHundred = TextPainter(
-      text: const TextSpan(text: "100", style: textStyleNumbers),
+      text: TextSpan(text: "100", style: textStyleNumbers),
       textDirection: TextDirection.ltr,
     )..layout();
 
@@ -97,5 +106,8 @@ class SleepScoreGaugePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant SleepScoreGauge oldDelegate) =>
+      score != oldDelegate.score ||
+          themeColor != oldDelegate.themeColor ||
+          textColor != oldDelegate.textColor;
 }

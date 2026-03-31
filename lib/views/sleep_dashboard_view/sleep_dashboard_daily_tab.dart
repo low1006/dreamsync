@@ -8,6 +8,7 @@ import 'package:dreamsync/widget/sleep_dashboard/charts/hypnogram.dart';
 import 'package:dreamsync/widget/sleep_dashboard/cards/sleep_mood_prompt_card.dart';
 import 'package:dreamsync/widget/sleep_dashboard/charts/sleep_score_gauge.dart';
 import 'package:dreamsync/widget/sleep_dashboard/states/sync_pending_banner.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class SleepDashboardDailyTab extends StatelessWidget {
   final SleepViewModel viewModel;
@@ -32,11 +33,10 @@ class SleepDashboardDailyTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool noData = viewModel.dailyTotalSleepDuration == "0h 0m";
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
-    final shadowColor = Colors.black.withOpacity(isDark ? 0.20 : 0.05);
-    final subText = isDark ? Colors.white70 : Colors.grey;
+    final cardColor = AppTheme.card(context);
+    final shadowColor = AppTheme.shadow(context);
+    final subText = AppTheme.subText(context);
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -97,15 +97,20 @@ class SleepDashboardDailyTab extends StatelessWidget {
                             children: [
                               CustomPaint(
                                 size: const Size(100, 100),
-                                painter: SleepScoreGaugePainter(
+                                painter: SleepScoreGauge(
                                   score: viewModel.dailySleepScore,
                                   themeColor: accent,
+                                  textColor: AppTheme.text(context),
+                                  subTextColor: subText,
+                                  trackColor: AppTheme.isDark(context)
+                                      ? Colors.white.withOpacity(0.1)
+                                      : Colors.grey.shade200,
                                 ),
                               ),
                               Container(
                                 width: 1,
                                 height: 60,
-                                color: isDark
+                                color: AppTheme.isDark(context)
                                     ? Colors.white12
                                     : Colors.grey.shade200,
                               ),
@@ -319,7 +324,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
                   child: BehaviouralCard(
                     title: "Exercise",
                     value: "${dailyVM.exerciseMinutes} mins",
-                    subtitle: "Fetched from Health Connect",
+                    subtitle: "Tap to add",
                     icon: Icons.fitness_center,
                     iconColor: Colors.orange,
                     onTap: () =>
@@ -331,7 +336,7 @@ class SleepDashboardDailyTab extends StatelessWidget {
                   child: BehaviouralCard(
                     title: "Calories Burned",
                     value: "${dailyVM.burnedCalories} kcal",
-                    subtitle: "Fetched from Health Connect",
+                    subtitle: "From exercise & Health Connect",
                     icon: Icons.local_fire_department,
                     iconColor: Colors.redAccent,
                   ),
@@ -349,6 +354,57 @@ class SleepDashboardDailyTab extends StatelessWidget {
               iconColor: Colors.green,
               onTap: () => BehaviouralDialogs.showAddFoodDialog(context),
             ),
+
+            const SizedBox(height: 24),
+
+            Text(
+              "Sleep Impact Substances",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: text,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: BehaviouralCard(
+                    title: "Caffeine",
+                    value: "${dailyVM.caffeineIntakeMg.round()} mg",
+                    subtitle: dailyVM.caffeineIntakeMg > 200
+                        ? "⚠️ High — may affect sleep"
+                        : "From food intake",
+                    icon: Icons.coffee,
+                    iconColor: Colors.brown,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: BehaviouralCard(
+                    title: "Sugar",
+                    value: "${dailyVM.sugarIntakeG.toStringAsFixed(1)} g",
+                    subtitle: dailyVM.sugarIntakeG > 50
+                        ? "⚠️ High — may reduce sleep quality"
+                        : "From food intake",
+                    icon: Icons.cake,
+                    iconColor: Colors.amber,
+                  ),
+                ),
+              ],
+            ),
+
+            if (dailyVM.alcoholIntakeG > 0) ...[
+              const SizedBox(height: 12),
+              BehaviouralCard(
+                title: "Alcohol",
+                value: "${dailyVM.alcoholIntakeG.toStringAsFixed(1)} g",
+                subtitle: "⚠️ Reduces REM sleep quality",
+                icon: Icons.local_bar,
+                iconColor: Colors.purple,
+              ),
+            ],
 
             const SizedBox(height: 30),
           ],

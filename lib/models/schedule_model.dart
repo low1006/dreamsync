@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 import 'package:flutter/material.dart';
 
 class ScheduleModel {
@@ -10,6 +11,7 @@ class ScheduleModel {
   final bool isSmartAlarm;
   final bool isSmartNotification;
   final bool isSnoozeOn;
+  final int snoozeDurationMinutes;
 
   final int toneId;
   final String toneName;
@@ -25,6 +27,7 @@ class ScheduleModel {
     this.isSmartAlarm = false,
     this.isSmartNotification = true,
     this.isSnoozeOn = true,
+    this.snoozeDurationMinutes = 5,
     this.toneId = 1,
     this.toneName = 'Classic',
     this.toneFile = 'classic.mp3',
@@ -44,13 +47,14 @@ class ScheduleModel {
       label: (map['label'] ?? 'Schedule').toString(),
       bedtime: _parseTime(map['target_bed_time']),
       wakeTime: _parseTime(map['target_wake_time']),
-      isActive: _toBool(map['is_alarm_on'], defaultValue: true),
+      isActive: Parsers.toBool(map['is_alarm_on'], fallback: true),
       days: _parseDays(map['days']),
-      isSmartAlarm: _toBool(map['is_smart_alarm']),
+      isSmartAlarm: Parsers.toBool(map['is_smart_alarm']),
       isSmartNotification:
-      _toBool(map['is_smart_notification'], defaultValue: true),
-      isSnoozeOn: _toBool(map['is_snooze_on'], defaultValue: true),
-      toneId: _toInt(map['item_id'], defaultValue: 1),
+      Parsers.toBool(map['is_smart_notification'], fallback: true),
+      isSnoozeOn: Parsers.toBool(map['is_snooze_on'], fallback: true),
+      snoozeDurationMinutes: Parsers.toInt(map['snooze_duration_minutes'], fallback: 5),
+      toneId: Parsers.toInt(map['item_id'], fallback: 1),
       toneName: (toneData['name'] ?? 'Classic').toString(),
       toneFile: (metadata['file'] ?? 'classic.mp3').toString(),
     );
@@ -82,23 +86,6 @@ class ScheduleModel {
     return [];
   }
 
-  static bool _toBool(dynamic value, {bool defaultValue = false}) {
-    if (value == null) return defaultValue;
-    if (value is bool) return value;
-    if (value is int) return value == 1;
-    final text = value.toString().toLowerCase().trim();
-    if (text == 'true' || text == '1') return true;
-    if (text == 'false' || text == '0') return false;
-    return defaultValue;
-  }
-
-  static int _toInt(dynamic value, {int defaultValue = 0}) {
-    if (value == null) return defaultValue;
-    if (value is int) return value;
-    if (value is double) return value.round();
-    return int.tryParse(value.toString()) ?? defaultValue;
-  }
-
   static String formatTimeForDB(TimeOfDay time) {
     final h = time.hour.toString().padLeft(2, '0');
     final m = time.minute.toString().padLeft(2, '0');
@@ -115,6 +102,7 @@ class ScheduleModel {
     bool? isSmartAlarm,
     bool? isSmartNotification,
     bool? isSnoozeOn,
+    int? snoozeDurationMinutes,
     int? toneId,
     String? toneName,
     String? toneFile,
@@ -129,6 +117,7 @@ class ScheduleModel {
       isSmartAlarm: isSmartAlarm ?? this.isSmartAlarm,
       isSmartNotification: isSmartNotification ?? this.isSmartNotification,
       isSnoozeOn: isSnoozeOn ?? this.isSnoozeOn,
+      snoozeDurationMinutes: snoozeDurationMinutes ?? this.snoozeDurationMinutes,
       toneId: toneId ?? this.toneId,
       toneName: toneName ?? this.toneName,
       toneFile: toneFile ?? this.toneFile,

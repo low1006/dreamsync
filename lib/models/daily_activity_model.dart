@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 class DailyActivityModel {
   final String? id;
   final String userId;
@@ -6,6 +7,9 @@ class DailyActivityModel {
   final int foodCalories;
   final int screenTimeMinutes;
   final int burnedCalories;
+  final double caffeineIntakeMg;
+  final double sugarIntakeG;
+  final double alcoholIntakeG;
 
   const DailyActivityModel({
     this.id,
@@ -15,6 +19,9 @@ class DailyActivityModel {
     required this.foodCalories,
     required this.screenTimeMinutes,
     required this.burnedCalories,
+    this.caffeineIntakeMg = 0,
+    this.sugarIntakeG = 0,
+    this.alcoholIntakeG = 0,
   });
 
   factory DailyActivityModel.fromJson(Map<String, dynamic> json) {
@@ -22,10 +29,13 @@ class DailyActivityModel {
       id: (json['activity_id'] ?? json['id'])?.toString(),
       userId: (json['user_id'] ?? '').toString(),
       date: (json['date'] ?? '').toString(),
-      exerciseMinutes: _toInt(json['exercise_minutes']),
-      foodCalories: _toInt(json['food_calories']),
-      screenTimeMinutes: _toInt(json['screen_time_minutes']),
-      burnedCalories: _toInt(json['burned_calories']),
+      exerciseMinutes: Parsers.toInt(json['exercise_minutes']),
+      foodCalories: Parsers.toInt(json['food_calories']),
+      screenTimeMinutes: Parsers.toInt(json['screen_time_minutes']),
+      burnedCalories: Parsers.toInt(json['burned_calories']),
+      caffeineIntakeMg: Parsers.toDouble(json['caffeine_intake_mg']),
+      sugarIntakeG: Parsers.toDouble(json['sugar_intake_g']),
+      alcoholIntakeG: Parsers.toDouble(json['alcohol_intake_g']),
     );
   }
 
@@ -38,6 +48,9 @@ class DailyActivityModel {
       'food_calories': foodCalories,
       'screen_time_minutes': screenTimeMinutes,
       'burned_calories': burnedCalories,
+      'caffeine_intake_mg': caffeineIntakeMg,
+      'sugar_intake_g': sugarIntakeG,
+      'alcohol_intake_g': alcoholIntakeG,
     };
   }
 
@@ -49,6 +62,9 @@ class DailyActivityModel {
     int? foodCalories,
     int? screenTimeMinutes,
     int? burnedCalories,
+    double? caffeineIntakeMg,
+    double? sugarIntakeG,
+    double? alcoholIntakeG,
   }) {
     return DailyActivityModel(
       id: id ?? this.id,
@@ -58,13 +74,10 @@ class DailyActivityModel {
       foodCalories: foodCalories ?? this.foodCalories,
       screenTimeMinutes: screenTimeMinutes ?? this.screenTimeMinutes,
       burnedCalories: burnedCalories ?? this.burnedCalories,
+      caffeineIntakeMg: caffeineIntakeMg ?? this.caffeineIntakeMg,
+      sugarIntakeG: sugarIntakeG ?? this.sugarIntakeG,
+      alcoholIntakeG: alcoholIntakeG ?? this.alcoholIntakeG,
     );
   }
 
-  static int _toInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is double) return value.round();
-    return int.tryParse(value.toString()) ?? 0;
-  }
 }

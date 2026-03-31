@@ -1,4 +1,4 @@
-import 'dart:convert';
+import "package:dreamsync/util/parsers.dart";
 
 class SleepRecordModel {
   final String? id; // maps to sleep_id in local DB
@@ -32,12 +32,12 @@ class SleepRecordModel {
       id: (json['sleep_id'] ?? json['id'])?.toString(),
       userId: (json['user_id'] ?? '').toString(),
       date: (json['date'] ?? '').toString(),
-      totalMinutes: _toInt(json['total_minutes']),
-      sleepScore: _toInt(json['sleep_score']),
-      deepMinutes: _toInt(json['deep_minutes']),
-      lightMinutes: _toInt(json['light_minutes']),
-      remMinutes: _toInt(json['rem_minutes']),
-      awakeMinutes: _toInt(json['awake_minutes']),
+      totalMinutes: Parsers.toInt(json['total_minutes']),
+      sleepScore: Parsers.toInt(json['sleep_score']),
+      deepMinutes: Parsers.toInt(json['deep_minutes']),
+      lightMinutes: Parsers.toInt(json['light_minutes']),
+      remMinutes: Parsers.toInt(json['rem_minutes']),
+      awakeMinutes: Parsers.toInt(json['awake_minutes']),
       hypnogramJson: json['hypnogram_json']?.toString(),
       moodFeedback: json['mood_feedback']?.toString(),
     );
@@ -85,12 +85,5 @@ class SleepRecordModel {
       hypnogramJson: hypnogramJson ?? this.hypnogramJson,
       moodFeedback: moodFeedback ?? this.moodFeedback,
     );
-  }
-
-  static int _toInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is double) return value.round();
-    return int.tryParse(value.toString()) ?? 0;
   }
 }

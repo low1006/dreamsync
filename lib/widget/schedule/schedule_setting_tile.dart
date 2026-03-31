@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class ScheduleSettingTile extends StatelessWidget {
   final String title;
@@ -27,16 +28,14 @@ class ScheduleSettingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Opacity(
-      opacity: enabled ? 1 : 0.65,
+      opacity: enabled ? 1.0 : 0.45,
       child: IgnorePointer(
         ignoring: !enabled,
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF1E293B)
-                : const Color(0xFFF8FAFC),
+            color: AppTheme.surface(context),
             borderRadius: BorderRadius.circular(18),
           ),
           child: Row(

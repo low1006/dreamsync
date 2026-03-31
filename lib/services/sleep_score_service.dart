@@ -1,8 +1,9 @@
+import 'package:flutter/foundation.dart';
+
 class SleepScoreService {
-  // Shared constants — used by recommendation_service.dart and notebook
-  static const double idealDeepRatio  = 0.18;
-  static const double idealRemRatio   = 0.22;
-  static const int    targetMinutes   = 480;   // 8h
+  static const double idealDeepRatio = 0.18;
+  static const double idealRemRatio = 0.22;
+  static const int targetMinutes = 480; // 8h
 
   int calculateSleepScore({
     required int totalMinutes,
@@ -11,7 +12,10 @@ class SleepScoreService {
     required int awakeMinutes,
     int targetMinutes = 480,
   }) {
-    if (totalMinutes <= 0) return 0;
+    if (totalMinutes <= 0) {
+      debugPrint('💤 SleepScore => totalMinutes <= 0, score=0');
+      return 0;
+    }
 
     final bool hasDeep = deepMinutes > 0;
     final bool hasRem = remMinutes > 0;
@@ -30,34 +34,55 @@ class SleepScoreService {
     weightedScore += durationPart;
     usedWeight += 50.0;
 
+    double deepPart = 0.0;
+    double remPart = 0.0;
+    double awakePart = 0.0;
+
     if (hasDeep) {
       final double deepRatio = deepMinutes / totalMinutes;
-      const double idealDeepRatio = 0.18;
-      final double deepPart =
-      (20.0 - ((deepRatio - idealDeepRatio).abs() / idealDeepRatio) * 20.0)
-          .clamp(0.0, 20.0);
+      deepPart =
+          (20.0 - ((deepRatio - idealDeepRatio).abs() / idealDeepRatio) * 20.0)
+              .clamp(0.0, 20.0);
       weightedScore += deepPart;
       usedWeight += 20.0;
     }
 
     if (hasRem) {
       final double remRatio = remMinutes / totalMinutes;
-      const double idealRemRatio = 0.22;
-      final double remPart =
-      (20.0 - ((remRatio - idealRemRatio).abs() / idealRemRatio) * 20.0)
-          .clamp(0.0, 20.0);
+      remPart =
+          (20.0 - ((remRatio - idealRemRatio).abs() / idealRemRatio) * 20.0)
+              .clamp(0.0, 20.0);
       weightedScore += remPart;
       usedWeight += 20.0;
     }
 
     if (hasAwake) {
       final double awakeRatio = awakeMinutes / totalMinutes;
-      final double awakePart = (10.0 - (awakeRatio * 40.0)).clamp(0.0, 10.0);
+      awakePart = (10.0 - (awakeRatio * 40.0)).clamp(0.0, 10.0);
       weightedScore += awakePart;
       usedWeight += 10.0;
     }
 
-    if (usedWeight <= 0) return 0;
-    return ((weightedScore / usedWeight) * 100.0).round().clamp(0, 100);
+    if (usedWeight <= 0) {
+      debugPrint('💤 SleepScore => usedWeight <= 0, score=0');
+      return 0;
+    }
+
+    final score = ((weightedScore / usedWeight) * 100.0).round().clamp(0, 100);
+
+    debugPrint(
+      '📊 SleepScore calculation => '
+          'total=${totalMinutes}m (${(totalMinutes / 60).toStringAsFixed(2)}h), '
+          'deep=${deepMinutes}m, rem=${remMinutes}m, awake=${awakeMinutes}m | '
+          'durationPart=${durationPart.toStringAsFixed(2)}, '
+          'deepPart=${deepPart.toStringAsFixed(2)}, '
+          'remPart=${remPart.toStringAsFixed(2)}, '
+          'awakePart=${awakePart.toStringAsFixed(2)} | '
+          'usedWeight=${usedWeight.toStringAsFixed(2)} | '
+          'weightedScore=${weightedScore.toStringAsFixed(2)} | '
+          'finalScore=$score',
+    );
+
+    return score;
   }
 }

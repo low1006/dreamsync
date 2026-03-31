@@ -1,5 +1,7 @@
+import "package:dreamsync/util/parsers.dart";
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
 import 'package:dreamsync/models/sleep_model/day_sleep_aggregate.dart';
@@ -40,8 +42,8 @@ class SleepSummaryService {
       : _scoreService = scoreService ?? SleepScoreService();
 
   SleepSummaryResult rebuildDashboardStateFromRawData(
-    List<HealthDataPoint> rawHealthData,
-  ) {
+      List<HealthDataPoint> rawHealthData,
+      ) {
     if (rawHealthData.isEmpty) {
       return const SleepSummaryResult(
         isDataPendingSync: false,
@@ -58,7 +60,7 @@ class SleepSummaryService {
     }
 
     final bool hasSessions =
-        rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
+    rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
 
     final Map<String, DaySleepAggregate> byDay = buildAggregates(rawHealthData);
     DateTime latestDate = rawHealthData.first.dateTo;
@@ -75,13 +77,13 @@ class SleepSummaryService {
           entry.key: entry.value.latestWakeTime!,
     };
 
-    final latestKey = dateKey(latestDate);
+    final latestKey = Parsers.dateKey(latestDate);
     final latestAgg = byDay[latestKey] ?? DaySleepAggregate();
 
     final now = DateTime.now();
     final todayMidnight = DateTime(now.year, now.month, now.day);
     final latestMidnight =
-        DateTime(latestDate.year, latestDate.month, latestDate.day);
+    DateTime(latestDate.year, latestDate.month, latestDate.day);
     final yesterdayMidnight = todayMidnight.subtract(const Duration(days: 1));
 
     bool isDataPendingSync = false;
@@ -96,16 +98,22 @@ class SleepSummaryService {
     }
 
     final int dailyTotal =
-        hasSessions ? latestAgg.sessionMinutes : latestAgg.stageTotalMinutes;
+    hasSessions ? latestAgg.sessionMinutes : latestAgg.stageTotalMinutes;
 
     latestAgg.hypnogram.sort((a, b) => a.hour.compareTo(b.hour));
 
+    final int dailyScore = _scoreService.calculateSleepScore(
+      totalMinutes: dailyTotal,
+      deepMinutes: latestAgg.deepMinutes,
+      remMinutes: latestAgg.remMinutes,
+      awakeMinutes: latestAgg.awakeMinutes,
+    );
+
     final DateTime weeklyCutoff =
-        todayMidnight.subtract(const Duration(days: 7));
-    int weeklyTotal = 0;
-    int weeklyDeep = 0;
-    int weeklyRem = 0;
-    int weeklyAwake = 0;
+    todayMidnight.subtract(const Duration(days: 6));
+
+    int weeklyTotalMinutes = 0;
+    int totalDailyScores = 0;
     int dayCount = 0;
 
     for (final entry in byDay.entries) {
@@ -113,18 +121,26 @@ class SleepSummaryService {
       if (day.isBefore(weeklyCutoff)) continue;
 
       final agg = entry.value;
-      final chosenTotal = hasSessions ? agg.sessionMinutes : agg.stageTotalMinutes;
+      final chosenTotal =
+      hasSessions ? agg.sessionMinutes : agg.stageTotalMinutes;
 
       if (chosenTotal > 0 ||
           agg.deepMinutes > 0 ||
           agg.lightMinutes > 0 ||
           agg.remMinutes > 0 ||
           agg.awakeMinutes > 0) {
+        final int dayScore = _scoreService.calculateSleepScore(
+          totalMinutes: chosenTotal,
+          deepMinutes: agg.deepMinutes,
+          remMinutes: agg.remMinutes,
+          awakeMinutes: agg.awakeMinutes,
+        );
+
+        debugPrint('📅 Weekly include => ${entry.key} | score=$dayScore');
+
+        weeklyTotalMinutes += chosenTotal;
+        totalDailyScores += dayScore;
         dayCount++;
-        weeklyTotal += chosenTotal;
-        weeklyDeep += agg.deepMinutes;
-        weeklyRem += agg.remMinutes;
-        weeklyAwake += agg.awakeMinutes;
       }
     }
 
@@ -135,32 +151,24 @@ class SleepSummaryService {
       weeklyTotalSleepDuration = '0h 0m';
       weeklyScore = 0;
     } else {
-      final avgTotal = weeklyTotal ~/ dayCount;
-      final avgDeep = weeklyDeep ~/ dayCount;
-      final avgRem = weeklyRem ~/ dayCount;
-      final avgAwake = weeklyAwake ~/ dayCount;
-
-      weeklyTotalSleepDuration = formatMinutes(avgTotal);
-      weeklyScore = _scoreService.calculateSleepScore(
-        totalMinutes: avgTotal,
-        deepMinutes: avgDeep,
-        remMinutes: avgRem,
-        awakeMinutes: avgAwake,
-      );
+      weeklyTotalSleepDuration = Parsers.formatMinutes(weeklyTotalMinutes ~/ dayCount);
+      weeklyScore = (totalDailyScores / dayCount).round();
     }
+
+    debugPrint(
+      '📊 Weekly final => totalDailyScores=$totalDailyScores | '
+          'dayCount=$dayCount | '
+          'avg=${dayCount == 0 ? 0 : (totalDailyScores / dayCount).toStringAsFixed(2)} | '
+          'weeklyScore=$weeklyScore',
+    );
 
     return SleepSummaryResult(
       isDataPendingSync: isDataPendingSync,
-      dailyTotalSleepDuration: formatMinutes(dailyTotal),
-      dailySleepScore: _scoreService.calculateSleepScore(
-        totalMinutes: dailyTotal,
-        deepMinutes: latestAgg.deepMinutes,
-        remMinutes: latestAgg.remMinutes,
-        awakeMinutes: latestAgg.awakeMinutes,
-      ),
-      dailyDeepSleep: formatMinutes(latestAgg.deepMinutes),
-      dailyLightSleep: formatMinutes(latestAgg.lightMinutes),
-      dailyRemSleep: formatMinutes(latestAgg.remMinutes),
+      dailyTotalSleepDuration: Parsers.formatMinutes(dailyTotal),
+      dailySleepScore: dailyScore,
+      dailyDeepSleep: Parsers.formatMinutes(latestAgg.deepMinutes),
+      dailyLightSleep: Parsers.formatMinutes(latestAgg.lightMinutes),
+      dailyRemSleep: Parsers.formatMinutes(latestAgg.remMinutes),
       hypnogramData: latestAgg.hypnogram,
       weeklyTotalSleepDuration: weeklyTotalSleepDuration,
       weeklySleepScore: weeklyScore,
@@ -169,21 +177,22 @@ class SleepSummaryService {
   }
 
   List<SleepRecordModel> buildDailySummaries(
-    List<HealthDataPoint> rawHealthData,
-    String userId, {
-    Map<String, SleepRecordModel> existingByDate = const {},
-  }) {
+      List<HealthDataPoint> rawHealthData,
+      String userId, {
+        Map<String, SleepRecordModel> existingByDate = const {},
+      }) {
     if (rawHealthData.isEmpty) return [];
 
     final bool hasSessions =
-        rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
+    rawHealthData.any((p) => p.type == HealthDataType.SLEEP_SESSION);
 
     final Map<String, DaySleepAggregate> byDay = buildAggregates(rawHealthData);
     final List<SleepRecordModel> summaries = [];
 
     for (final entry in byDay.entries) {
       final agg = entry.value;
-      final totalMinutes = hasSessions ? agg.sessionMinutes : agg.stageTotalMinutes;
+      final totalMinutes =
+      hasSessions ? agg.sessionMinutes : agg.stageTotalMinutes;
 
       if (totalMinutes <= 0) continue;
 
@@ -194,6 +203,15 @@ class SleepSummaryService {
         deepMinutes: agg.deepMinutes,
         remMinutes: agg.remMinutes,
         awakeMinutes: agg.awakeMinutes,
+      );
+
+      debugPrint(
+        '🛌 ${entry.key} => '
+            'Total: ${(totalMinutes / 60).toStringAsFixed(2)}h | '
+            'Light: ${(agg.lightMinutes / 60).toStringAsFixed(2)}h | '
+            'Deep: ${(agg.deepMinutes / 60).toStringAsFixed(2)}h | '
+            'REM: ${(agg.remMinutes / 60).toStringAsFixed(2)}h | '
+            'Score: $score',
       );
 
       final existing = existingByDate[entry.key];
@@ -221,11 +239,13 @@ class SleepSummaryService {
     return summaries;
   }
 
-  Map<String, DaySleepAggregate> buildAggregates(List<HealthDataPoint> rawHealthData) {
+  Map<String, DaySleepAggregate> buildAggregates(
+      List<HealthDataPoint> rawHealthData,
+      ) {
     final Map<String, DaySleepAggregate> byDay = {};
 
     for (final point in rawHealthData) {
-      final dayKey = dateKey(point.dateTo);
+      final dayKey = Parsers.dateKey(point.dateTo);
       final dayAgg = byDay.putIfAbsent(dayKey, DaySleepAggregate.new);
 
       final duration = point.dateTo.difference(point.dateFrom).inMinutes;
@@ -285,20 +305,5 @@ class SleepSummaryService {
     if (hour > 12) hour -= 24;
 
     return SleepChartPoint(hour, stageValue);
-  }
-
-  String formatMinutes(int totalMinutes) {
-    if (totalMinutes == 0) return '0h 0m';
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    return '${hours}h ${minutes}m';
-  }
-
-  String dateKey(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
-  String normalizeDateKey(String rawDate) {
-    return rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
   }
 }

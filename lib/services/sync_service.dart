@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -151,12 +152,12 @@ class SyncService {
             'sleep_id': '${userId}_$date',
             'user_id': userId,
             'date': date,
-            'total_minutes': _toInt(decrypted['total_minutes']),
-            'sleep_score': _toInt(decrypted['sleep_score']),
-            'deep_minutes': _toInt(decrypted['deep_minutes']),
-            'light_minutes': _toInt(decrypted['light_minutes']),
-            'rem_minutes': _toInt(decrypted['rem_minutes']),
-            'awake_minutes': _toInt(decrypted['awake_minutes']),
+            'total_minutes': Parsers.toInt(decrypted['total_minutes']),
+            'sleep_score': Parsers.toInt(decrypted['sleep_score']),
+            'deep_minutes': Parsers.toInt(decrypted['deep_minutes']),
+            'light_minutes': Parsers.toInt(decrypted['light_minutes']),
+            'rem_minutes': Parsers.toInt(decrypted['rem_minutes']),
+            'awake_minutes': Parsers.toInt(decrypted['awake_minutes']),
             'hypnogram_json': decrypted['hypnogram_json'],
             'mood_feedback': decrypted['mood_feedback'],
           };
@@ -227,7 +228,10 @@ class SyncService {
                 '(screen=${record.screenTimeMinutes}, '
                 'exercise=${record.exerciseMinutes}, '
                 'food=${record.foodCalories}, '
-                'burned=${record.burnedCalories})',
+                'burned=${record.burnedCalories}, '
+                'caffeine=${record.caffeineIntakeMg}, '
+                'sugar=${record.sugarIntakeG}, '
+                'alcohol=${record.alcoholIntakeG})',
           );
         } catch (e) {
           debugPrint('   ⚠️ Failed to sync activity ${row['date']}: $e');
@@ -272,10 +276,13 @@ class SyncService {
             'activity_id': '${userId}_$date',
             'user_id': userId,
             'date': date,
-            'exercise_minutes': _toInt(decrypted['exercise_minutes']),
-            'food_calories': _toInt(decrypted['food_calories']),
-            'screen_time_minutes': _toInt(decrypted['screen_time_minutes']),
-            'burned_calories': _toInt(decrypted['burned_calories']),
+            'exercise_minutes': Parsers.toInt(decrypted['exercise_minutes']),
+            'food_calories': Parsers.toInt(decrypted['food_calories']),
+            'screen_time_minutes': Parsers.toInt(decrypted['screen_time_minutes']),
+            'burned_calories': Parsers.toInt(decrypted['burned_calories']),
+            'caffeine_intake_mg': Parsers.toDouble(decrypted['caffeine_intake_mg']),
+            'sugar_intake_g': Parsers.toDouble(decrypted['sugar_intake_g']),
+            'alcohol_intake_g': Parsers.toDouble(decrypted['alcohol_intake_g']),
           };
 
           await LocalDatabase.instance.insertRecord(
@@ -289,7 +296,10 @@ class SyncService {
                 '(screen=${localRow['screen_time_minutes']}, '
                 'exercise=${localRow['exercise_minutes']}, '
                 'food=${localRow['food_calories']}, '
-                'burned=${localRow['burned_calories']})',
+                'burned=${localRow['burned_calories']}, '
+                'caffeine=${localRow['caffeine_intake_mg']}, '
+                'sugar=${localRow['sugar_intake_g']}, '
+                'alcohol=${localRow['alcohol_intake_g']})',
           );
         } catch (e) {
           debugPrint('   ⚠️ Failed to restore activity ${row['date']}: $e');
@@ -319,13 +329,10 @@ class SyncService {
       'food_calories': r.foodCalories,
       'screen_time_minutes': r.screenTimeMinutes,
       'burned_calories': r.burnedCalories,
+      'caffeine_intake_mg': r.caffeineIntakeMg,
+      'sugar_intake_g': r.sugarIntakeG,
+      'alcohol_intake_g': r.alcoholIntakeG,
     };
   }
 
-  int _toInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is double) return value.round();
-    return int.tryParse(value.toString()) ?? 0;
-  }
 }

@@ -3,6 +3,7 @@ import 'package:dreamsync/viewmodels/data_collection_viewmodel/daily_activity_vi
 import 'package:dreamsync/viewmodels/data_collection_viewmodel/sleep_viewmodel.dart';
 import 'package:dreamsync/widget/sleep_dashboard/charts/bar_chart.dart';
 import 'package:dreamsync/widget/sleep_dashboard/charts/sleep_score_gauge.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class SleepDashboardWeeklyTab extends StatelessWidget {
   final SleepViewModel viewModel;
@@ -38,10 +39,9 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
-    final shadowColor = Colors.black.withOpacity(isDark ? 0.20 : 0.05);
-    final subText = isDark ? Colors.white70 : Colors.grey;
+    final cardColor = AppTheme.card(context);
+    final shadowColor = AppTheme.shadow(context);
+    final subText = AppTheme.subText(context);
 
     final sleepTrendValues = _normalizeTo7(
       viewModel.weeklyData,
@@ -68,7 +68,25 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
           (e) => e.foodCalories.toDouble(),
     );
 
+    final caffeineValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.caffeineIntakeMg,
+    );
+
+    final sugarValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.sugarIntakeG,
+    );
+
+    final alcoholValues = _normalizeTo7(
+      dailyVM.weeklyData,
+          (e) => e.alcoholIntakeG,
+    );
+
     final hasSleepTrend = sleepTrendValues.any((v) => v > 0);
+    final hasSubstanceData = caffeineValues.any((v) => v > 0) ||
+        sugarValues.any((v) => v > 0) ||
+        alcoholValues.any((v) => v > 0);
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -106,15 +124,20 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
                 children: [
                   CustomPaint(
                     size: const Size(100, 100),
-                    painter: SleepScoreGaugePainter(
+                    painter: SleepScoreGauge(
                       score: viewModel.weeklySleepScore,
                       themeColor: accent,
+                      textColor: AppTheme.text(context),
+                      subTextColor: subText,
+                      trackColor: AppTheme.isDark(context)
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.grey.shade200,
                     ),
                   ),
                   Container(
                     width: 1,
                     height: 60,
-                    color: isDark ? Colors.white12 : Colors.grey.shade200,
+                    color: AppTheme.isDark(context) ? Colors.white12 : Colors.grey.shade200,
                   ),
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -246,6 +269,76 @@ class SleepDashboardWeeklyTab extends StatelessWidget {
               color: Colors.green,
               unit: "k",
             ),
+
+            if (hasSubstanceData) ...[
+              const SizedBox(height: 24),
+
+              Text(
+                "Sleep Impact Substances",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: text,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              if (caffeineValues.any((v) => v > 0)) ...[
+                Text(
+                  "Caffeine Trend",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                WeeklyBarChart(
+                  values: caffeineValues,
+                  labels: last7DaysLabels,
+                  color: Colors.brown,
+                  unit: "mg",
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              if (sugarValues.any((v) => v > 0)) ...[
+                Text(
+                  "Sugar Trend",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                WeeklyBarChart(
+                  values: sugarValues,
+                  labels: last7DaysLabels,
+                  color: Colors.amber,
+                  unit: "g",
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              if (alcoholValues.any((v) => v > 0)) ...[
+                Text(
+                  "Alcohol Trend",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                WeeklyBarChart(
+                  values: alcoholValues,
+                  labels: last7DaysLabels,
+                  color: Colors.purple,
+                  unit: "g",
+                ),
+              ],
+            ],
 
             const SizedBox(height: 30),
           ],

@@ -8,6 +8,7 @@ import 'package:dreamsync/widget/friend/friend_detail_sheet.dart';
 import 'package:dreamsync/widget/friend/add_friend_dialogs.dart';
 import 'package:dreamsync/util/network_helper.dart';
 import 'package:dreamsync/widget/custom/offline_status_banner.dart';
+import 'package:dreamsync/util/app_theme.dart';
 
 class FriendListScreen extends StatefulWidget {
   const FriendListScreen({super.key});
@@ -45,11 +46,10 @@ class _FriendListScreenState extends State<FriendListScreen>
   Widget build(BuildContext context) {
     final viewModel = Provider.of<FriendViewModel>(context);
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0F172A) : Colors.white;
-    final text = isDark ? Colors.white : const Color(0xFF1E293B);
-    final accent = const Color(0xFF3B82F6);
-    final surface = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+    final bg = AppTheme.bg(context);
+    final text = AppTheme.text(context);
+    final accent = AppTheme.accent;
+    final surface = AppTheme.surface(context);
 
     return Scaffold(
       backgroundColor: bg,

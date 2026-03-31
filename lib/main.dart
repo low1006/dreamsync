@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
-import 'package:dreamsync/services/permission_service.dart';
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/services/sync_service.dart';
 import 'package:dreamsync/util/global.dart';
@@ -40,9 +39,6 @@ Future<void> main() async {
   await AndroidAlarmManager.initialize();
   await NotificationService().init();
 
-  // FIX: In debug builds, cancel all lingering notifications and clear the
-  // stale launch payload BEFORE runApp. This prevents the alarm ring screen
-  // from re-opening after a hot restart.
   if (kDebugMode) {
     await NotificationService().debugResetForDevelopment();
   }
@@ -84,7 +80,6 @@ class _MyAppState extends State<MyApp> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await PermissionService.requestAppStartupPermissions(context);
       await _setupAlarmNavigation();
     });
   }

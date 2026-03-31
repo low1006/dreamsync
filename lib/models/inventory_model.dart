@@ -1,4 +1,5 @@
-enum StoreItemType { AVATAR, AUDIO, ITEM, UNKNOWN }
+import "package:dreamsync/util/parsers.dart";
+enum StoreItemType { avatar, audio, item, unknown }
 
 class InventoryItem {
   final int id;
@@ -13,18 +14,12 @@ class InventoryItem {
 
   factory InventoryItem.fromMap(Map<String, dynamic> map) {
     return InventoryItem(
-      id: _toInt(map['id']),
-      quantity: _toInt(map['quantity'], fallback: 1),
+      id: Parsers.toInt(map['id']),
+      quantity: Parsers.toInt(map['quantity'], fallback: 1),
       details: StoreItem.fromMap(
         Map<String, dynamic>.from(map['store_items'] ?? {}),
       ),
     );
-  }
-
-  static int _toInt(dynamic value, {int fallback = 0}) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 }
 
@@ -45,18 +40,12 @@ class StoreItem {
 
   factory StoreItem.fromMap(Map<String, dynamic> map) {
     return StoreItem(
-      id: _toInt(map['id']),
+      id: Parsers.toInt(map['id']),
       name: (map['name'] ?? 'Unknown Item').toString(),
-      cost: _toInt(map['cost']),
+      cost: Parsers.toInt(map['cost']),
       type: _parseType(map['type']?.toString()),
       metadata: _toMetadataMap(map['metadata']),
     );
-  }
-
-  static int _toInt(dynamic value, {int fallback = 0}) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 
   static Map<String, dynamic> _toMetadataMap(dynamic value) {
@@ -67,25 +56,22 @@ class StoreItem {
   }
 
   static StoreItemType _parseType(String? typeStr) {
-    switch ((typeStr ?? '').toUpperCase()) {
-      case 'AVATAR':
-        return StoreItemType.AVATAR;
-      case 'AUDIO':
-        return StoreItemType.AUDIO;
-      case 'ITEM':
-        return StoreItemType.ITEM;
+    switch ((typeStr ?? '').toLowerCase()) {
+      case 'avatar':
+        return StoreItemType.avatar;
+      case 'audio':
+        return StoreItemType.audio;
+      case 'item':
+        return StoreItemType.item;
       default:
-        return StoreItemType.UNKNOWN;
+        return StoreItemType.unknown;
     }
   }
 
-  bool get isAvatar => type == StoreItemType.AVATAR;
+  bool get isAvatar => type == StoreItemType.avatar;
   bool get isConsumableShield => protectDays > 0;
 
   String get audioFile => metadata['file']?.toString() ?? 'classic.mp3';
-  String get videoUrl => metadata['url']?.toString() ?? '';
-  int get protectDays => _toInt(metadata['days_protected']);
-  String get iconName => metadata['icon']?.toString() ?? 'help_outline';
-
-  String get assetPath => metadata['file'].toString() ?? '';
+  int get protectDays => Parsers.toInt(metadata['days_protected']);
+  String get assetPath => metadata['file']?.toString() ?? '';
 }

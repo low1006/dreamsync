@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
@@ -186,13 +187,17 @@ class SleepViewModel extends ChangeNotifier {
       weeklySleepScore = result.weeklySleepScore;
       _wakeTimeByDay = result.wakeTimeByDay;
 
+      debugPrint(
+        '✅ Service result assigned => daily=$dailySleepScore | weekly=$weeklySleepScore',
+      );
+
       final existing = await _repository.getSleepRecordsByDateRange(
         userId,
-        _dateKey(DateTime.now().subtract(const Duration(days: 30))),
-        '${_dateKey(DateTime.now())} 23:59:59',
+        Parsers.dateKey(DateTime.now().subtract(const Duration(days: 30))),
+        '${Parsers.dateKey(DateTime.now())} 23:59:59',
       );
       final existingByDate = {
-        for (final r in existing) _normalizeDateKey(r.date): r,
+        for (final r in existing) Parsers.normalizeDateKey(r.date): r,
       };
 
       final summaries = _summaryService.buildDailySummaries(
@@ -206,9 +211,12 @@ class SleepViewModel extends ChangeNotifier {
       await _loadDailyFromDatabase(userId);
       await _fetchWeeklyDataFromDatabase(userId);
 
+      debugPrint(
+        '✅ After DB reload => daily=$dailySleepScore | weekly=$weeklySleepScore',
+      );
+
       final allRecords = await _repository.getAllSleepRecords(userId);
 
-      // Fetch friend count from the same source owned by AchievementViewModel.
       final friendCount = await achievementVM.fetchFriendCount();
 
       final streak = await _achievementService.updateAchievements(
@@ -306,11 +314,11 @@ class SleepViewModel extends ChangeNotifier {
     final remMinutes = (row['rem_minutes'] as num?)?.toInt() ?? 0;
     final sleepScore = (row['sleep_score'] as num?)?.toInt() ?? 0;
 
-    dailyTotalSleepDuration = _formatMinutes(totalMinutes);
+    dailyTotalSleepDuration = Parsers.formatMinutes(totalMinutes);
     dailySleepScore = sleepScore;
-    dailyDeepSleep = _formatMinutes(deepMinutes);
-    dailyLightSleep = _formatMinutes(lightMinutes);
-    dailyRemSleep = _formatMinutes(remMinutes);
+    dailyDeepSleep = Parsers.formatMinutes(deepMinutes);
+    dailyLightSleep = Parsers.formatMinutes(lightMinutes);
+    dailyRemSleep = Parsers.formatMinutes(remMinutes);
 
     final latestDateStr = row['date'] as String;
     final latestRecordDate = DateTime.tryParse(latestDateStr) ?? DateTime(1970);
@@ -336,8 +344,8 @@ class SleepViewModel extends ChangeNotifier {
     try {
       final now = DateTime.now();
       final weekStart = now.subtract(const Duration(days: 6));
-      final startStr = _dateKey(weekStart);
-      final endStr = '${_dateKey(now)} 23:59:59';
+      final startStr = Parsers.dateKey(weekStart);
+      final endStr = '${Parsers.dateKey(now)} 23:59:59';
 
       final records = await _repository.getSleepRecordsByDateRange(
         userId,
@@ -346,33 +354,26 @@ class SleepViewModel extends ChangeNotifier {
       );
 
       final byDate = {
-        for (final r in records) _normalizeDateKey(r.date): r,
+        for (final r in records) Parsers.normalizeDateKey(r.date): r,
       };
 
       weeklyData = [
         for (int i = 6; i >= 0; i--)
-          byDate[_dateKey(now.subtract(Duration(days: i)))] ??
+          byDate[Parsers.dateKey(now.subtract(Duration(days: i)))] ??
               SleepRecordModel(
                 userId: userId,
-                date: _dateKey(now.subtract(Duration(days: i))),
+                date: Parsers.dateKey(now.subtract(Duration(days: i))),
                 totalMinutes: 0,
                 sleepScore: 0,
               ),
       ];
 
-      if (weeklyData.isNotEmpty) {
-        final total = weeklyData.fold<int>(0, (sum, e) => sum + e.totalMinutes);
-        final avgMinutes = (total / weeklyData.length).round();
-        final avgScore = (weeklyData.fold<int>(0, (sum, e) => sum + e.sleepScore) /
-            weeklyData.length)
-            .round();
+      debugPrint(
+        '📦 Weekly DB records loaded => ${weeklyData.map((e) => '${e.date}:${e.sleepScore}').join(', ')}',
+      );
 
-        weeklyTotalSleepDuration = _formatMinutes(avgMinutes);
-        weeklySleepScore = avgScore;
-      } else {
-        weeklyTotalSleepDuration = '0h 0m';
-        weeklySleepScore = 0;
-      }
+      // DO NOT recalculate weeklyTotalSleepDuration and weeklySleepScore here.
+      // Weekly values must come from SleepSummaryService only.
     } catch (e) {
       debugPrint('❌ _fetchWeeklyDataFromDatabase: $e');
     }
@@ -380,7 +381,7 @@ class SleepViewModel extends ChangeNotifier {
 
   Future<void> _checkMoodFeedbackNeeded(String userId) async {
     try {
-      final cutoff = _dateKey(DateTime.now().subtract(const Duration(days: 1)));
+      final cutoff = Parsers.dateKey(DateTime.now().subtract(const Duration(days: 1)));
       final row = await _repository.getLatestRecordForMoodCheck(userId, cutoff);
 
       if (row == null) {
@@ -416,16 +417,4 @@ class SleepViewModel extends ChangeNotifier {
       return [];
     }
   }
-
-  String _formatMinutes(int minutes) {
-    final h = minutes ~/ 60;
-    final m = minutes % 60;
-    return '${h}h ${m}m';
-  }
-
-  String _dateKey(DateTime date) =>
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-
-  String _normalizeDateKey(String rawDate) =>
-      rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
 }

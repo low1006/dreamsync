@@ -1,3 +1,4 @@
+import "package:dreamsync/util/parsers.dart";
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -43,10 +44,14 @@ class SleepRecommendation {
 }
 
 class RecommendationService {
-  static const double _targetMinutes = 480.0;
-  static const double _idealDeepRatio = SleepScoreService.idealDeepRatio;
-  static const double _idealRemRatio = SleepScoreService.idealRemRatio;
-  static const double _eps = 1e-6;
+  // ── Constants (must match dreamsync_v6.ipynb config) ──────────────────────
+  static const double _targetMinutes      = 480.0;
+  static const double _idealDeepRatio     = SleepScoreService.idealDeepRatio;
+  static const double _idealRemRatio      = SleepScoreService.idealRemRatio;
+  static const double _caffeineDeepenalty = 0.15;  // 300mg → −15% deep sleep
+  static const double _alcoholRemPenalty  = 0.25;  // 4 units → −25% REM
+  static const double _alcoholUnitGrams   = 14.0;  // 1 US unit = 14g alcohol
+  static const double _eps               = 1e-6;
 
   static Interpreter? _interpreter;
   static List<String>? _featureOrder;
@@ -63,32 +68,39 @@ class RecommendationService {
 
     _interpreter = await Interpreter.fromAsset('assets/ml/sleep_model.tflite');
 
-    final raw = await rootBundle.loadString('assets/ml/scaler_stats.json');
+    final raw   = await rootBundle.loadString('assets/ml/scaler_stats.json');
     final stats = jsonDecode(raw) as Map<String, dynamic>;
 
     _featureOrder = List<String>.from(stats['features'] as List);
-    _imputerMeans = _toDoubleList(stats['mean'] as List);
+    _imputerMeans = _toDoubleList(stats['mean']   as List);
     _scalerCenter = _toDoubleList(stats['center'] as List);
-    _scalerScale = _toDoubleList(stats['scale'] as List);
+    _scalerScale  = _toDoubleList(stats['scale']  as List);
 
     _initialised = true;
     debugPrint(
-      '✅ RecommendationService: TFLite loaded — ${_featureOrder!.length} features',
+      '✅ RecommendationService v6: TFLite loaded — ${_featureOrder!.length} features',
     );
   }
 
+  /// Get personalised sleep duration recommendation.
+  ///
+  /// NEW in v6: pass [caffeineIntakeMg] and [alcoholIntakeG] from today's
+  /// DailyActivityModel so the simulation accounts for their effect on sleep
+  /// stage quality.
   static Future<SleepRecommendation?> getRecommendation({
     required String userId,
     String? hypnogramJson,
-    int exerciseMinutes = 0,
-    int foodCalories = 0,
-    int screenMinutes = 0,
-    bool forceRefresh = false,
+    int exerciseMinutes    = 0,
+    int foodCalories       = 0,
+    int screenMinutes      = 0,
+    double caffeineIntakeMg = 0,   // ← NEW (DailyActivityModel.caffeineIntakeMg)
+    double alcoholIntakeG   = 0,   // ← NEW (DailyActivityModel.alcoholIntakeG)
+    bool forceRefresh      = false,
   }) async {
     try {
       await init();
 
-      final today = _dateKey(DateTime.now());
+      final today = Parsers.dateKey(DateTime.now());
 
       if (!forceRefresh) {
         final cached = await _cacheRepo.getToday(userId: userId, date: today);
@@ -98,20 +110,21 @@ class RecommendationService {
             recommendedLabel:
             '${cached.recommendedMinutes ~/ 60}h ${cached.recommendedMinutes % 60}min',
             expectedScore: cached.expectedScore,
-            simDeepHours: cached.simDeepMinutes / 60.0,
-            simRemHours: cached.simRemMinutes / 60.0,
-            simDeepPct: cached.simDeepPct,
-            simRemPct: cached.simRemPct,
-            explanation: cached.explanation,
-            message: cached.message,
-            candidates: const [],
+            simDeepHours:  cached.simDeepMinutes / 60.0,
+            simRemHours:   cached.simRemMinutes  / 60.0,
+            simDeepPct:    cached.simDeepPct,
+            simRemPct:     cached.simRemPct,
+            explanation:   cached.explanation,
+            message:       cached.message,
+            candidates:    const [],
           );
         }
       }
 
-      final db = await LocalDatabase.instance.database;
+      final db      = await LocalDatabase.instance.database;
       final weekAgo = DateTime.now().subtract(const Duration(days: 7));
 
+      // ── UPDATED SQL: now also fetches caffeine & alcohol ─────────────────
       final rows = await db.rawQuery('''
         SELECT
           s.date,
@@ -122,9 +135,11 @@ class RecommendationService {
           s.awake_minutes,
           s.sleep_score,
           s.hypnogram_json,
-          COALESCE(a.exercise_minutes, 0) AS exercise_minutes,
-          COALESCE(a.food_calories, 0) AS food_calories,
-          COALESCE(a.screen_time_minutes, 0) AS screen_time_minutes
+          COALESCE(a.exercise_minutes,    0)   AS exercise_minutes,
+          COALESCE(a.food_calories,       0)   AS food_calories,
+          COALESCE(a.screen_time_minutes, 0)   AS screen_time_minutes,
+          COALESCE(a.caffeine_intake_mg,  0.0) AS caffeine_mg,
+          COALESCE(a.alcohol_intake_g,    0.0) AS alcohol_g
         FROM sleep_record s
         LEFT JOIN daily_activities a
           ON s.user_id = a.user_id AND s.date = a.date
@@ -133,7 +148,7 @@ class RecommendationService {
           AND s.total_minutes > 0
         ORDER BY s.date ASC
         LIMIT 7
-      ''', [userId, _dateKey(weekAgo)]);
+      ''', [userId, Parsers.dateKey(weekAgo)]);
 
       if (rows.isEmpty) {
         debugPrint('⚠️ RecommendationService: no history for $userId');
@@ -141,114 +156,124 @@ class RecommendationService {
       }
 
       final history = rows.map(_parseRow).toList();
-      final latest = history.last;
+      final latest  = history.last;
 
-      final baseH = latest['total_h'] as double;
-      final deepR = (latest['deep_h'] as double) / max(baseH, _eps);
-      final remR = (latest['rem_h'] as double) / max(baseH, _eps);
-      final awakeR = (latest['awake_h'] as double) / max(baseH, _eps);
+      final baseH   = latest['total_h']  as double;
+      final deepR   = (latest['deep_h']  as double) / max(baseH, _eps);
+      final remR    = (latest['rem_h']   as double) / max(baseH, _eps);
+      final awakeR  = (latest['awake_h'] as double) / max(baseH, _eps);
 
       final exerciseH = exerciseMinutes / 60.0;
-      final screenH = screenMinutes / 60.0;
-      final calories = foodCalories.toDouble();
-      final bedtime = _extractBedtime(hypnogramJson) ?? 23.0;
+      final screenH   = screenMinutes   / 60.0;
+      final bedtime   = _extractBedtime(hypnogramJson) ?? 23.0;
+
+      // ── Caffeine & alcohol factors (v6 addition) ─────────────────────────
+      final alcoholUnits    = alcoholIntakeG / _alcoholUnitGrams;
+      final caffeineFactor  = 1.0 - _caffeineDeepenalty *
+          (caffeineIntakeMg / 300.0).clamp(0.0, 1.0);
+      final alcoholFactor   = 1.0 - _alcoholRemPenalty  *
+          (alcoholUnits / 4.0).clamp(0.0, 1.0);
+
+      // Effective ideal ratios given today's caffeine/alcohol
+      final effectiveDeepIdeal = (_idealDeepRatio * caffeineFactor).clamp(0.05, 0.40);
+      final effectiveRemIdeal  = (_idealRemRatio  * alcoholFactor ).clamp(0.05, 0.40);
 
       final hourRange = [for (int i = 16; i <= 40; i++) i / 4.0];
 
       double bestScore = -1.0;
-      double bestHrs = 8.0;
+      double bestHrs   = 8.0;
       final candidates = <Map<String, dynamic>>[];
 
       for (final hrs in hourRange) {
-        final delta =
-        ((hrs - baseH) / max(baseH, 1.0)).clamp(-0.3, 0.3).toDouble();
+        final delta = ((hrs - baseH) / max(baseH, 1.0)).clamp(-0.3, 0.3);
         final nudge = 0.4 * delta;
 
-        final simDeepR = (deepR + nudge * (_idealDeepRatio - deepR))
-            .clamp(0.05, 0.40)
-            .toDouble();
-        final simRemR = (remR + nudge * (_idealRemRatio - remR))
-            .clamp(0.05, 0.40)
-            .toDouble();
-        final simLightR =
-        (1.0 - simDeepR - simRemR).clamp(0.10, 0.80).toDouble();
-        final simAwakeR =
-        (awakeR * (1 - 0.08 * delta)).clamp(0.0, 0.30).toDouble();
+        // ── Stage simulation with caffeine/alcohol modulation ─────────────
+        final simDeepR  = (deepR  + nudge * (effectiveDeepIdeal - deepR ))
+            .clamp(0.05, 0.40);
+        final simRemR   = (remR   + nudge * (effectiveRemIdeal  - remR  ))
+            .clamp(0.05, 0.40);
+        final simLightR = (1.0 - simDeepR - simRemR).clamp(0.10, 0.80);
+        final simAwakeR = (awakeR * (1 - 0.08 * delta)).clamp(0.0, 0.30);
 
         final features = _buildVector(
-          history: history,
-          hrs: hrs,
-          simDeepR: simDeepR,
-          simRemR: simRemR,
-          simLightR: simLightR,
-          simAwakeR: simAwakeR,
-          exerciseH: exerciseH,
-          calories: calories,
-          screenH: screenH,
-          bedtime: bedtime,
+          history:          history,
+          hrs:              hrs,
+          simDeepR:         simDeepR,
+          simRemR:          simRemR,
+          simLightR:        simLightR,
+          simAwakeR:        simAwakeR,
+          exerciseH:        exerciseH,
+          calories:         foodCalories.toDouble(),
+          screenH:          screenH,
+          bedtime:          bedtime,
+          caffeineIntakeMg: caffeineIntakeMg,
+          alcoholIntakeG:   alcoholIntakeG,
         );
 
         final score = _predict(features).clamp(0.0, 100.0);
 
+        // 🟢 ADDED DEBUG PRINT: This will print every test to your console!
+        debugPrint('🤖 ML Test: If user sleeps for $hrs hours, predicted score is $score');
+
         candidates.add({
-          'hours': hrs,
-          'score': double.parse(score.toStringAsFixed(1)),
-          'sim_deep_h': double.parse((hrs * simDeepR).toStringAsFixed(2)),
-          'sim_rem_h': double.parse((hrs * simRemR).toStringAsFixed(2)),
+          'hours':        hrs,
+          'score':        double.parse(score.toStringAsFixed(1)),
+          'sim_deep_h':   double.parse((hrs * simDeepR).toStringAsFixed(2)),
+          'sim_rem_h':    double.parse((hrs * simRemR).toStringAsFixed(2)),
           'sim_deep_pct': double.parse((simDeepR * 100).toStringAsFixed(1)),
-          'sim_rem_pct': double.parse((simRemR * 100).toStringAsFixed(1)),
+          'sim_rem_pct':  double.parse((simRemR  * 100).toStringAsFixed(1)),
         });
 
         if (score > bestScore) {
           bestScore = score;
-          bestHrs = hrs;
+          bestHrs   = hrs;
         }
       }
 
-      final best = candidates.firstWhere((c) => c['hours'] == bestHrs);
-      final h = bestHrs.floor();
-      final m = ((bestHrs - h) * 60).round();
-      final avg7 = _listAvg(history, 'total_h');
-      final diff = bestHrs - avg7;
+      final best  = candidates.firstWhere((c) => c['hours'] == bestHrs);
+      final h     = bestHrs.floor();
+      final m     = ((bestHrs - h) * 60).round();
+      final avg7  = _listAvg(history, 'total_h');
+      final diff  = bestHrs - avg7;
 
       final explanation = _buildExplanation(
-        recHrs: bestHrs,
-        avg7: avg7,
-        diff: diff,
-        deepPct: best['sim_deep_pct'] as double,
-        remPct: best['sim_rem_pct'] as double,
-        score: bestScore,
+        recHrs:   bestHrs,
+        avg7:     avg7,
+        diff:     diff,
+        deepPct:  best['sim_deep_pct'] as double,
+        remPct:   best['sim_rem_pct']  as double,
+        score:    bestScore,
+        caffeine: caffeineIntakeMg,
+        alcohol:  alcoholUnits,
       );
+      final message = _buildMessage(diff, history.length, caffeineIntakeMg, alcoholUnits);
 
-      final message = _buildMessage(diff, history.length);
-
-      await _cacheRepo.save(
-        SleepRecommendationCacheModel(
-          userId: userId,
-          date: today,
-          recommendedMinutes: (bestHrs * 60).round(),
-          expectedScore: bestScore,
-          simDeepMinutes: ((best['sim_deep_h'] as double) * 60).round(),
-          simRemMinutes: ((best['sim_rem_h'] as double) * 60).round(),
-          simDeepPct: best['sim_deep_pct'] as double,
-          simRemPct: best['sim_rem_pct'] as double,
-          explanation: explanation,
-          message: message,
-          generatedAt: DateTime.now().toIso8601String(),
-        ),
-      );
+      await _cacheRepo.save(SleepRecommendationCacheModel(
+        userId:             userId,
+        date:               today,
+        recommendedMinutes: (bestHrs * 60).round(),
+        expectedScore:      bestScore,
+        simDeepMinutes:     ((best['sim_deep_h'] as double) * 60).round(),
+        simRemMinutes:      ((best['sim_rem_h']  as double) * 60).round(),
+        simDeepPct:         best['sim_deep_pct'] as double,
+        simRemPct:          best['sim_rem_pct']  as double,
+        explanation:        explanation,
+        message:            message,
+        generatedAt:        DateTime.now().toIso8601String(),
+      ));
 
       return SleepRecommendation(
         recommendedHours: bestHrs,
         recommendedLabel: '${h}h ${m}min',
-        expectedScore: bestScore,
-        simDeepHours: best['sim_deep_h'] as double,
-        simRemHours: best['sim_rem_h'] as double,
-        simDeepPct: best['sim_deep_pct'] as double,
-        simRemPct: best['sim_rem_pct'] as double,
-        explanation: explanation,
-        message: message,
-        candidates: candidates,
+        expectedScore:    bestScore,
+        simDeepHours:     best['sim_deep_h'] as double,
+        simRemHours:      best['sim_rem_h']  as double,
+        simDeepPct:       best['sim_deep_pct'] as double,
+        simRemPct:        best['sim_rem_pct']  as double,
+        explanation:      explanation,
+        message:          message,
+        candidates:       candidates,
       );
     } catch (e, st) {
       debugPrint('❌ RecommendationService: $e\n$st');
@@ -261,19 +286,19 @@ class RecommendationService {
   }) async {
     await _cacheRepo.deleteToday(
       userId: userId,
-      date: _dateKey(DateTime.now()),
+      date:   Parsers.dateKey(DateTime.now()),
     );
   }
 
+  // ── Inference ──────────────────────────────────────────────────────────────
   static double _predict(List<double> features) {
-    final input = [features];
-    final output = [
-      [0.0]
-    ];
+    final input  = [features];
+    final output = [[0.0]];
     _interpreter!.run(input, output);
     return output[0][0];
   }
 
+  // ── Feature vector builder (v6 — includes caffeine & alcohol) ─────────────
   static List<double> _buildVector({
     required List<Map<String, dynamic>> history,
     required double hrs,
@@ -285,54 +310,76 @@ class RecommendationService {
     required double calories,
     required double screenH,
     required double bedtime,
+    required double caffeineIntakeMg,   // ← NEW
+    required double alcoholIntakeG,     // ← NEW
   }) {
-    final totalMin = hrs * 60.0;
+    final totalMin  = hrs * 60.0;
     final simAwakeH = hrs * simAwakeR;
-    final tib = hrs + simAwakeH;
-    final eff = hrs / max(tib, _eps);
-    final bedNorm = bedtime % 24;
+    final tib       = hrs + simAwakeH;
+    final eff       = hrs / max(tib, _eps);
+    final bedNorm   = bedtime % 24;
+    final alcoholUnits = alcoholIntakeG / _alcoholUnitGrams;
 
     final lag1 = history.last;
     final lag2 = history.length >= 2 ? history[history.length - 2] : lag1;
 
     double avg(String key, {int tail = 7}) {
-      final slice =
-      history.length > tail ? history.sublist(history.length - tail) : history;
+      final slice = history.length > tail
+          ? history.sublist(history.length - tail)
+          : history;
       return slice.map((r) => r[key] as double).reduce((a, b) => a + b) /
           slice.length;
     }
 
     final feats = <String, double>{
-      'bedtime_hours': bedtime,
-      'deep_sleep_hours': hrs * simDeepR,
-      'light_sleep_hours': hrs * simLightR,
-      'rem_hours': hrs * simRemR,
-      'awake_hours': simAwakeH,
-      'screentime': screenH,
-      'exercise_time': exerciseH,
-      'step_count_day': 0.0,
-      'total_sleep_hours': hrs,
+      // ── Core sleep features ──────────────────────────────────────────────
+      'bedtime_hours':       bedtime,
+      'deep_sleep_hours':    hrs * simDeepR,
+      'light_sleep_hours':   hrs * simLightR,
+      'rem_hours':           hrs * simRemR,
+      'awake_hours':         simAwakeH,
+      'total_sleep_hours':   hrs,
       'total_sleep_minutes': totalMin,
-      'time_in_bed_hours': tib,
-      'duration_ratio': (totalMin / _targetMinutes).clamp(0, 1).toDouble(),
-      'deep_ratio': simDeepR,
-      'rem_ratio': simRemR,
-      'light_ratio': simLightR,
-      'awake_ratio': simAwakeR,
-      'sleep_efficiency': eff,
-      'deep_ratio_dev':
-      ((simDeepR - _idealDeepRatio).abs() / _idealDeepRatio).toDouble(),
-      'rem_ratio_dev':
-      ((simRemR - _idealRemRatio).abs() / _idealRemRatio).toDouble(),
-      'bedtime_sin': sin(2 * pi * bedNorm / 24),
-      'bedtime_cos': cos(2 * pi * bedNorm / 24),
-      'day_of_week': 0.0,
+      'time_in_bed_hours':   tib,
+      'duration_ratio':      (totalMin / _targetMinutes).clamp(0, 1),
+      'deep_ratio':          simDeepR,
+      'rem_ratio':           simRemR,
+      'light_ratio':         simLightR,
+      'awake_ratio':         simAwakeR,
+      'sleep_efficiency':    eff,
+      'deep_ratio_dev':      ((simDeepR - _idealDeepRatio).abs() / _idealDeepRatio),
+      'rem_ratio_dev':       ((simRemR  - _idealRemRatio ).abs() / _idealRemRatio ),
+      // ── Latency (imputer fill — app doesn't store it yet) ────────────────
+      'sleep_latency_ratio': 0.0,   // conservative: assume normal latency
+
+      // ── NEW: Caffeine features ───────────────────────────────────────────
+      'caffeine_mg':    caffeineIntakeMg,
+      'caffeine_high':  caffeineIntakeMg > 200 ? 1.0 : 0.0,
+      'caffeine_norm':  (caffeineIntakeMg / 300.0).clamp(0.0, 1.0),
+      'late_caffeine':  caffeineIntakeMg * (bedtime > 22 ? 1.0 : 0.0) / 300.0,
+
+      // ── NEW: Alcohol features ────────────────────────────────────────────
+      'alcohol_units':  alcoholUnits,
+      'alcohol_norm':   (alcoholUnits / 4.0).clamp(0.0, 1.0),
+      'alcohol_impact': min(alcoholUnits, 4.0) / 4.0,
+
+      // ── Lifestyle features ───────────────────────────────────────────────
+      'screen_min':       screenH * 60.0,
+      'exercise_min':     exerciseH * 60.0,
+      'exercise_benefit': (exerciseH * 60.0 / 120.0).clamp(0.0, 1.0),
+      'late_screen':      screenH * (bedtime > 23 ? 1.0 : 0.0),
+      'step_count_day':   0.0,           // not tracked in app — imputer fills
+      'nap_min':          0.0,           // not tracked — imputer fills
+
+      // ── Timing ──────────────────────────────────────────────────────────
+      'bedtime_sin':     sin(2 * pi * bedNorm / 24),
+      'bedtime_cos':     cos(2 * pi * bedNorm / 24),
+      'day_of_week':     0.0,
       'day_of_week_sin': 0.0,
       'day_of_week_cos': 1.0,
-      'is_weekend': 0.0,
-      'late_screen': screenH * (bedtime > 23 ? 1.0 : 0.0),
-      'exercise_benefit': exerciseH.clamp(0, 2).toDouble(),
+      'is_weekend':      0.0,
 
+      // ── Lag 1 ────────────────────────────────────────────────────────────
       'total_sleep_hours_lag1': lag1['total_h'] as double,
       'total_sleep_hours_lag2': lag2['total_h'] as double,
       'sleep_score_lag1': lag1['score'] as double,
@@ -357,31 +404,44 @@ class RecommendationService {
       'deep_sleep_hours_lag2': lag2['deep_h'] as double,
       'awake_hours_lag1': lag1['awake_h'] as double,
       'awake_hours_lag2': lag2['awake_h'] as double,
-      'screentime_lag1': lag1['screen_h'] as double,
-      'screentime_lag2': lag2['screen_h'] as double,
-      'exercise_time_lag1': lag1['exercise_h'] as double,
-      'exercise_time_lag2': lag2['exercise_h'] as double,
+      'screen_min_lag1': (lag1['screen_h'] as double) * 60.0,
+      'screen_min_lag2': (lag2['screen_h'] as double) * 60.0,
+      'exercise_min_lag1': (lag1['exercise_h'] as double) * 60.0,
+      'exercise_min_lag2': (lag2['exercise_h'] as double) * 60.0,
       'step_count_day_lag1': 0.0,
       'step_count_day_lag2': 0.0,
       'sleep_efficiency_lag1': lag1['eff'] as double,
       'sleep_efficiency_lag2': lag2['eff'] as double,
+      'caffeine_mg_lag1': lag1['caffeine_mg'] as double,
+      'caffeine_mg_lag2': lag2['caffeine_mg'] as double,
+      'alcohol_units_lag1': lag1['alcohol_units'] as double,
+      'alcohol_units_lag2': lag2['alcohol_units'] as double,
 
-      'total_sleep_hours_roll3': avg('total_h', tail: 3),
-      'total_sleep_hours_roll7': avg('total_h'),
-      'sleep_score_roll3': avg('score', tail: 3),
-      'sleep_score_roll7': avg('score'),
-      'blended_score_roll3': avg('score', tail: 3),
-      'blended_score_roll7': avg('score'),
-      'deep_ratio_roll3': avg('deep_r', tail: 3),
-      'deep_ratio_roll7': avg('deep_r'),
-      'rem_ratio_roll3': avg('rem_r', tail: 3),
-      'rem_ratio_roll7': avg('rem_r'),
-      'duration_ratio_roll3': avg('dur_ratio', tail: 3),
-      'duration_ratio_roll7': avg('dur_ratio'),
-      'sleep_efficiency_roll3': avg('eff', tail: 3),
-      'sleep_efficiency_roll7': avg('eff'),
+      // ── Rolling averages ─────────────────────────────────────────────────
+      'total_sleep_hours_roll3':  avg('total_h', tail: 3),
+      'total_sleep_hours_roll7':  avg('total_h'),
+      'sleep_score_roll3':        avg('score',   tail: 3),
+      'sleep_score_roll7':        avg('score'),
+      'blended_score_roll3':      avg('score',   tail: 3),
+      'blended_score_roll7':      avg('score'),
+      'deep_ratio_roll3':         avg('deep_r',  tail: 3),
+      'deep_ratio_roll7':         avg('deep_r'),
+      'rem_ratio_roll3':          avg('rem_r',   tail: 3),
+      'rem_ratio_roll7':          avg('rem_r'),
+      'duration_ratio_roll3':     avg('dur_ratio', tail: 3),
+      'duration_ratio_roll7':     avg('dur_ratio'),
+      'sleep_efficiency_roll3':   avg('eff',     tail: 3),
+      'sleep_efficiency_roll7':   avg('eff'),
 
-      'sleep_debt': avg('total_h') - (lag1['total_h'] as double),
+      // ── NEW: Caffeine & alcohol rolling ───────────────────────────────────
+      'caffeine_mg_roll3':        avg('caffeine_mg', tail: 3),
+      'caffeine_mg_roll7':        avg('caffeine_mg'),
+      'alcohol_units_roll3':      avg('alcohol_units', tail: 3),
+      'alcohol_units_roll7':      avg('alcohol_units'),
+
+      // ── Derived trends ───────────────────────────────────────────────────
+      'sleep_debt':       avg('total_h') - (lag1['total_h'] as double),
+      'caffeine_spike':   (caffeineIntakeMg - avg('caffeine_mg')).clamp(-200.0, 200.0),
     };
 
     return List.generate(_featureOrder!.length, (i) {
@@ -392,38 +452,43 @@ class RecommendationService {
     });
   }
 
+  // ── Row parser (now includes caffeine & alcohol) ──────────────────────────
   static Map<String, dynamic> _parseRow(Map<String, dynamic> r) {
-    final totalH = (r['total_minutes'] as int) / 60.0;
-    final deepH = (r['deep_minutes'] as int) / 60.0;
-    final remH = (r['rem_minutes'] as int) / 60.0;
-    final lightH = (r['light_minutes'] as int) / 60.0;
-    final awakeH = (r['awake_minutes'] as int) / 60.0;
-    final score = (r['sleep_score'] as int).toDouble();
-    final tib = totalH + awakeH;
-    final deepR = deepH / max(totalH, _eps);
-    final remR = remH / max(totalH, _eps);
-    final awakeR = awakeH / max(totalH, _eps);
+    final totalH    = (r['total_minutes']    as int) / 60.0;
+    final deepH     = (r['deep_minutes']     as int) / 60.0;
+    final remH      = (r['rem_minutes']      as int) / 60.0;
+    final lightH    = (r['light_minutes']    as int) / 60.0;
+    final awakeH    = (r['awake_minutes']    as int) / 60.0;
+    final score     = (r['sleep_score']      as int).toDouble();
+    final tib       = totalH + awakeH;
+    final deepR     = deepH  / max(totalH, _eps);
+    final remR      = remH   / max(totalH, _eps);
+    final awakeR    = awakeH / max(totalH, _eps);
 
     return {
-      'total_h': totalH,
-      'deep_h': deepH,
-      'rem_h': remH,
-      'light_h': lightH,
-      'awake_h': awakeH,
-      'score': score,
-      'eff': totalH / max(tib, _eps),
-      'deep_r': deepR,
-      'rem_r': remR,
-      'awake_r': awakeR,
-      'dur_ratio': (totalH * 60 / _targetMinutes).clamp(0.0, 1.0),
-      'deep_dev': (deepR - _idealDeepRatio).abs() / _idealDeepRatio,
-      'rem_dev': (remR - _idealRemRatio).abs() / _idealRemRatio,
-      'exercise_h': (r['exercise_minutes'] as int) / 60.0,
-      'calories': (r['food_calories'] as int).toDouble(),
-      'screen_h': (r['screen_time_minutes'] as int) / 60.0,
+      'total_h':      totalH,
+      'deep_h':       deepH,
+      'rem_h':        remH,
+      'light_h':      lightH,
+      'awake_h':      awakeH,
+      'score':        score,
+      'eff':          totalH / max(tib, _eps),
+      'deep_r':       deepR,
+      'rem_r':        remR,
+      'awake_r':      awakeR,
+      'dur_ratio':    (totalH * 60 / _targetMinutes).clamp(0.0, 1.0),
+      'deep_dev':     (deepR - _idealDeepRatio).abs() / _idealDeepRatio,
+      'rem_dev':      (remR  - _idealRemRatio ).abs() / _idealRemRatio,
+      'exercise_h':   (r['exercise_minutes'] as int) / 60.0,
+      'calories':     (r['food_calories']    as int).toDouble(),
+      'screen_h':     (r['screen_time_minutes'] as int) / 60.0,
+      // ── NEW ──────────────────────────────────────────────────────────────
+      'caffeine_mg':   (r['caffeine_mg']  as num).toDouble(),
+      'alcohol_units': (r['alcohol_g']    as num).toDouble() / _alcoholUnitGrams,
     };
   }
 
+  // ── Explanation builder (now mentions caffeine/alcohol if relevant) ────────
   static String _buildExplanation({
     required double recHrs,
     required double avg7,
@@ -431,6 +496,8 @@ class RecommendationService {
     required double deepPct,
     required double remPct,
     required double score,
+    required double caffeine,
+    required double alcohol,
   }) {
     final h = recHrs.floor();
     final m = ((recHrs - h) * 60).round();
@@ -441,15 +508,33 @@ class RecommendationService {
         ? '${diff.abs().toStringAsFixed(1)}h more than your recent average'
         : '${diff.abs().toStringAsFixed(1)}h less than your recent average';
 
+    String lifestyle = '';
+    if (caffeine > 200) {
+      lifestyle += ' High caffeine today is expected to reduce your deep sleep, '
+          'so a slightly longer night is recommended.';
+    }
+    if (alcohol / _alcoholUnitGrams > 1.5) {
+      lifestyle += ' Alcohol can fragment your REM sleep — '
+          'aim for consistent bedtime to compensate.';
+    }
+
     return 'Based on your last 7 nights, sleeping ${h}h ${m}min should give '
         'you a score around ${score.round()}. That\'s $trend. '
         'Aim for ${deepPct.toStringAsFixed(0)}% deep sleep and '
-        '${remPct.toStringAsFixed(0)}% REM for best recovery.';
+        '${remPct.toStringAsFixed(0)}% REM for best recovery.$lifestyle';
   }
 
-  static String? _buildMessage(double diff, int historyDays) {
+  static String? _buildMessage(
+      double diff, int historyDays, double caffeine, double alcoholUnits,
+      ) {
     if (historyDays < 3) {
       return 'Sync more nights for a more personalised recommendation.';
+    }
+    if (caffeine > 250) {
+      return 'You had a lot of caffeine today — it may delay sleep onset and reduce deep sleep.';
+    }
+    if (alcoholUnits > 2) {
+      return 'Alcohol can suppress REM sleep. You may wake up feeling less rested.';
     }
     if (diff > 1.0) {
       return 'You\'ve been running a sleep deficit — try to catch up tonight!';
@@ -477,9 +562,6 @@ class RecommendationService {
       return null;
     }
   }
-
-  static String _dateKey(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static List<double> _toDoubleList(List list) =>
       list.map((e) => (e as num).toDouble()).toList();

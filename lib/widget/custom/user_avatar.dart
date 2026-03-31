@@ -7,12 +7,12 @@ import 'package:flutter/material.dart';
 /// single, clean widget instead of 15–20 lines of nested containers.
 class UserAvatar extends StatelessWidget {
   /// The single source-of-truth for the fallback avatar asset.
-  static const String defaultPath = 'assets/avatar/default_avatar.jpg';
+  static const String defaultPath = 'assets/images/avatar/default_avatar.jpg';
 
   /// Raw path coming from the model – may be null or blank.
   final String? avatarPath;
 
-  /// Diameter of the avatar image (excluding the border).
+  /// Diameter of the avatar images (excluding the border).
   final double size;
 
   /// Border colour drawn around the avatar.
@@ -22,7 +22,7 @@ class UserAvatar extends StatelessWidget {
   /// Thickness of the outer border ring. Set to 0 to hide it.
   final double borderWidth;
 
-  /// Padding between the border ring and the image.
+  /// Padding between the border ring and the images.
   /// Only relevant when [borderWidth] > 0.
   final double borderPadding;
 
@@ -30,7 +30,7 @@ class UserAvatar extends StatelessWidget {
   /// circle.  Pass `BorderRadius.circular(12)` for the avatar-picker style.
   final BorderRadius? borderRadius;
 
-  /// Colour used for the error-state icon. Falls back to [borderColor].
+  /// Colour used for the error-state icons. Falls back to [borderColor].
   final Color? fallbackIconColor;
 
   const UserAvatar({
@@ -58,7 +58,7 @@ class UserAvatar extends StatelessWidget {
     return path.trim();
   }
 
-  /// Pre-warm the image cache for a list of avatar paths.
+  /// Pre-warm the images cache for a list of avatar paths.
   /// Call this once (e.g. after data loads) so images appear instantly
   /// when the widgets build.
   static Future<void> precacheAvatars(
@@ -93,7 +93,7 @@ class UserAvatar extends StatelessWidget {
 
     // Decode at display-size × devicePixelRatio for crisp rendering
     // on high-DPI screens without paying the cost of decoding a
-    // full-resolution source image.
+    // full-resolution source images.
     final pixelRatio = MediaQuery.of(context).devicePixelRatio;
     final cacheExtent = (size * pixelRatio).toInt();
 
