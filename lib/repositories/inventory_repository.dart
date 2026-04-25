@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -267,30 +268,65 @@ class InventoryRepository {
   }) async {
     final prefs = await SharedPreferences.getInstance();
 
+    debugPrint('==================================================');
+    debugPrint('🛡️ [Shield] tryConsumeStreakShield() called');
+    debugPrint('👤 [Shield] userId = $userId');
+    debugPrint('📅 [Shield] dateKey = $dateKey');
+
     final alreadyUsed =
         prefs.getBool(_streakShieldUsedKey(userId, dateKey)) ?? false;
-    if (alreadyUsed) return false;
+
+    debugPrint('📝 [Shield] alreadyUsedForThisDay = $alreadyUsed');
+
+    if (alreadyUsed) {
+      debugPrint('🛡️❌ [Shield] Shield already used for this date. Skip.');
+      debugPrint('==================================================');
+      return false;
+    }
 
     final storeItems = await fetchStoreItems();
+    debugPrint('🛒 [Shield] fetched store items count = ${storeItems.length}');
 
     StoreItem? shieldItem;
     try {
       shieldItem = storeItems.firstWhere((item) => item.isConsumableShield);
+      debugPrint(
+        '🛡️ [Shield] Found shield item: id=${shieldItem.id}, name=${shieldItem.name}',
+      );
     } catch (_) {
       shieldItem = null;
+      debugPrint('🛡️❌ [Shield] No streak shield item found in store_items');
     }
 
-    if (shieldItem == null) return false;
+    if (shieldItem == null) {
+      debugPrint('==================================================');
+      return false;
+    }
+
+    final beforeQty = await getQuantity(
+      userId: userId,
+      storeItemId: shieldItem.id,
+    );
+    debugPrint('📦 [Shield] quantity before consume = $beforeQty');
 
     final consumed = await consumeShieldIfNeeded(
       userId: userId,
       storeItemId: shieldItem.id,
     );
 
+    final afterQty = await getQuantity(
+      userId: userId,
+      storeItemId: shieldItem.id,
+    );
+    debugPrint('📦 [Shield] quantity after consume = $afterQty');
+    debugPrint('🛡️ [Shield] consumed = $consumed');
+
     if (consumed) {
       await prefs.setBool(_streakShieldUsedKey(userId, dateKey), true);
+      debugPrint('💾 [Shield] Marked shield as used for date=$dateKey');
     }
 
+    debugPrint('==================================================');
     return consumed;
   }
 }

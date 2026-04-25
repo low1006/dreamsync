@@ -86,12 +86,10 @@ class ScheduleViewModel extends ChangeNotifier {
           itemId: schedule.toneId,
           isSnoozeOn: schedule.isSnoozeOn,
         );
-        // For a brand-new schedule we don't have a server-assigned id yet,
-        // so do a refresh to pick it up (only on create).
+
         await loadSchedules();
       } else {
         await _repository.updateSchedule(schedule);
-        // Optimistic update: reflect the change instantly in memory.
         _applyLocalUpdate(schedule);
       }
     } catch (e) {

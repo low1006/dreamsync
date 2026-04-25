@@ -80,13 +80,27 @@ class AlarmRingViewModel extends ChangeNotifier {
       );
       _activatePanicMode();
     } else if (_isSmartAlarm) {
-      // Auto-snooze after 1 minute of no interaction.
-      _smartTimer = Timer(const Duration(minutes: 1), () {
+      // Auto-trigger after 1 minute of no interaction.
+      _smartTimer = Timer(const Duration(minutes: 1), () async {
         debugPrint(
-          "⏳ 1 minute elapsed with no action. "
-              "Auto-snoozing (snooze ${_snoozeCount + 1}/$maxSnoozes).",
+          "⏳ 1 minute elapsed with no action.",
         );
-        snooze();
+
+        if (!_isSnoozeOn) {
+          // Snooze is off: Change to buzzer notification immediately
+          await _service.stopNotification(_notificationId);
+          await _service.showAlarmNotification(
+            id: _notificationId,
+            title: "WAKE UP NOW!",
+            body: "Smart Alarm triggered!",
+            soundFile: "buzzer.mp3",
+          );
+          _activatePanicMode();
+        } else {
+          // Snooze is on: proceed with standard auto-snooze
+          debugPrint("Auto-snoozing (snooze ${_snoozeCount + 1}/$maxSnoozes).");
+          snooze();
+        }
       });
     }
   }

@@ -18,6 +18,10 @@ class PermissionService {
         await Permission.scheduleExactAlarm.request();
       }
 
+      if (await Permission.accessNotificationPolicy.isDenied) {
+        await Permission.accessNotificationPolicy.request();
+      }
+
       if (await Permission.ignoreBatteryOptimizations.isDenied) {
         await Permission.ignoreBatteryOptimizations.request();
       }

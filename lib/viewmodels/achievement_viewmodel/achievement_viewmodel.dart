@@ -26,8 +26,6 @@ class AchievementViewModel extends ChangeNotifier {
       await _repo.resetDailyAchievementsIfNeeded(userId);
       userAchievements = await _repo.fetchAchievements(userId);
 
-      // Keep friend-count achievements synced from the same source
-      // that powers the friend system / leaderboard.
       await refreshFriendCountAchievements();
     } catch (e) {
       debugPrint("❌ fetchUserAchievements error: $e");

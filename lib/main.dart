@@ -10,6 +10,7 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import 'package:dreamsync/services/notification_service.dart';
 import 'package:dreamsync/services/sync_service.dart';
+import 'package:dreamsync/services/permission_service.dart'; // Added permission service import
 import 'package:dreamsync/util/global.dart';
 
 import 'package:dreamsync/viewmodels/user_viewmodel/profile_viewmodel.dart';

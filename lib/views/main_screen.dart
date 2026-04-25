@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+// Services (Added PermissionService)
+import 'package:dreamsync/services/permission_service.dart';
+
 // Screens
 import 'package:dreamsync/views/achievement_view/achievement_screen.dart';
 import 'package:dreamsync/views/schedule_view/schedule_screen.dart';
@@ -68,14 +71,18 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  /// Runs onboarding first (if needed), then prefetches data.
-  /// This prevents the onboarding dialog and Health Connect permission
-  /// dialog from colliding on first launch.
+  /// Runs onboarding first (if needed), requests permissions, then prefetches data.
+  /// This prevents the onboarding dialog and system permission
+  /// dialogs from colliding on first launch.
   Future<void> _startupSequence(String userId) async {
     // Step 1: Show onboarding if first launch (blocks until dismissed)
     await _showOnboardingIfNeeded();
 
-    // Step 2: Only after onboarding is done, start data fetch
+    // Step 2: Request necessary app permissions after onboarding is out of the way
+    if (!mounted) return;
+    await PermissionService.requestAppStartupPermissions(context);
+
+    // Step 3: Only after onboarding and permissions are done, start data fetch
     if (!mounted) return;
     await _prefetchInitialData(userId);
   }

@@ -55,8 +55,6 @@ class ChatApiService {
     }
   }
 
-  /// Sends a message and returns the AI response text.
-  /// No rigid template — lets the system prompt guide the response naturally.
   Future<String> sendMessage(String text) async {
     if (_chatSession == null) {
       return "Chat not initialized. Please try again.";
@@ -73,8 +71,7 @@ class ChatApiService {
     }
   }
 
-  /// Generates a short title for a chat session based on the first message.
-  /// Evaluates if the message is on-topic before generating a specific title.
+
   Future<String> generateSessionTitle(String firstUserMessage) async {
     if (_apiKeys.isEmpty) return 'New Chat';
 

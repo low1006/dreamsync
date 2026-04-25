@@ -1,6 +1,7 @@
 import 'package:dreamsync/models/sleep_model/sleep_record_model.dart';
 import 'package:dreamsync/repositories/inventory_repository.dart';
 import 'package:dreamsync/viewmodels/achievement_viewmodel/achievement_viewmodel.dart';
+import 'package:flutter/foundation.dart';
 
 class SleepAchievementService {
   /// Used only for profile / leaderboard streak.
@@ -186,27 +187,47 @@ class SleepAchievementService {
     required String userId,
     required InventoryRepository inventoryRepository,
   }) async {
-    if (scoreByDate.isEmpty) return 0;
+    if (scoreByDate.isEmpty) {
+      debugPrint('🔥 [Streak] No sleep score data found. Final streak = 0');
+      return 0;
+    }
 
     int streak = 0;
     bool shieldUsed = false;
     final now = DateTime.now();
 
+    debugPrint('==================================================');
+    debugPrint('🔥 [Streak] Start computing quality streak');
+    debugPrint('👤 [Streak] userId = $userId');
+    debugPrint('📅 [Streak] today = ${dateKey(now)}');
+    debugPrint('🎯 [Streak] threshold = $streakScoreThreshold');
+    debugPrint('🗂️ [Streak] scoreByDate = $scoreByDate');
+
     for (int i = 0; i < 365; i++) {
       final day = dateKey(now.subtract(Duration(days: i)));
       final score = scoreByDate[day];
 
+      debugPrint('--------------------------------------------------');
+      debugPrint(
+        '📆 [Streak] Checking dayOffset=$i | day=$day | score=$score | currentStreak=$streak | shieldUsed=$shieldUsed',
+      );
+
       if (score != null && score >= streakScoreThreshold) {
         streak++;
+        debugPrint(
+          '✅ [Streak] Day passed threshold ($score >= $streakScoreThreshold). Streak -> $streak',
+        );
         continue;
       }
 
-      // Allow today to be empty without instantly breaking streak.
       if (i == 0 && score == null) {
+        debugPrint('⏭️ [Streak] Today has no score yet. Skip without breaking streak.');
         continue;
       }
 
       if (!shieldUsed) {
+        debugPrint('🛡️ [Streak] Attempting to use streak shield for day=$day ...');
+
         final consumed = await inventoryRepository.tryConsumeStreakShield(
           userId: userId,
           dateKey: day,
@@ -215,16 +236,27 @@ class SleepAchievementService {
         if (consumed) {
           shieldUsed = true;
           streak++;
+          debugPrint(
+            '🛡️✅ [Streak] Shield consumed successfully for $day. Streak preserved -> $streak',
+          );
           continue;
+        } else {
+          debugPrint('🛡️❌ [Streak] No shield consumed for $day');
         }
+      } else {
+        debugPrint('🛡️ [Streak] Shield already used earlier. Cannot protect this day.');
       }
 
+      debugPrint('💥 [Streak] Streak breaks at day=$day');
       break;
     }
 
+    debugPrint('==================================================');
+    debugPrint('🔥 [Streak] Final quality streak = $streak');
+    debugPrint('==================================================');
+
     return streak;
   }
-
   /// =========================================================
   /// CONSECUTIVE ACHIEVEMENT ALGORITHM
   /// =========================================================

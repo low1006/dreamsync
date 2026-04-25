@@ -36,6 +36,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   bool _isBootstrapping = false;
   String? _existingId;
 
+  // Saved values
   late TimeOfDay _bedTime;
   late TimeOfDay _wakeTime;
   late List<String> _selectedDays;
@@ -48,6 +49,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   int _currentToneId = 1;
   String _currentToneName = "Classic";
   String _currentToneFile = "classic.mp3";
+
+  // Draft values
+  TimeOfDay? _draftBedTime;
+  TimeOfDay? _draftWakeTime;
+  List<String>? _draftSelectedDays;
+  bool? _draftIsSmartAlarm;
+  bool? _draftIsSmartNotification;
+  bool? _draftIsSnoozeOn;
+  int? _draftSnoozeDurationMinutes;
+  int? _draftToneId;
+  String? _draftToneName;
+  String? _draftToneFile;
 
   double _hardwareAlarmVolume = 1.0;
   int _systemAlarmMaxSteps = 7;
@@ -194,6 +207,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       isAlarmActive,
     );
 
+    setState(() => _isAlarmOn = isAlarmActive);
     await _rescheduleAlarm();
 
     if (!mounted) return;
@@ -205,12 +219,40 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
+  void _startEditing() {
+    _draftBedTime = _bedTime;
+    _draftWakeTime = _wakeTime;
+    _draftSelectedDays = List<String>.from(_selectedDays);
+    _draftIsSmartAlarm = _isSmartAlarm;
+    _draftIsSmartNotification = _isSmartNotification;
+    _draftIsSnoozeOn = _isSnoozeOn;
+    _draftSnoozeDurationMinutes = _snoozeDurationMinutes;
+    _draftToneId = _currentToneId;
+    _draftToneName = _currentToneName;
+    _draftToneFile = _currentToneFile;
+
+    setState(() => _isEditing = true);
+  }
+
+  void _clearDraft() {
+    _draftBedTime = null;
+    _draftWakeTime = null;
+    _draftSelectedDays = null;
+    _draftIsSmartAlarm = null;
+    _draftIsSmartNotification = null;
+    _draftIsSnoozeOn = null;
+    _draftSnoozeDurationMinutes = null;
+    _draftToneId = null;
+    _draftToneName = null;
+    _draftToneFile = null;
+  }
+
   void _toggleEditMode() {
     if (_isEditing) {
       _stopVolumePreview();
       _saveSchedule();
     } else {
-      setState(() => _isEditing = true);
+      _startEditing();
     }
   }
 
@@ -219,7 +261,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     final picked = await showTimePicker(
       context: context,
-      initialTime: isBedtime ? _bedTime : _wakeTime,
+      initialTime: isBedtime
+          ? (_draftBedTime ?? _bedTime)
+          : (_draftWakeTime ?? _wakeTime),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
         child: child!,
@@ -229,9 +273,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     if (picked != null && mounted) {
       setState(() {
         if (isBedtime) {
-          _bedTime = picked;
+          _draftBedTime = picked;
         } else {
-          _wakeTime = picked;
+          _draftWakeTime = picked;
         }
       });
     }
@@ -241,12 +285,26 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final scheduleVM = context.read<ScheduleViewModel>();
     final userVM = context.read<ProfileViewModel>();
 
+    final TimeOfDay bedTimeToSave = _draftBedTime ?? _bedTime;
+    final TimeOfDay wakeTimeToSave = _draftWakeTime ?? _wakeTime;
+    final List<String> daysToSave =
+    List<String>.from(_draftSelectedDays ?? _selectedDays);
+    final bool smartAlarmToSave = _draftIsSmartAlarm ?? _isSmartAlarm;
+    final bool smartNotificationToSave =
+        _draftIsSmartNotification ?? _isSmartNotification;
+    final bool snoozeOnToSave = _draftIsSnoozeOn ?? _isSnoozeOn;
+    final int snoozeDurationToSave =
+        _draftSnoozeDurationMinutes ?? _snoozeDurationMinutes;
+    final int toneIdToSave = _draftToneId ?? _currentToneId;
+    final String toneNameToSave = _draftToneName ?? _currentToneName;
+    final String toneFileToSave = _draftToneFile ?? _currentToneFile;
+
     final double mySleepGoal = userVM.userProfile?.sleepGoalHours ?? 8.0;
 
     final validationResult = await scheduleVM.validateScheduleBeforeSave(
-      bedtime: _bedTime,
-      wakeTime: _wakeTime,
-      days: _selectedDays,
+      bedtime: bedTimeToSave,
+      wakeTime: wakeTimeToSave,
+      days: daysToSave,
       sleepGoal: mySleepGoal,
     );
 
@@ -283,35 +341,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (confirm != true) return;
     }
 
-    final scheduleBeingSaved = ScheduleModel(
-      id: _existingId ?? '',
-      label: "Main Schedule",
-      bedtime: _bedTime,
-      wakeTime: _wakeTime,
-      isActive: _isAlarmOn,
-      days: _selectedDays,
-      isSmartAlarm: _isSmartAlarm,
-      isSmartNotification: _isSmartNotification,
-      isSnoozeOn: _isSnoozeOn,
-      snoozeDurationMinutes: _snoozeDurationMinutes,
-      toneId: _currentToneId,
-      toneName: _currentToneName,
-      toneFile: _currentToneFile,
-    );
-
     final saveResult = await scheduleVM.saveScheduleFromForm(
       existingId: _existingId,
-      bedtime: _bedTime,
-      wakeTime: _wakeTime,
-      days: _selectedDays,
+      bedtime: bedTimeToSave,
+      wakeTime: wakeTimeToSave,
+      days: daysToSave,
       isAlarmOn: _isAlarmOn,
-      isSmartAlarm: _isSmartAlarm,
-      isSmartNotification: _isSmartNotification,
-      isSnoozeOn: _isSnoozeOn,
-      snoozeDurationMinutes: _snoozeDurationMinutes,
-      toneId: _currentToneId,
-      toneName: _currentToneName,
-      toneFile: _currentToneFile,
+      isSmartAlarm: smartAlarmToSave,
+      isSmartNotification: smartNotificationToSave,
+      isSnoozeOn: snoozeOnToSave,
+      snoozeDurationMinutes: snoozeDurationToSave,
+      toneId: toneIdToSave,
+      toneName: toneNameToSave,
+      toneFile: toneFileToSave,
     );
 
     if (saveResult.status == ScheduleSaveStatus.saveError) {
@@ -325,12 +367,25 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       return;
     }
 
-    _syncFromViewModel(scheduleVM, overrideSchedule: scheduleBeingSaved);
+    setState(() {
+      _bedTime = bedTimeToSave;
+      _wakeTime = wakeTimeToSave;
+      _selectedDays = List<String>.from(daysToSave);
+      _isSmartAlarm = smartAlarmToSave;
+      _isSmartNotification = smartNotificationToSave;
+      _isSnoozeOn = snoozeOnToSave;
+      _snoozeDurationMinutes = snoozeDurationToSave;
+      _currentToneId = toneIdToSave;
+      _currentToneName = toneNameToSave;
+      _currentToneFile = toneFileToSave;
+
+      _clearDraft();
+      _isEditing = false;
+    });
+
     await _rescheduleAlarm();
 
     if (!mounted) return;
-    setState(() => _isEditing = false);
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(saveResult.message),
@@ -356,14 +411,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ToneSelector(
-        currentToneFile: _currentToneFile,
+        currentToneFile: _draftToneFile ?? _currentToneFile,
         unlockedTones: audioItems,
         onToneSelected: (id, name, file) {
           if (!mounted) return;
           setState(() {
-            _currentToneId = id;
-            _currentToneName = name;
-            _currentToneFile = file;
+            _draftToneId = id;
+            _draftToneName = name;
+            _draftToneFile = file;
           });
         },
       ),
@@ -392,7 +447,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         await _volumePreviewPlayer.setReleaseMode(ReleaseMode.loop);
 
         await _volumePreviewPlayer.play(
-          AssetSource(NotificationService.audioAssetPath(_currentToneFile)),
+          AssetSource(
+            NotificationService.audioAssetPath(
+              _draftToneFile ?? _currentToneFile,
+            ),
+          ),
         );
 
         if (mounted) setState(() => _isPreviewPlaying = true);
@@ -462,17 +521,22 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     if (rec == null) return;
 
     final duration = _recommendedDuration(rec.recommendedHours);
-    final newBedTime = _subtractDuration(_wakeTime, duration);
+
+    final baseWakeTime = _draftWakeTime ?? _wakeTime;
+    final newBedTime = _subtractDuration(baseWakeTime, duration);
+
+    if (!_isEditing) {
+      _startEditing();
+    }
 
     setState(() {
-      _bedTime = newBedTime;
-      _isEditing = true;
+      _draftBedTime = newBedTime;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          "Recommendation applied. Bedtime updated to "
+          "Recommendation applied. Press Save to confirm bedtime "
               "${TimeFormatter.formatTimeOfDay(newBedTime)}",
         ),
         behavior: SnackBarBehavior.floating,
@@ -489,6 +553,24 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final accent = AppTheme.accent;
     final surface = AppTheme.surface(context);
     final subText = AppTheme.subText(context);
+
+    final displayBedTime = _isEditing ? (_draftBedTime ?? _bedTime) : _bedTime;
+    final displayWakeTime =
+    _isEditing ? (_draftWakeTime ?? _wakeTime) : _wakeTime;
+    final displaySelectedDays =
+    _isEditing ? (_draftSelectedDays ?? _selectedDays) : _selectedDays;
+    final displaySmartAlarm =
+    _isEditing ? (_draftIsSmartAlarm ?? _isSmartAlarm) : _isSmartAlarm;
+    final displaySmartNotification = _isEditing
+        ? (_draftIsSmartNotification ?? _isSmartNotification)
+        : _isSmartNotification;
+    final displaySnoozeOn =
+    _isEditing ? (_draftIsSnoozeOn ?? _isSnoozeOn) : _isSnoozeOn;
+    final displaySnoozeDuration = _isEditing
+        ? (_draftSnoozeDurationMinutes ?? _snoozeDurationMinutes)
+        : _snoozeDurationMinutes;
+    final displayToneName =
+    _isEditing ? (_draftToneName ?? _currentToneName) : _currentToneName;
 
     return Scaffold(
       backgroundColor: bg,
@@ -546,16 +628,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 value: _isAlarmOn,
                 activeColor: accent,
                 onChanged: (v) async {
-                  setState(() => _isAlarmOn = v);
                   await _quickUpdate(v);
                 },
               ),
             ),
             const SizedBox(height: 24),
             ScheduleTimeSection(
-              bedTime: _bedTime,
-              wakeTime: _wakeTime,
-              selectedDays: _selectedDays,
+              bedTime: displayBedTime,
+              wakeTime: displayWakeTime,
+              selectedDays: displaySelectedDays,
               isEditing: _isEditing,
               bg: surface,
               text: text,
@@ -566,10 +647,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               onToggleDay: (day) {
                 if (!_isEditing) return;
                 setState(() {
-                  if (_selectedDays.contains(day)) {
-                    _selectedDays.remove(day);
+                  final draftDays =
+                  _draftSelectedDays ??= List<String>.from(_selectedDays);
+                  if (draftDays.contains(day)) {
+                    draftDays.remove(day);
                   } else {
-                    _selectedDays.add(day);
+                    draftDays.add(day);
                   }
                 });
               },
@@ -622,10 +705,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ScheduleSettingTile(
                     title: "Smart Alarm",
                     subtitle: "Enable smart wake behaviour",
-                    value: _isSmartAlarm,
+                    value: displaySmartAlarm,
                     onChanged: (v) {
                       if (!_isEditing) return;
-                      setState(() => _isSmartAlarm = v);
+                      setState(() => _draftIsSmartAlarm = v);
                     },
                     enabled: _isEditing,
                     text: text,
@@ -637,10 +720,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     title: "Do Not Disturb",
                     subtitle:
                     "Silence calls and notifications during bedtime",
-                    value: _isSmartNotification,
+                    value: displaySmartNotification,
                     onChanged: (v) {
                       if (!_isEditing) return;
-                      setState(() => _isSmartNotification = v);
+                      setState(() => _draftIsSmartNotification = v);
                     },
                     enabled: _isEditing,
                     text: text,
@@ -653,7 +736,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       horizontal: 16.0,
                       vertical: 8.0,
                     ),
-                    child: Divider(color: subText.withOpacity(0.2)),
+                    child: Divider(color: subText.withValues(alpha: 0.2)),
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -675,15 +758,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ),
                   ScheduleSnoozeCard(
                     isEditing: _isEditing,
-                    isSnoozeOn: _isSnoozeOn,
-                    snoozeDurationMinutes: _snoozeDurationMinutes,
+                    isSnoozeOn: displaySnoozeOn,
+                    snoozeDurationMinutes: displaySnoozeDuration,
                     onToggleSnooze: (v) {
                       if (!_isEditing) return;
-                      setState(() => _isSnoozeOn = v);
+                      setState(() => _draftIsSnoozeOn = v);
                     },
                     onSnoozeDurationChanged: (v) {
                       if (!_isEditing) return;
-                      setState(() => _snoozeDurationMinutes = v.round());
+                      setState(
+                            () => _draftSnoozeDurationMinutes = v.round(),
+                      );
                     },
                     text: text,
                     subText: subText,
@@ -692,7 +777,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ),
                   const SizedBox(height: 8),
                   ScheduleToneCard(
-                    toneName: _currentToneName,
+                    toneName: displayToneName,
                     isEditing: _isEditing,
                     onTap: _openToneSelector,
                     text: text,
